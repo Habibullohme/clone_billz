@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ImportBatch, Product, ProductInput } from '../types'
-import { deleteProduct, getProducts, getSettings, importProducts, searchProducts, updateProduct, type Settings } from '../data/store'
+import { checkManualCode, deleteProduct, getBrands, getProducts, nextCodeFor, getSettings, importProducts, searchProducts, updateProduct, type Settings } from '../data/store'
 import { formatSum, parseSum } from '../lib/money'
 import { packsLabel } from '../lib/cart'
 import { downloadTemplate, parseRows, readExcel, type ParsedRow } from '../lib/excel'
 import { Modal, MoneyInput, Segmented } from '../components/ui'
+import type { Brand } from '../lib/codes'
 
 type Filter = 'all' | 'low' | 'out'
 
@@ -35,7 +36,7 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
   const onFile = async (file: File) => {
     try {
       const rows = await readExcel(file)
-      setPreview({ ...parseRows(rows), file: file.name })
+      setPreview({ ...parseRows(rows, new Set(products.map((p) => p.article))), file: file.name })
     } catch {
       setPreview({ items: [], missing: ['Faylni o\'qib bo\'lmadi. .xlsx formatida saqlang.'], file: file.name })
     }
@@ -87,11 +88,12 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
       <div className="table-wrap">
         <table className="table clickable">
           <thead>
-            <tr><th>Model</th><th>Qoldiq</th><th className="num">Sotuv narxi</th><th className="num">Foyda / pachka</th><th>Shtrix-kod</th></tr>
+            <tr><th>Kod</th><th>Model</th><th>Qoldiq</th><th className="num">Sotuv narxi</th><th className="num">Foyda / pachka</th></tr>
           </thead>
           <tbody>
             {list.map((p) => (
               <tr key={p.id} onClick={() => setEditing(p)}>
+                <td><span className="code-chip">{p.article}</span></td>
                 <td>
                   <b>{p.name}</b>
                   <div className="muted small">{[p.brand, p.size, p.color].filter(Boolean).join(' · ')}</div>
@@ -103,7 +105,6 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
                 </td>
                 <td className="num">{formatSum(p.salePrice)}</td>
                 <td className="num">{formatSum((p.salePrice - p.costPrice) * p.packSize)}</td>
-                <td className="mono muted">{p.barcode}</td>
               </tr>
             ))}
           </tbody>
@@ -128,11 +129,12 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
               </div>
               <div className="table-wrap preview">
                 <table className="table">
-                  <thead><tr><th>Qator</th><th>Model</th><th>Pachkada</th><th className="num">Kelish</th><th className="num">Sotuv</th><th /></tr></thead>
+                  <thead><tr><th>Qator</th><th>Kod</th><th>Model</th><th>Pachkada</th><th className="num">Kelish</th><th className="num">Sotuv</th><th /></tr></thead>
                   <tbody>
                     {preview.items.map((r) => (
                       <tr key={r.row} className={r.errors.length ? 'bad-row' : ''}>
                         <td className="muted">{r.row}</td>
+                        <td>{r.input.code ? <span className="code-chip">{r.input.code}</span> : <span className="muted small">avto</span>}</td>
                         <td>
                           <b>{r.input.name || '—'}</b>
                           <div className="muted small">{[r.input.brand, r.input.size, r.input.color].filter(Boolean).join(' · ')}</div>
@@ -263,7 +265,7 @@ function ProductForm({
         </div>
       )}
       {product && (
-        <div className="muted small">Artikul {product.article} · shtrix-kod <span className="mono">{product.barcode}</span></div>
+        <div className="muted small">Kod <span className="code-chip">{product.article}</span> — vitrina, etiketka va shtrix-kodda shu</div>
       )}
       <div className="modal-actions">
         {onDelete &&
@@ -311,12 +313,34 @@ function NewProductForm({ onClose, onSave }: { onClose: () => void; onSave: (inp
   const [cost, setCost] = useState('')
   const [sale, setSale] = useState('')
   const [colors, setColors] = useState<{ color: string; packs: number }[]>([{ color: '', packs: 1 }])
+  const [brands, setBrands] = useState<Brand[]>([])
+  const [newBrand, setNewBrand] = useState(false)
+  const [code, setCode] = useState('')
+  const [codeError, setCodeError] = useState<string | null>(null)
+  const [nextCode, setNextCode] = useState('')
+
+  useEffect(() => {
+    getBrands().then((list) => {
+      setBrands(list)
+      // Eslab qolingan brend ro'yxatda bo'lmasa, birinchisini tanlaymiz.
+      if (!list.some((b) => b.name === draft.brand)) setBrand(list[0]?.name ?? '')
+      if (!list.length) setNewBrand(true)
+    })
+  }, [])
+  useEffect(() => {
+    if (brand.trim()) nextCodeFor(brand).then(setNextCode)
+  }, [brand])
+  useEffect(() => {
+    if (!code.trim()) return setCodeError(null)
+    checkManualCode(code).then(setCodeError)
+  }, [code])
 
   const c = parseSum(cost)
   const sp = parseSum(sale)
   const rows = colors.filter((r) => r.packs > 0)
   const totalPacks = rows.reduce((a, r) => a + r.packs, 0)
-  const valid = brand.trim() && name.trim() && packSize >= 1 && c > 0 && sp > 0 && totalPacks > 0
+  const manual = code.trim() && rows.length === 1
+  const valid = brand.trim() && name.trim() && packSize >= 1 && c > 0 && sp > 0 && totalPacks > 0 && !(manual && codeError)
 
   const save = () => {
     if (!valid) return
@@ -325,7 +349,10 @@ function NewProductForm({ onClose, onSave }: { onClose: () => void; onSave: (inp
     } catch {
       // Eslab qolinmasa ham saqlash ishlayveradi.
     }
-    onSave(rows.map((r) => ({ brand, name, size, color: r.color.trim(), packSize, packs: r.packs, costPrice: c, salePrice: sp })))
+    onSave(rows.map((r) => ({
+      brand, name, size, color: r.color.trim(), packSize, packs: r.packs, costPrice: c, salePrice: sp,
+      code: manual ? code : undefined,
+    })))
   }
 
   const setRow = (i: number, patch: Partial<{ color: string; packs: number }>) =>
@@ -336,7 +363,26 @@ function NewProductForm({ onClose, onSave }: { onClose: () => void; onSave: (inp
       <div className="form-grid">
         <label className="field">
           <span>Brend</span>
-          <input id="np-brand" className="input" value={brand} placeholder="Ezel" onChange={(e) => setBrand(e.target.value)} />
+          {newBrand ? (
+            <input id="np-brand" className="input" value={brand} placeholder="Yangi brend nomi" autoFocus={!brands.length} onChange={(e) => setBrand(e.target.value)} />
+          ) : (
+            <select
+              id="np-brand"
+              className="input"
+              value={brand}
+              onChange={(e) => {
+                if (e.target.value === '__new') {
+                  setNewBrand(true)
+                  setBrand('')
+                } else setBrand(e.target.value)
+              }}
+            >
+              {brands.map((b) => (
+                <option key={b.id} value={b.name}>{b.name} · {b.letters.join(', ')}</option>
+              ))}
+              <option value="__new">+ Yangi brend…</option>
+            </select>
+          )}
         </label>
         <label className="field">
           <span>Model nomi</span>
@@ -395,6 +441,21 @@ function NewProductForm({ onClose, onSave }: { onClose: () => void; onSave: (inp
         <button className="link small left" onClick={() => setColors((list) => [...list, { color: '', packs: 1 }])}>
           + yana rang
         </button>
+      </div>
+
+      <div className="code-line">
+        <div>
+          <span className="muted small">Kod</span>
+          <b className="code-big">{manual && !codeError ? code.toUpperCase() : nextCode || '—'}</b>
+          {!manual && rows.length > 1 && <span className="muted small"> va keyingilari ({rows.length} ta rang — har biriga o'z kodi)</span>}
+        </div>
+        {rows.length === 1 && (
+          <label className="field">
+            <span>O'zingiz bermoqchi bo'lsangiz</span>
+            <input id="np-code" className="input mono" value={code} placeholder={`avtomatik: ${nextCode}`} onChange={(e) => setCode(e.target.value)} />
+            {manual && codeError && <span className="error small">{codeError}</span>}
+          </label>
+        )}
       </div>
 
       {c > 0 && sp > 0 && (

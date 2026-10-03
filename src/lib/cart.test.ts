@@ -70,6 +70,13 @@ describe('skaner', () => {
     expect(d.feed('Enter', (t += 8))).toBe('2000000011790')
   })
 
+  it('qisqa kod (A12) ham tez kelsa skaner deb olinadi', () => {
+    const d = new ScanDetector()
+    let t = 1000
+    for (const ch of 'A12') d.feed(ch, (t += 10))
+    expect(d.feed('Enter', (t += 10))).toBe('A12')
+  })
+
   it('odam sekin yozsa skaner emas (input ichida)', () => {
     const d = new ScanDetector()
     let t = 1000

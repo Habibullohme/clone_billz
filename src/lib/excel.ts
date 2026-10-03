@@ -1,7 +1,9 @@
 import type { ProductInput } from '../types'
+import { isValidCode, normalizeCode } from './codes'
 
 /** Shablon ustunlari. Tartibi va nomi — foydalanuvchi Excel'da ko'radigan ko'rinishda. */
 export const TEMPLATE_COLUMNS = [
+  { key: 'code', title: 'Kod (ixtiyoriy)', example: '', required: false, width: 16 },
   { key: 'brand', title: 'Brend', example: 'Nike', required: true, width: 16 },
   { key: 'name', title: 'Model nomi', example: 'Nike Air 270', required: true, width: 28 },
   { key: 'size', title: 'Razmer', example: '40-44', required: false, width: 10 },
@@ -21,6 +23,7 @@ const norm = (s: unknown) =>
 
 /** Sarlavhalarni moslashuvchan tanish: "Kelish narxi", "kelish", "tannarx" va h.k. */
 const aliases: Record<Key, string[]> = {
+  code: ['kodixtiyoriy', 'kod', 'code', 'artikul', 'код', 'артикул'],
   brand: ['brend', 'brand', 'бренд'],
   name: ['modelnomi', 'model', 'nomi', 'nom', 'name', 'наименование', 'название'],
   size: ['razmer', 'razmerlar', 'olcham', 'size', 'размер'],
@@ -62,7 +65,9 @@ export interface ParsedRow {
 }
 
 /** Excel qatorlarini tovarlarga aylantiradi. Bo'sh qatorlar tashlab ketiladi. */
-export function parseRows(rows: unknown[][]): { items: ParsedRow[]; missing: string[] } {
+/** `existingCodes` — bazada band kodlar (qo'lda yozilgan kod takrorlanmasligi uchun). */
+export function parseRows(rows: unknown[][], existingCodes: Set<string> = new Set()): { items: ParsedRow[]; missing: string[] } {
+  const seen = new Set<string>()
   const headerIdx = rows.findIndex((r) => r.some((c) => norm(c) === 'brend' || norm(c) === 'brand' || norm(c) === 'бренд'))
   const start = headerIdx === -1 ? 0 : headerIdx
   const cols = detectColumns(rows[start] ?? [])
@@ -81,12 +86,21 @@ export function parseRows(rows: unknown[][]): { items: ParsedRow[]; missing: str
       packSize: toNumber(get(r, 'packSize')),
       // Har bir qator — bitta pachka, alohida tovar.
       packs: 1,
+      code: String(get(r, 'code') ?? '').trim() || undefined,
       costPrice: toNumber(get(r, 'costPrice')),
       salePrice: toNumber(get(r, 'salePrice')),
     }
-    const isExample = TEMPLATE_COLUMNS.every((c) => String(input[c.key as keyof ProductInput]) === String(c.example))
+    const isExample = TEMPLATE_COLUMNS.every((c) => String(input[c.key as keyof ProductInput] ?? '') === String(c.example))
     if (isExample) return
     const errors: string[] = []
+    if (input.code) {
+      const code = normalizeCode(input.code)
+      if (!isValidCode(code)) errors.push(`kod noto'g'ri: ${input.code}`)
+      else if (existingCodes.has(code)) errors.push(`${code} kodi band`)
+      else if (seen.has(code)) errors.push(`${code} faylda ikki marta`)
+      seen.add(code)
+      input.code = code
+    }
     if (!input.brand) errors.push('brend yo\'q')
     if (!input.name) errors.push('model nomi yo\'q')
     if (!(input.packSize >= 1 && Number.isInteger(input.packSize))) errors.push('pachkada juft soni noto\'g\'ri')

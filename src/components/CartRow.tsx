@@ -30,7 +30,7 @@ export function CartRow({ line, product, discountedTotal, highlight, allowPriceE
   }
 
   const setPairs = (pairs: number) => onChange({ ...line, pairs: Math.max(1, pairs) })
-  const meta = [product.brand, product.size, product.color].filter(Boolean).join(' · ')
+  const meta = [product.article, product.brand, product.size, product.color].filter(Boolean).join(' · ')
 
   return (
     <div className={`row${highlight ? ' flash' : ''}`}>

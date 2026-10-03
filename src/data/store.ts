@@ -3,8 +3,8 @@
  * keyin shu funksiyalar Supabase bilan almashtiriladi — sahifalar o'zgarmaydi.
  */
 import type { Customer, HeldCart, ImportBatch, Product, ProductInput, Sale } from '../types'
-import { makeArticle, makeBarcode } from '../lib/codes'
-import { demoInputs } from './demo'
+import { freeLetter, isValidCode, normalizeCode, peekCode, takeCode, type Brand } from '../lib/codes'
+import { demoBrands, demoInputs } from './demo'
 import { defaultTemplates, type LabelTemplate } from '../lib/labels'
 
 export interface Settings {
@@ -82,13 +82,14 @@ function write(key: string, value: unknown) {
 }
 
 const K = {
-  products: 'dk2.products',
-  batches: 'dk2.batches',
-  sales: 'dk2.sales',
-  customers: 'dk2.customers',
-  held: 'dk2.held',
+  products: 'dk3.products',
+  batches: 'dk3.batches',
+  sales: 'dk3.sales',
+  customers: 'dk3.customers',
+  held: 'dk3.held',
+  brands: 'dk3.brands',
   settings: 'dk2.settings',
-  seq: 'dk2.seq',
+  seq: 'dk3.seq',
 }
 
 type SeqName = 'product' | 'sale' | 'batch'
@@ -112,6 +113,8 @@ function ensureSeed() {
   seeded = true
   if (read<Product[] | null>(K.products, null) === null) {
     write(K.products, [])
+    write(K.brands, [])
+    for (const b of demoBrands) addBrandSync(b)
     createBatch(demoInputs, 'manual')
   }
 }
@@ -123,19 +126,22 @@ export async function getProducts(): Promise<Product[]> {
 
 export async function findByBarcode(code: string): Promise<Product | undefined> {
   const products = await getProducts()
-  const c = code.trim()
-  return products.find((p) => p.barcode === c) ?? products.find((p) => p.article.toLowerCase() === c.toLowerCase())
+  const c = normalizeCode(code)
+  return products.find((p) => p.barcode === c || p.article === c)
 }
 
 export function searchProducts(products: Product[], query: string, limit = 8): Product[] {
   const q = query.trim().toLowerCase()
   if (!q) return []
   const words = q.split(/\s+/)
-  return products
-    .filter((p) => {
+  // Kod aniq mos kelsa (A12) — birinchi o'rinda.
+  const code = normalizeCode(query)
+  const exact = products.filter((p) => p.article === code)
+  return exact
+    .concat(products.filter((p) => p.article !== code).filter((p) => {
       const hay = `${p.brand} ${p.name} ${p.size} ${p.color} ${p.article} ${p.barcode}`.toLowerCase()
       return words.every((w) => hay.includes(w))
-    })
+    }))
     .slice(0, limit)
 }
 
@@ -147,12 +153,17 @@ function createBatch(inputs: ProductInput[], source: ImportBatch['source']): Imp
     id: uid(), number: nextSeq('batch'), createdAt: now, source,
     productIds: [], packs: {}, costTotal: 0, saleTotal: 0,
   }
+  const brands = read<Brand[]>(K.brands, [])
+  const taken = new Set(products.map((p) => p.article))
   for (const inp of inputs) {
     const pairs = inp.packs * inp.packSize
-    const seq = nextSeq('product')
+    const brand = ensureBrand(brands, inp.brand)
+    const manual = inp.code ? normalizeCode(inp.code) : ''
+    const code = manual && !taken.has(manual) ? manual : takeCode(brand, brands, taken)
+    taken.add(code)
     const p: Product = {
-      id: uid(), brand: inp.brand.trim(), name: inp.name.trim(), size: inp.size.trim(), color: inp.color.trim(),
-      article: makeArticle(inp.brand, seq), barcode: makeBarcode(seq),
+      id: uid(), brand: brand.name, name: inp.name.trim(), size: inp.size.trim(), color: inp.color.trim(),
+      article: code, barcode: code,
       packSize: inp.packSize, costPrice: inp.costPrice, salePrice: inp.salePrice,
       stock: pairs, createdAt: now, batchId: batch.id,
     }
@@ -163,8 +174,78 @@ function createBatch(inputs: ProductInput[], source: ImportBatch['source']): Imp
     batch.saleTotal += pairs * inp.salePrice
   }
   write(K.products, products)
+  write(K.brands, brands)
   write(K.batches, [batch, ...read<ImportBatch[]>(K.batches, [])])
   return batch
+}
+
+// ---------- Brendlar ----------
+
+function findBrand(brands: Brand[], name: string): Brand | undefined {
+  const n = name.trim().toLowerCase()
+  return brands.find((b) => b.name.toLowerCase() === n)
+}
+
+/** Brend bo'lmasa — yangi harf bilan yaratadi. */
+function ensureBrand(brands: Brand[], name: string): Brand {
+  const found = findBrand(brands, name)
+  if (found) return found
+  const b: Brand = { id: uid(), name: name.trim(), letters: [freeLetter(brands)], last: 0 }
+  brands.push(b)
+  return b
+}
+
+function addBrandSync(name: string): Brand {
+  const brands = read<Brand[]>(K.brands, [])
+  const b = ensureBrand(brands, name)
+  write(K.brands, brands)
+  return b
+}
+
+export async function getBrands(): Promise<Brand[]> {
+  ensureSeed()
+  return read<Brand[]>(K.brands, [])
+}
+
+export async function addBrand(name: string): Promise<Brand> {
+  ensureSeed()
+  return addBrandSync(name)
+}
+
+export async function renameBrand(id: string, name: string): Promise<void> {
+  const brands = await getBrands()
+  const b = brands.find((x) => x.id === id)
+  if (!b || !name.trim()) return
+  const old = b.name
+  b.name = name.trim()
+  write(K.brands, brands)
+  const products = read<Product[]>(K.products, [])
+  products.forEach((p) => p.brand === old && (p.brand = b.name))
+  write(K.products, products)
+}
+
+export async function deleteBrand(id: string): Promise<boolean> {
+  const brands = await getBrands()
+  const b = brands.find((x) => x.id === id)
+  if (!b) return false
+  if (read<Product[]>(K.products, []).some((p) => p.brand === b.name)) return false
+  write(K.brands, brands.filter((x) => x.id !== id))
+  return true
+}
+
+/** Brendning navbatdagi kodi (ko'rsatish uchun). Yangi brend uchun — bo'sh harf bilan. */
+export async function nextCodeFor(brandName: string): Promise<string> {
+  const brands = await getBrands()
+  const b = findBrand(brands, brandName)
+  return b ? peekCode(b, brands) : `${freeLetter(brands)}1`
+}
+
+/** Qo'lda yozilgan kodni tekshiradi: null — hammasi joyida, aks holda xato matni. */
+export async function checkManualCode(raw: string): Promise<string | null> {
+  const code = normalizeCode(raw)
+  if (!isValidCode(code)) return 'Kod harf + raqam bo\'lsin, masalan A12'
+  const owner = read<Product[]>(K.products, []).find((p) => p.article === code)
+  return owner ? `${code} band: ${owner.name}` : null
 }
 
 export async function importProducts(inputs: ProductInput[], source: ImportBatch['source'] = 'excel'): Promise<ImportBatch> {

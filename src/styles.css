@@ -463,3 +463,18 @@ kbd {
 .colors { display: flex; flex-direction: column; gap: 6px; }
 .colors-head, .color-row { display: grid; grid-template-columns: 1fr 96px 32px; gap: 8px; align-items: center; }
 .colors-head { font-size: 13px; color: var(--muted); }
+
+/* Kodlar va brendlar */
+.code-chip {
+  display: inline-block; font-family: var(--font-mono); font-weight: 600; font-size: 13px;
+  background: var(--accent-soft); color: var(--fg); border-radius: 6px; padding: 1px 7px; letter-spacing: 0.02em;
+}
+.code-chip.big { font-size: 16px; padding: 4px 10px; min-width: 44px; text-align: center; }
+.code-line { display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: end; background: var(--sunken); border-radius: 12px; padding: 12px 14px; }
+.code-line > div { display: flex; flex-direction: column; }
+.code-big { font-family: var(--font-display); font-size: 26px; letter-spacing: -0.01em; }
+.brands { display: flex; flex-direction: column; gap: 12px; padding-bottom: 16px; }
+.brand-add { display: flex; gap: 8px; }
+.brand-list { display: flex; flex-direction: column; gap: 6px; }
+.brand-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; }
+@media (max-width: 860px) { .code-line { grid-template-columns: 1fr; } }

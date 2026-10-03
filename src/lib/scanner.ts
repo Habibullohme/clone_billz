@@ -9,7 +9,7 @@ export class ScanDetector {
   constructor(
     /** Ikki belgi orasidagi maksimal o'rtacha vaqt (ms). */
     private maxAvgGap = 40,
-    private minLength = 6,
+    private minLength = 2,
     /** Shuncha vaqt jim tursa bufer tozalanadi. */
     private resetAfter = 300,
   ) {}
@@ -25,6 +25,8 @@ export class ScanDetector {
 
     if (key === 'Enter') {
       const code = this.buffer
+      // Enter ham hisobga olinadi: odam "A12⏎" ni bunchalik tez tera olmaydi.
+      this.times.push(time)
       const fast = this.isFast()
       this.reset()
       if (code.length >= this.minLength && (fast || relaxed)) return code

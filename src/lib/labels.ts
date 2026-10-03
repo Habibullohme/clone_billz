@@ -31,7 +31,7 @@ export const fieldNames: Record<LabelFieldKey, string> = {
   color: 'Rang',
   pack: 'Pachkada (juft)',
   price: 'Narx',
-  article: 'Artikul',
+  article: 'Kod',
   barcode: 'Shtrix-kod',
 }
 

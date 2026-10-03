@@ -183,4 +183,9 @@ Billz'dan farqi: xabarlarda pachka × juft ko'rinadi va foyda hisoblanadi; filia
 - Login (reja): Telegram orqali. Egasi bot ichidagi mini-app'dan parolsiz kiradi; kompyuterda
   "Telegram orqali kirish" — bot tasdiq so'raydi; seans uzoq saqlanadi (Telegram Web kabi).
   "Qurilmalar" bo'limi: qaysi qurilmalar kirgan, oxirgi faollik, chiqarib yuborish; yangi kirish haqida botga xabar.
-- Artikul/kod masalasi hali hal qilinmagan (11-taklif: bitta kod — vitrina, etiketka va shtrix-kodda bir xil).
+- **Kod (qaror qilindi):** har brendga bitta katta harf (Ezel — A). Kodlar A1, A2 … A200; 200 dan keyin
+  brendga keyingi bo'sh harf beriladi. Bitta kod hamma joyda: vitrinaga yoziladi, etiketkada chiqadi,
+  shtrix-kod (CODE128) ichida ham shu. Qo'lda kod berish mumkin (band bo'lsa ruxsat yo'q), bo'sh — avtomatik.
+  Ruscha klaviaturada skanerlansa (Ф12) — avtomatik A12 ga o'giriladi.
+- Brendlar Sozlamalar → Brendlar'da bir marta kiritiladi; yangi tovar formasida ro'yxatdan tanlanadi.
+- Excel shablonida ixtiyoriy "Kod" ustuni; band yoki faylda takrorlangan kod — xato.
