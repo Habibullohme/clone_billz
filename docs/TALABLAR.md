@@ -1,0 +1,96 @@
+# Loyiha talablari (Billz o'rniga)
+
+Ulgurji oyoq kiyim do'koni uchun sayt + Telegram bot. Maqsad: Billz (oyiga 100 000 so'm)
+o'rniga bepul hostingda ishlaydigan, qulayroq tizim.
+
+> Muhim sana: Billz obunasi to'lovi **11.10.2026** gacha. Shungacha asosiy qism ishlashi kerak.
+
+## 1. Asosiy biznes qoidalari
+
+- **Savdo pachkalab.** Bitta pachkada odatda **5 juft**, "Velikan" (katta razmer)da **3 juft**,
+  ba'zilarida **6 juft**. Pachka hajmi har bir mahsulotda alohida saqlanadi (standart: 5).
+- **Narx juftlik uchun saqlanadi** (so'mda). Masalan: kelish 160 000, sotuv 190 000.
+- **Foyda** = (sotuv narxi − kelish narxi) × juftlar soni.
+  Misol: (190 000 − 160 000) × 5 = **150 000 so'm** bir pachkadan.
+- **Shtrix-kod vitrinadagi namuna poyabzalga** yopishtiriladi (bitta model = bitta shtrix-kod).
+  Skaner qilinganda **bitta pachka** savatchaga tushadi.
+- Valyuta: asosan **UZS**, lekin to'lovda **dollar** ham qabul qilinadi
+  (masalan: 100 $ × 11 850 = 1 185 000 so'm, qolgani so'mda; qaytim hisoblanadi).
+
+## 2. Sotuv (kassa) ekrani
+
+Skaner qilinganda savatchada shunday ko'rinadi:
+
+```
+Little 05                         160 000 so'm
+  5 juft × 160 000 = 800 000            [−] 1 pachka [+]
+---------------------------------------------------
+Jami:                                 800 000 so'm
+```
+
+- Qidiruv: artikul, shtrix-kod, nom (qidiruvga yozib ham qo'shish mumkin). `/` tugmasi qidiruvga o'tadi.
+- Skaner (USB, klaviatura kabi ishlaydi) → avtomatik savatchaga.
+- Miqdor pachkada o'zgaradi; kerak bo'lsa donalab ham.
+- Mijoz tanlash / yangi mijoz yaratish.
+- Chegirma: summa yoki %, tezkor tugmalar (50K, 100K, 500K, 1M).
+- Eslatma qo'shish.
+- To'lov: naqd so'm, karta, dollar (kurs bilan), aralash, **nasiya (qarz)**.
+- Savdoni **kechiktirish** (savatchani saqlab, keyin davom ettirish).
+- Chek chop etish.
+- Sotuv raqami (#010000030226 kabi).
+
+## 3. Mahsulotlar
+
+- **Katalog**: rasm, brend, nom, artikul, shtrix-kod, toifa, miqdor, kelish narxi, sotuv narxi,
+  chegirma narxi, pachka hajmi.
+  Tablar: Barchasi / Faollar / Faol emas / Kam qoldiq / Nol qoldiq.
+  Qoldiq ham **juftda**, ham **pachkada** ko'rsatiladi.
+- **Import (kirim)**: har bir yuk = bitta hujjat. ID, sana, miqdor, kelish/sotuv summasi,
+  holat (Yakunlangan / Bekor qilingan), kim yaratdi/yakunladi, turi (Kirim / Qoldiq kirimi / Tuzatish),
+  **sotuvlar taraqqiyoti %** (shu yukning qanchasi sotilgan).
+- Shtrix-kod: EAN-13, `2` bilan boshlanadi, ketma-ket (Billz'dagilar kabi 2000000011790...).
+  Billz'dan ko'chirilgan eski kodlar o'zgarmaydi.
+- **Shtrix-kod chop etish bo'limi**: "Bugun qo'shilganlar" / import bo'yicha tanlab, birdaniga chop etish.
+- Hisobdan chiqarish, qayta baholash.
+
+## 4. Telegram bot va kanal
+
+1. Yuk kelganda botga rasm + qisqa izoh yoziladi.
+2. Bot tushunib, ko'rinishini ko'rsatadi: ✅ Tasdiqlash / ✏️ Tuzatish / ❌.
+3. Tasdiqlangach: kanalga post (rasm, nom, narx, razmer; kelish narxi ko'rinmaydi),
+   saytga mahsulot, shtrix-kod yaratiladi, Import hujjati ochiladi.
+4. Har kuni kechqurun botga kunlik hisobot: savdo, foyda, brendlar bo'yicha.
+
+## 5. Sotuvlar ro'yxati
+
+- Barcha sotuvlar: qidiruv (ID, mijoz, sotuvchi), sana, filtrlar.
+- Yon panel: tranzaksiyalar soni (tovarlar, qaytarishlar + summasi, almashtirishlar + summasi),
+  tranzaksiyalar summasi, mijozlar balansi. "Hisobotni chop etish".
+- Qaytarish va almashtirish.
+
+## 6. Mijozlar
+
+- Ro'yxat: ID, F.I.Sh., telefon, guruh, xaridlar summasi, oxirgi xarid, balans, **joriy qarz**.
+- Statistika: jami mijozlar, o'tgan hafta yangilar, qaytib kelmaydiganlar.
+- **Qarzlar (nasiya)**: Qarzlar / To'lovlar tablari; Barchasi / Muddati o'tgan / To'lanmagan /
+  To'langan / Qisman to'langan. Qarzlar summasi, to'langan, qoldiq, qarzdorlar soni.
+  Qarz to'lovini qabul qilish.
+
+## 7. Dashboard va hisobotlar
+
+- Davr: Kecha / Bugun / Hafta / Oy / Yil / sana.
+- Sotuvlar grafigi (soatlar/kunlar bo'yicha), to'lovlar summasi, tranzaksiyalar soni.
+- **Foyda**, top mahsulotlar, **brendlar bo'yicha sotuv**, top sotuvchilar.
+- Hisobotlar: Do'kon (yig'ma), Mahsulotlar, Sotuvchilar, Mijozlar.
+
+## 8. Foydalanuvchilar
+
+- Login bor. Ro'yxatdan o'tish yo'q — akkauntlar egasi tomonidan qo'lda yaratiladi.
+- Rollar: **ega** (hamma narsa) va **sotuvchi** (faqat sotuv; kelish narxi va foydani ko'rmaydi).
+
+## 9. Texnik yo'nalish (taklif)
+
+- Sayt: Netlify yoki Cloudflare Pages (bepul, tijorat uchun ruxsat).
+- Baza + login + rasmlar: Supabase (bepul tarif).
+- Bot: serverless funksiya (webhook), kunlik hisobot — cron.
+- Billz'dan ko'chirish: katalogni "Yuklab olish" (Excel) orqali bir martalik import.
