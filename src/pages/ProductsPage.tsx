@@ -4,11 +4,10 @@ import { deleteProduct, getProducts, getSettings, importProducts, searchProducts
 import { formatSum, parseSum } from '../lib/money'
 import { packsLabel } from '../lib/cart'
 import { downloadTemplate, parseRows, readExcel, type ParsedRow } from '../lib/excel'
-import { Modal, Segmented } from '../components/ui'
+import { Modal, MoneyInput, Segmented } from '../components/ui'
 
 type Filter = 'all' | 'low' | 'out'
 
-const emptyInput: ProductInput = { brand: '', name: '', size: '', color: '', packSize: 5, packs: 1, costPrice: 0, salePrice: 0 }
 
 export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: string) => void }) {
   const [products, setProducts] = useState<Product[]>([])
@@ -172,13 +171,10 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
       )}
 
       {adding && (
-        <ProductForm
-          title="Yangi tovar"
-          initial={emptyInput}
-          withPacks
+        <NewProductForm
           onClose={() => setAdding(false)}
-          onSave={async (inp) => {
-            const batch = await importProducts([inp], 'manual')
+          onSave={async (inputs) => {
+            const batch = await importProducts(inputs, 'manual')
             setAdding(false)
             setImported(batch)
             reload()
@@ -209,12 +205,11 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
 }
 
 function ProductForm({
-  title, initial, product, withPacks, onClose, onSave, onDelete,
+  title, initial, product, onClose, onSave, onDelete,
 }: {
   title: string
   initial: ProductInput
   product?: Product
-  withPacks?: boolean
   onClose: () => void
   onSave: (inp: ProductInput, stock?: number) => void
   onDelete?: () => void
@@ -249,17 +244,10 @@ function ProductForm({
           <span>Pachkada (juft)</span>
           <input id="pf-pack" className="input" type="number" min={1} value={f.packSize} onChange={(e) => set('packSize', Number(e.target.value))} />
         </label>
-        {withPacks ? (
-          <label className="field">
-            <span>Necha pachka keldi</span>
-            <input id="pf-packs" className="input" type="number" min={0} value={f.packs} onChange={(e) => set('packs', Number(e.target.value))} />
-          </label>
-        ) : (
-          <label className="field">
-            <span>Qoldiq (juft)</span>
-            <input id="pf-stock" className="input" type="number" value={f.stock} onChange={(e) => set('stock', e.target.value)} />
-          </label>
-        )}
+        <label className="field">
+          <span>Qoldiq (juft)</span>
+          <input id="pf-stock" className="input" type="number" value={f.stock} onChange={(e) => set('stock', e.target.value)} />
+        </label>
         <label className="field">
           <span>Kelish narxi (1 juft)</span>
           <input id="pf-cost" className="input" inputMode="numeric" value={f.costPrice} onChange={(e) => set('costPrice', e.target.value)} />
@@ -298,6 +286,129 @@ function ProductForm({
         >
           Saqlash
         </button>
+      </div>
+    </Modal>
+  )
+}
+
+const DRAFT_KEY = 'dk2.productDraft'
+
+/** Oxirgi kiritilgan brend, razmer va pachka hajmi keyingi safar o'zi turadi. */
+function loadDraft(): { brand: string; size: string; packSize: number } {
+  try {
+    return { brand: '', size: '', packSize: 5, ...JSON.parse(localStorage.getItem(DRAFT_KEY) ?? '{}') }
+  } catch {
+    return { brand: '', size: '', packSize: 5 }
+  }
+}
+
+function NewProductForm({ onClose, onSave }: { onClose: () => void; onSave: (inputs: ProductInput[]) => void }) {
+  const draft = loadDraft()
+  const [brand, setBrand] = useState(draft.brand)
+  const [name, setName] = useState('')
+  const [size, setSize] = useState(draft.size)
+  const [packSize, setPackSize] = useState(draft.packSize)
+  const [cost, setCost] = useState('')
+  const [sale, setSale] = useState('')
+  const [colors, setColors] = useState<{ color: string; packs: number }[]>([{ color: '', packs: 1 }])
+
+  const c = parseSum(cost)
+  const sp = parseSum(sale)
+  const rows = colors.filter((r) => r.packs > 0)
+  const totalPacks = rows.reduce((a, r) => a + r.packs, 0)
+  const valid = brand.trim() && name.trim() && packSize >= 1 && c > 0 && sp > 0 && totalPacks > 0
+
+  const save = () => {
+    if (!valid) return
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ brand: brand.trim(), size: size.trim(), packSize }))
+    } catch {
+      // Eslab qolinmasa ham saqlash ishlayveradi.
+    }
+    onSave(rows.map((r) => ({ brand, name, size, color: r.color.trim(), packSize, packs: r.packs, costPrice: c, salePrice: sp })))
+  }
+
+  const setRow = (i: number, patch: Partial<{ color: string; packs: number }>) =>
+    setColors((list) => list.map((r, j) => (j === i ? { ...r, ...patch } : r)))
+
+  return (
+    <Modal title="Yangi tovar" onClose={onClose}>
+      <div className="form-grid">
+        <label className="field">
+          <span>Brend</span>
+          <input id="np-brand" className="input" value={brand} placeholder="Ezel" onChange={(e) => setBrand(e.target.value)} />
+        </label>
+        <label className="field">
+          <span>Model nomi</span>
+          <input id="np-name" className="input" autoFocus value={name} placeholder="Ezel 18" onChange={(e) => setName(e.target.value)} />
+        </label>
+        <label className="field">
+          <span>Razmer</span>
+          <input id="np-size" className="input" value={size} placeholder="39-43" onChange={(e) => setSize(e.target.value)} />
+        </label>
+        <label className="field">
+          <span>Pachkada (juft)</span>
+          <input id="np-pack" className="input" type="number" min={1} value={packSize} onChange={(e) => setPackSize(Number(e.target.value))} />
+        </label>
+        <label className="field">
+          <span>Kelish narxi (1 juft)</span>
+          <MoneyInput id="np-cost" value={cost} onChange={setCost} />
+        </label>
+        <label className="field">
+          <span>Sotuv narxi (1 juft)</span>
+          <MoneyInput id="np-sale" value={sale} onChange={setSale} />
+        </label>
+      </div>
+
+      <div className="colors">
+        <div className="colors-head">
+          <span>Rang</span>
+          <span>Pachka</span>
+        </div>
+        {colors.map((r, i) => (
+          <div key={i} className="color-row">
+            <input
+              id={`np-color-${i}`}
+              className="input"
+              value={r.color}
+              placeholder={i === 0 ? 'qora' : 'jigarrang'}
+              onChange={(e) => setRow(i, { color: e.target.value })}
+            />
+            <input
+              id={`np-packs-${i}`}
+              className="input"
+              type="number"
+              min={0}
+              value={r.packs}
+              onChange={(e) => setRow(i, { packs: Math.max(0, Number(e.target.value)) })}
+            />
+            <button
+              className="icon danger"
+              aria-label="Rangni olib tashlash"
+              disabled={colors.length === 1}
+              onClick={() => setColors((list) => list.filter((_, j) => j !== i))}
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+        <button className="link small left" onClick={() => setColors((list) => [...list, { color: '', packs: 1 }])}>
+          + yana rang
+        </button>
+      </div>
+
+      {c > 0 && sp > 0 && (
+        <div className="muted small">
+          Jami <b>{totalPacks} pachka</b>
+          {rows.length > 1 && ` (${rows.length} xil rang — har biri alohida tovar)`} · bir pachkadan foyda{' '}
+          <b className={sp < c ? 'error' : 'ok'}>{formatSum((sp - c) * packSize)}</b>
+        </div>
+      )}
+
+      <div className="modal-actions">
+        <span className="grow" />
+        <button className="btn ghost" onClick={onClose}>Bekor</button>
+        <button className="btn primary" disabled={!valid} onClick={save}>Saqlash</button>
       </div>
     </Modal>
   )

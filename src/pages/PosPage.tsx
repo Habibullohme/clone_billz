@@ -81,7 +81,18 @@ export function PosPage() {
   // Space — qidiruv, F2 — to'lov.
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      if (paying || done) return
+      if (done) {
+        // Chek oynasi: Space — chop etish, Enter — yangi sotuv.
+        if (e.code === 'Space') {
+          e.preventDefault()
+          window.print()
+        } else if (e.key === 'Enter') {
+          e.preventDefault()
+          setDone(null)
+        }
+        return
+      }
+      if (paying) return
       if (e.code === 'Space' && !isTyping(e.target)) {
         e.preventDefault()
         searchRef.current?.focus()
@@ -218,12 +229,7 @@ export function PosPage() {
                     <b>{p.name}</b>
                     <div className="muted small">{[p.brand, p.size, p.color].filter(Boolean).join(' · ')}</div>
                   </div>
-                  <div className="hit-r">
-                    <b>{formatSum(p.salePrice)}</b>
-                    <div className={`small ${p.stock < p.packSize ? 'error' : 'muted'}`}>
-                      {Math.max(0, Math.floor(p.stock / p.packSize))} pachka bor
-                    </div>
-                  </div>
+                  <b>{formatSum(p.salePrice)}</b>
                 </li>
               ))}
             </ul>
@@ -351,8 +357,8 @@ export function PosPage() {
               <Receipt sale={done} settings={settings} />
             </div>
             <div className="modal-actions">
-              <button className="btn ghost" onClick={() => window.print()}>Chek chiqarish</button>
-              <button className="btn primary grow" autoFocus onClick={() => setDone(null)}>Yangi sotuv <kbd>Enter</kbd></button>
+              <button className="btn ghost" onClick={() => window.print()}>Chek chiqarish <kbd>Space</kbd></button>
+              <button className="btn primary grow" onClick={() => setDone(null)}>Yangi sotuv <kbd>Enter</kbd></button>
             </div>
           </div>
         </div>

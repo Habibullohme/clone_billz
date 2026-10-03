@@ -9,6 +9,7 @@ export function Receipt({ sale, settings }: { sale: Sale; settings: Settings }) 
   return (
     <div className={`receipt w${settings.receiptWidth}`}>
       <div className="r-center">
+        {settings.receiptShowLogo && settings.shopLogo && <img className="r-logo" src={settings.shopLogo} alt="" />}
         <b className="r-shop">{settings.shopName}</b>
         {settings.shopAddress && <div>{settings.shopAddress}</div>}
         {settings.shopPhone && <div>{settings.shopPhone}</div>}

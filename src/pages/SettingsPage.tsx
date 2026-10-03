@@ -11,6 +11,7 @@ const sections = [
   ['receipt', 'Chek'],
   ['labels', 'Etiketka'],
   ['stock', 'Ombor'],
+  ['security', 'PIN kod'],
   ['data', "Ma'lumotlar"],
 ] as const
 type Section = (typeof sections)[number][0]
@@ -62,7 +63,7 @@ export function SettingsPage() {
   const text = (key: 'shopName' | 'shopPhone' | 'shopAddress' | 'receiptFooter', ph = '') => (
     <input id={`set-${key}`} className="input" value={s[key]} placeholder={ph} onChange={(e) => update(key, e.target.value)} />
   )
-  const toggle = (key: 'receiptShowCustomer' | 'receiptShowPacks' | 'allowPriceEdit' | 'allowNegativeStock' | 'scanSound' | 'labelShowPrice' | 'labelShowSize') => (
+  const toggle = (key: 'receiptShowLogo' | 'receiptShowCustomer' | 'receiptShowPacks' | 'allowPriceEdit' | 'allowNegativeStock' | 'scanSound' | 'labelShowPrice' | 'labelShowSize') => (
     <Toggle id={`set-${key}`} checked={s[key]} onChange={(v) => update(key, v)} />
   )
 
@@ -83,7 +84,27 @@ export function SettingsPage() {
         <div className="set-body">
           {section === 'shop' && (
             <>
-              <Row id="set-shopName" title="Do'kon nomi" hint="Chek tepasida chiqadi">{text('shopName')}</Row>
+              <Row id="set-logo" title="Logotip" hint="Kassa tepasida va chekda chiqadi">
+                <div className="logo-pick">
+                  {s.shopLogo ? <img src={s.shopLogo} alt="" /> : <div className="shop-mark big">{(s.shopName || 'D')[0]}</div>}
+                  <label className="btn ghost small">
+                    Rasm tanlash
+                    <input
+                      id="set-logo"
+                      type="file"
+                      accept="image/*"
+                      hidden
+                      onChange={async (e) => {
+                        const f = e.target.files?.[0]
+                        if (f) update('shopLogo', await shrinkImage(f))
+                        e.target.value = ''
+                      }}
+                    />
+                  </label>
+                  {s.shopLogo && <button className="link small" onClick={() => update('shopLogo', '')}>olib tashlash</button>}
+                </div>
+              </Row>
+              <Row id="set-shopName" title="Do'kon nomi" hint="Kassa tepasida va chekda chiqadi">{text('shopName')}</Row>
               <Row id="set-shopAddress" title="Manzil" hint="Masalan: Abu Saxiy, 3-qator, 112-do'kon">{text('shopAddress')}</Row>
               <Row id="set-shopPhone" title="Telefon">{text('shopPhone', '+998 90 123 45 67')}</Row>
             </>
@@ -125,6 +146,7 @@ export function SettingsPage() {
                 <Row id="set-receiptWidth" title="Chek kengligi" hint="Printeringiz lentasi">
                   <Segmented<58 | 80> value={s.receiptWidth} onChange={(v) => update('receiptWidth', v)} options={[[58, '58 mm'], [80, '80 mm']]} />
                 </Row>
+                <Row id="set-receiptShowLogo" title="Logotip">{toggle('receiptShowLogo')}</Row>
                 <Row id="set-receiptShowCustomer" title="Mijoz ismi">{toggle('receiptShowCustomer')}</Row>
                 <Row id="set-receiptShowPacks" title="Pachka sonini ko'rsatish" hint="Masalan: 2 pachka · 10 × 190 000">{toggle('receiptShowPacks')}</Row>
                 <Row id="set-receiptFooter" title="Pastki matn">{text('receiptFooter')}</Row>
@@ -169,6 +191,8 @@ export function SettingsPage() {
             </>
           )}
 
+          {section === 'security' && <PinSection s={s} onSave={(pin) => update('ownerPin', pin)} />}
+
           {section === 'data' && (
             <>
               <Row id="set-reset" title="Sinov ma'lumotlarini tozalash" hint="Namunaviy tovarlar, sotuvlar va mijozlar o'chiriladi. Sozlamalar qoladi.">
@@ -205,5 +229,58 @@ export function SettingsPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+/** Logotipni 256px gacha kichraytirib, data URL qiladi. */
+function shrinkImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => {
+      const k = Math.min(1, 256 / Math.max(img.width, img.height))
+      const c = document.createElement('canvas')
+      c.width = Math.round(img.width * k)
+      c.height = Math.round(img.height * k)
+      c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height)
+      URL.revokeObjectURL(img.src)
+      resolve(c.toDataURL('image/png'))
+    }
+    img.onerror = reject
+    img.src = URL.createObjectURL(file)
+  })
+}
+
+function PinSection({ s, onSave }: { s: Settings; onSave: (pin: string) => void }) {
+  const [oldPin, setOldPin] = useState('')
+  const [pin, setPin] = useState('')
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const digits = (v: string) => v.replace(/\D/g, '').slice(0, 6)
+  return (
+    <>
+      <Row id="set-pin-old" title={s.ownerPin ? 'Hozirgi PIN' : 'PIN hali o\'rnatilmagan'} hint="Kassadan boshqa bo'limlarga kirishda so'raladi">
+        {s.ownerPin && (
+          <input id="set-pin-old" className="input pin" type="password" inputMode="numeric" value={oldPin} onChange={(e) => setOldPin(digits(e.target.value))} />
+        )}
+      </Row>
+      <Row id="set-pin-new" title="Yangi PIN" hint="4–6 ta raqam">
+        <input id="set-pin-new" className="input pin" type="password" inputMode="numeric" value={pin} onChange={(e) => setPin(digits(e.target.value))} />
+      </Row>
+      <div className="set-row">
+        <span className={msg?.ok ? 'ok' : 'error'}>{msg?.text}</span>
+        <button
+          className="btn primary"
+          onClick={() => {
+            if (s.ownerPin && oldPin !== s.ownerPin) return setMsg({ ok: false, text: 'Hozirgi PIN noto\'g\'ri' })
+            if (!/^\d{4,6}$/.test(pin)) return setMsg({ ok: false, text: 'PIN 4–6 ta raqam bo\'lsin' })
+            onSave(pin)
+            setOldPin('')
+            setPin('')
+            setMsg({ ok: true, text: 'PIN o\'zgartirildi' })
+          }}
+        >
+          PIN ni saqlash
+        </button>
+      </div>
+    </>
   )
 }

@@ -11,11 +11,16 @@ export interface Settings {
   shopName: string
   shopPhone: string
   shopAddress: string
+  /** Logotip (data URL, kichraytirilgan). */
+  shopLogo: string
+  /** Kassadan boshqa bo'limlarga kirish PIN kodi. Bo'sh — hali o'rnatilmagan. */
+  ownerPin: string
   // Chek
   receiptWidth: 58 | 80
   receiptFooter: string
   receiptShowCustomer: boolean
   receiptShowPacks: boolean
+  receiptShowLogo: boolean
   // Valyuta
   usdRate: number
   // Kassa
@@ -36,10 +41,13 @@ export const defaultSettings: Settings = {
   shopName: "Do'kon",
   shopPhone: '',
   shopAddress: '',
+  shopLogo: '',
+  ownerPin: '',
   receiptWidth: 58,
   receiptFooter: 'Xaridingiz uchun rahmat!',
   receiptShowCustomer: true,
   receiptShowPacks: true,
+  receiptShowLogo: true,
   usdRate: 11_850,
   allowPriceEdit: true,
   allowNegativeStock: true,
