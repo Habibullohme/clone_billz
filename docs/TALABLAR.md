@@ -94,3 +94,43 @@ Jami:                                 800 000 so'm
 - Baza + login + rasmlar: Supabase (bepul tarif).
 - Bot: serverless funksiya (webhook), kunlik hisobot — cron.
 - Billz'dan ko'chirish: katalogni "Yuklab olish" (Excel) orqali bir martalik import.
+
+## 10. Billz'dan nimani olamiz, nimani olmaymiz
+
+### ✅ Birinchi navbatda (11.10 gacha)
+- Login, ega / sotuvchi rollari, parolni o'zgartirish.
+- Katalog (pachka hajmi bilan), qidiruv, kam / nol qoldiq.
+- Import (kirim) hujjatlari + sotuvlar taraqqiyoti %.
+- Shtrix-kod yaratish va etiketka chop etish.
+- Kassa: skaner, pachka × juft hisobi, chegirma, so'm/dollar/karta/aralash to'lov, chek.
+- Barcha sotuvlar ro'yxati, qaytarish.
+- Billz katalogini Excel'dan ko'chirish.
+
+### ✅ Ikkinchi navbatda
+- Telegram bot: yuk kiritish, kanalga post, kunlik hisobot.
+- Mijozlar va nasiya (qarzlar, qarz to'lovi, muddati o'tganlar).
+- Dashboard va hisobotlar:
+  - Tovarlar / **brendlar** bo'yicha sotuv va foyda.
+  - Importlar (har bir yuk qanchasi sotilgan).
+  - Qoldiqlar (miqdor, kelish va sotuv narxida qiymati).
+  - Tovarlar samaradorligi (davr boshida bor edi → sotildi → qoldi).
+  - ABC-tahlil (qaysi modellar foydaning asosiy qismini beradi).
+  - Sotuvchilar bo'yicha.
+
+### ⚙️ Sozlamalardan olinadiganlar
+- Erkin narx: sotuvda narxni o'zgartirish (faqat ega yoki ruxsat berilgan sotuvchi).
+- Kam qoldiq chegarasi (pachkada).
+- Manfiy qoldiq: omborda yo'q bo'lsa ham sotishga ruxsat (yoqish/o'chirish).
+- Tezkor chegirma tugmalari (summa yoki %) — o'zgartirsa bo'ladi.
+- Chek: do'kon nomi, telefon, pastki matn; chek o'lchami (58/80 mm).
+- Dollar kursi.
+- Mahsulot maydonlari qat'iy: brend, model, artikul, razmer qatori, rang, toifa, pachka hajmi, rasm.
+
+### ❌ Olmaymiz (keraksiz yoki keyinroq)
+- Bir nechta do'kon / filial, bir nechta kassa.
+- Xizmatlar, to'plamlar, sovg'a sertifikatlari, bonus/balans tizimi.
+- Marketing, SMS-tarqatish, tug'ilgan kunlar, mijoz guruh/teglari.
+- Bir mahsulotga bir nechta shtrix-kod, "tez qo'shish" (bot buni almashtiradi).
+- O'lchov birliklari jadvali (bizda faqat juft / pachka).
+- Inventarizatsiya, yetkazib beruvchilar, buyurtma qaytarishlari — kerak bo'lsa keyin.
+- Qurilmalar / seanslar boshqaruvi, avatarlar.
