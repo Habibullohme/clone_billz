@@ -134,3 +134,27 @@ Jami:                                 800 000 so'm
 - O'lchov birliklari jadvali (bizda faqat juft / pachka).
 - Inventarizatsiya, yetkazib beruvchilar, buyurtma qaytarishlari — kerak bo'lsa keyin.
 - Qurilmalar / seanslar boshqaruvi, avatarlar.
+
+## 11. Telegram bot xabarnomalari (Billz'dagi kabi, o'zimizga moslab)
+
+Botga faqat **ega** (va ruxsat berilganlar) ulanadi. Har bir xabar turini sozlamalardan yoqish/o'chirish mumkin.
+
+1. **Har bir sotuv** (darhol):
+   ```
+   🧾 Sotuv #0001234 · 03.10.2026 15:40
+   Sotuvchi: Ali
+   Little 05 — 2 pachka (10 juft) × 160 000 = 1 600 000
+   Ezel 18  — 1 pachka (5 juft)  × 110 000 =   550 000
+   Jami: 2 150 000 so'm
+   💵 Naqd: 965 000 · 💲 100 $ (×11 850) · 💳 Karta: 0
+   Foyda: 300 000 so'm   ← faqat egaga
+   ```
+2. **Qaytarish** — xuddi shu ko'rinishda.
+3. **Qarz to'lovi** — mijoz, to'langan summa, qolgan qarz.
+4. **Kunlik hisobot** (belgilangan vaqtda, masalan 21:00), **haftalik** (dushanba), **oylik** (1-sana):
+   tushum, sof foyda, sotuvlar soni, sotilgan pachka/juft, to'lov turlari (so'm/$/karta/nasiya),
+   **brendlar bo'yicha** (tushum, foyda), top-10 model, yangi qarzlar, kam qolgan tovarlar.
+5. **So'rov bo'yicha** (bot buyruqlari): `/bugun`, `/hafta`, `/oy`, `/top`, `/brendlar`, `/qoldiq <nom>`, `/qarzlar`.
+6. **Tizimga kirish** — kim, qachon kirdi (xavfsizlik uchun).
+
+Billz'dan farqi: xabarlarda pachka × juft ko'rinadi va foyda hisoblanadi; filial bo'yicha bo'linish yo'q.
