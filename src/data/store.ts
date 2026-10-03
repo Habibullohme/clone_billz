@@ -5,6 +5,7 @@
 import type { Customer, HeldCart, ImportBatch, Product, ProductInput, Sale } from '../types'
 import { makeArticle, makeBarcode } from '../lib/codes'
 import { demoInputs } from './demo'
+import { defaultTemplates, type LabelTemplate } from '../lib/labels'
 
 export interface Settings {
   // Do'kon
@@ -32,9 +33,8 @@ export interface Settings {
   // Ombor
   lowStockPacks: number
   // Etiketka
-  labelSize: '58x40' | '40x30' | '30x20'
-  labelShowPrice: boolean
-  labelShowSize: boolean
+  labelTemplates: LabelTemplate[]
+  labelTemplateId: string
 }
 
 export const defaultSettings: Settings = {
@@ -54,9 +54,8 @@ export const defaultSettings: Settings = {
   scanSound: true,
   roundSteps: [10_000, 50_000, 100_000],
   lowStockPacks: 2,
-  labelSize: '58x40',
-  labelShowPrice: true,
-  labelShowSize: true,
+  labelTemplates: defaultTemplates,
+  labelTemplateId: defaultTemplates[0].id,
 }
 
 const memory = new Map<string, string>()
@@ -140,10 +139,7 @@ export function searchProducts(products: Product[], query: string, limit = 8): P
     .slice(0, limit)
 }
 
-/**
- * Kirim: yangi tovarlarga kod beradi. Bir xil brend + model + razmer + rang
- * allaqachon bo'lsa, yangisini ochmaydi — qoldig'iga qo'shadi va narxini yangilaydi.
- */
+/** Kirim: har bir qator alohida tovar bo'lib, o'z kodini oladi. */
 function createBatch(inputs: ProductInput[], source: ImportBatch['source']): ImportBatch {
   const products = read<Product[]>(K.products, [])
   const now = new Date().toISOString()
@@ -151,30 +147,18 @@ function createBatch(inputs: ProductInput[], source: ImportBatch['source']): Imp
     id: uid(), number: nextSeq('batch'), createdAt: now, source,
     productIds: [], packs: {}, costTotal: 0, saleTotal: 0,
   }
-  const key = (x: { brand: string; name: string; size: string; color: string }) =>
-    [x.brand, x.name, x.size, x.color].map((s) => s.trim().toLowerCase()).join('|')
-
   for (const inp of inputs) {
     const pairs = inp.packs * inp.packSize
-    let p = products.find((x) => key(x) === key(inp))
-    if (p) {
-      p.stock += pairs
-      p.costPrice = inp.costPrice
-      p.salePrice = inp.salePrice
-      p.packSize = inp.packSize
-      p.batchId = batch.id
-    } else {
-      const seq = nextSeq('product')
-      p = {
-        id: uid(), brand: inp.brand.trim(), name: inp.name.trim(), size: inp.size.trim(), color: inp.color.trim(),
-        article: makeArticle(inp.brand, seq), barcode: makeBarcode(seq),
-        packSize: inp.packSize, costPrice: inp.costPrice, salePrice: inp.salePrice,
-        stock: pairs, createdAt: now, batchId: batch.id,
-      }
-      products.push(p)
+    const seq = nextSeq('product')
+    const p: Product = {
+      id: uid(), brand: inp.brand.trim(), name: inp.name.trim(), size: inp.size.trim(), color: inp.color.trim(),
+      article: makeArticle(inp.brand, seq), barcode: makeBarcode(seq),
+      packSize: inp.packSize, costPrice: inp.costPrice, salePrice: inp.salePrice,
+      stock: pairs, createdAt: now, batchId: batch.id,
     }
-    if (!batch.productIds.includes(p.id)) batch.productIds.push(p.id)
-    batch.packs[p.id] = (batch.packs[p.id] ?? 0) + inp.packs
+    products.push(p)
+    batch.productIds.push(p.id)
+    batch.packs[p.id] = inp.packs
     batch.costTotal += pairs * inp.costPrice
     batch.saleTotal += pairs * inp.salePrice
   }

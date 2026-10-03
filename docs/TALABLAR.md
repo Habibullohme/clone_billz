@@ -51,8 +51,8 @@ Jami:                                 800 000 so'm
 - Shtrix-kod va artikul **o'zimizniki** (Billz'niki ishlatilmaydi):
   shtrix-kod EAN-13, `21` bilan boshlanadi, ketma-ket (2100000000012...); artikul — brendning 3 harfi + raqam (NIK-0007).
 - Tovarlar **Excel shablon** orqali kiritiladi (`docs/tovarlar-shablon.xlsx`): Brend, Model nomi, Razmer, Rang,
-  Pachkada (juft), Necha pachka keldi, Kelish narxi (1 juft), Sotuv narxi (1 juft).
-  Bir xil brend + model + razmer + rang qayta kelsa — yangi tovar ochilmaydi, qoldig'iga qo'shiladi.
+  Pachkada (juft), Kelish narxi (1 juft), Sotuv narxi (1 juft).
+  Har bir qator — bitta pachka, alohida tovar, o'z shtrix-kodi bilan (birlashtirilmaydi).
 - **Shtrix-kod chop etish bo'limi**: "Bugun qo'shilganlar" / import bo'yicha tanlab, birdaniga chop etish.
 - Hisobdan chiqarish, qayta baholash.
 
@@ -170,3 +170,17 @@ Billz'dan farqi: xabarlarda pachka × juft ko'rinadi va foyda hisoblanadi; filia
 - Sotuvlar bo'limida juft soni kerak emas.
 - Sozlamalar — bo'limlarga ajratilgan to'liq sahifa.
 - Kechiktirish funksiyasi yoqdi.
+
+## 13. Kassa rejimi, etiketka shablonlari, login (3-sinovdan keyin)
+
+- Kassa ekranida faqat do'kon logosi/nomi, soat va ☰ menyu. Sotuvlar, Tovarlar, Etiketkalar,
+  Sozlamalar — menyuda, egasining PIN kodi bilan.
+- Chek oynasi: Space — chop etish, Enter — yangi sotuv.
+- Yangi tovar formasi: brend, razmer, pachka hajmi eslab qolinadi; bir modelga bir nechta rang (har biri alohida tovar).
+- Etiketka shablonlari (Billz'dagi "narx yorlig'i" kabi): nomi, eni/bo'yi (mm), shtrix-kod formati,
+  maydonlar (nom, brend, razmer, rang, pachka, narx, artikul, shtrix-kod) tartibi, shrift, qalin, tekislash.
+  Soni: kirim bo'yicha / qoldiq bo'yicha / har biriga 1. Sinov chop etish (1 ta).
+- Login (reja): Telegram orqali. Egasi bot ichidagi mini-app'dan parolsiz kiradi; kompyuterda
+  "Telegram orqali kirish" — bot tasdiq so'raydi; seans uzoq saqlanadi (Telegram Web kabi).
+  "Qurilmalar" bo'limi: qaysi qurilmalar kirgan, oxirgi faollik, chiqarib yuborish; yangi kirish haqida botga xabar.
+- Artikul/kod masalasi hali hal qilinmagan (11-taklif: bitta kod — vitrina, etiketka va shtrix-kodda bir xil).

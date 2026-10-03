@@ -128,7 +128,7 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
               </div>
               <div className="table-wrap preview">
                 <table className="table">
-                  <thead><tr><th>Qator</th><th>Model</th><th>Pachka</th><th className="num">Kelish</th><th className="num">Sotuv</th><th /></tr></thead>
+                  <thead><tr><th>Qator</th><th>Model</th><th>Pachkada</th><th className="num">Kelish</th><th className="num">Sotuv</th><th /></tr></thead>
                   <tbody>
                     {preview.items.map((r) => (
                       <tr key={r.row} className={r.errors.length ? 'bad-row' : ''}>
@@ -137,7 +137,7 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
                           <b>{r.input.name || '—'}</b>
                           <div className="muted small">{[r.input.brand, r.input.size, r.input.color].filter(Boolean).join(' · ')}</div>
                         </td>
-                        <td>{r.input.packs} × {r.input.packSize} juft</td>
+                        <td>{r.input.packSize} juft</td>
                         <td className="num">{formatSum(r.input.costPrice || 0)}</td>
                         <td className="num">{formatSum(r.input.salePrice || 0)}</td>
                         <td className="error small">{r.errors.join(', ')}</td>

@@ -9,7 +9,6 @@ const sections = [
   ['shop', "Do'kon"],
   ['pos', 'Kassa'],
   ['receipt', 'Chek'],
-  ['labels', 'Etiketka'],
   ['stock', 'Ombor'],
   ['security', 'PIN kod'],
   ['data', "Ma'lumotlar"],
@@ -63,7 +62,7 @@ export function SettingsPage() {
   const text = (key: 'shopName' | 'shopPhone' | 'shopAddress' | 'receiptFooter', ph = '') => (
     <input id={`set-${key}`} className="input" value={s[key]} placeholder={ph} onChange={(e) => update(key, e.target.value)} />
   )
-  const toggle = (key: 'receiptShowLogo' | 'receiptShowCustomer' | 'receiptShowPacks' | 'allowPriceEdit' | 'allowNegativeStock' | 'scanSound' | 'labelShowPrice' | 'labelShowSize') => (
+  const toggle = (key: 'receiptShowLogo' | 'receiptShowCustomer' | 'receiptShowPacks' | 'allowPriceEdit' | 'allowNegativeStock' | 'scanSound') => (
     <Toggle id={`set-${key}`} checked={s[key]} onChange={(v) => update(key, v)} />
   )
 
@@ -156,20 +155,6 @@ export function SettingsPage() {
                 <Receipt sale={sampleSale} settings={s} />
               </div>
             </div>
-          )}
-
-          {section === 'labels' && (
-            <>
-              <Row id="set-labelSize" title="Etiketka o'lchami" hint="Etiketka printeringizdagi lenta">
-                <Segmented<Settings['labelSize']>
-                  value={s.labelSize}
-                  onChange={(v) => update('labelSize', v)}
-                  options={[['58x40', '58×40'], ['40x30', '40×30'], ['30x20', '30×20']]}
-                />
-              </Row>
-              <Row id="set-labelShowPrice" title="Narxni yozish">{toggle('labelShowPrice')}</Row>
-              <Row id="set-labelShowSize" title="Razmerni yozish">{toggle('labelShowSize')}</Row>
-            </>
           )}
 
           {section === 'stock' && (
