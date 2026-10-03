@@ -1,4 +1,4 @@
-import type { CartLine, Payment, Product } from '../types'
+import type { CartLine, Product } from '../types'
 
 /** Skaner yoki qidiruvdan qo'shish: bitta pachka qo'shiladi. */
 export function addProduct(lines: CartLine[], product: Product): CartLine[] {
@@ -45,23 +45,41 @@ export function packsLabel(pairs: number, packSize: number): string {
   return extra ? `${packs} pachka + ${extra} juft` : `${packs} pachka`
 }
 
-export function paidUzs(p: Omit<Payment, 'debt'>): number {
-  return p.cash + Math.round(p.usd * p.usdRate) + p.card
+export interface PaymentInput {
+  usd: number
+  usdRate: number
+  card: number
+  debt: number
+  /** Kassir naqdni o'zi yozgan bo'lsa — shu summa; aks holda null (naqd avtomatik qolganiga teng). */
+  cashManual: number | null
 }
 
 export interface PaymentSummary {
+  cash: number
+  /** Naqd avtomatik hisoblandimi. */
+  cashAuto: boolean
   paid: number
-  /** To'lanmagan qism (nasiya bo'lishi mumkin). */
-  remaining: number
+  /** Yetmayotgan summa (nasiyaga o'tkazish yoki ko'proq olish kerak). */
+  short: number
   /** Qaytim, so'm. */
   change: number
 }
 
-export function summarizePayment(total: number, p: Omit<Payment, 'debt'>): PaymentSummary {
-  const paid = paidUzs(p)
+/**
+ * Naqd — "qolgani" maydoni: karta, dollar yoki nasiya o'zgarsa, naqd o'zi moslashadi.
+ * Kassir naqdni o'zi yozsa (masalan mijoz 3 mln berdi), qaytim hisoblanadi.
+ */
+export function balancePayment(total: number, p: PaymentInput): PaymentSummary {
+  const usdUzs = Math.round(p.usd * p.usdRate)
+  const others = usdUzs + p.card + p.debt
+  const cashAuto = p.cashManual === null
+  const cash = cashAuto ? Math.max(0, total - others) : p.cashManual!
+  const covered = cash + others
   return {
-    paid,
-    remaining: Math.max(0, total - paid),
-    change: Math.max(0, paid - total),
+    cash,
+    cashAuto,
+    paid: cash + usdUzs + p.card,
+    short: Math.max(0, total - covered),
+    change: Math.max(0, covered - total),
   }
 }

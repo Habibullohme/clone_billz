@@ -48,8 +48,11 @@ Jami:                                 800 000 so'm
 - **Import (kirim)**: har bir yuk = bitta hujjat. ID, sana, miqdor, kelish/sotuv summasi,
   holat (Yakunlangan / Bekor qilingan), kim yaratdi/yakunladi, turi (Kirim / Qoldiq kirimi / Tuzatish),
   **sotuvlar taraqqiyoti %** (shu yukning qanchasi sotilgan).
-- Shtrix-kod: EAN-13, `2` bilan boshlanadi, ketma-ket (Billz'dagilar kabi 2000000011790...).
-  Billz'dan ko'chirilgan eski kodlar o'zgarmaydi.
+- Shtrix-kod va artikul **o'zimizniki** (Billz'niki ishlatilmaydi):
+  shtrix-kod EAN-13, `21` bilan boshlanadi, ketma-ket (2100000000012...); artikul — brendning 3 harfi + raqam (NIK-0007).
+- Tovarlar **Excel shablon** orqali kiritiladi (`docs/tovarlar-shablon.xlsx`): Brend, Model nomi, Razmer, Rang,
+  Pachkada (juft), Necha pachka keldi, Kelish narxi (1 juft), Sotuv narxi (1 juft).
+  Bir xil brend + model + razmer + rang qayta kelsa — yangi tovar ochilmaydi, qoldig'iga qo'shiladi.
 - **Shtrix-kod chop etish bo'limi**: "Bugun qo'shilganlar" / import bo'yicha tanlab, birdaniga chop etish.
 - Hisobdan chiqarish, qayta baholash.
 
@@ -93,7 +96,7 @@ Jami:                                 800 000 so'm
 - Sayt: Netlify yoki Cloudflare Pages (bepul, tijorat uchun ruxsat).
 - Baza + login + rasmlar: Supabase (bepul tarif).
 - Bot: serverless funksiya (webhook), kunlik hisobot — cron.
-- Billz'dan ko'chirish: katalogni "Yuklab olish" (Excel) orqali bir martalik import.
+- Billz'dan hech narsa ko'chirilmaydi — tovarlar shablon orqali yangidan kiritiladi.
 
 ## 10. Billz'dan nimani olamiz, nimani olmaymiz
 
@@ -104,7 +107,7 @@ Jami:                                 800 000 so'm
 - Shtrix-kod yaratish va etiketka chop etish.
 - Kassa: skaner, pachka × juft hisobi, chegirma, so'm/dollar/karta/aralash to'lov, chek.
 - Barcha sotuvlar ro'yxati, qaytarish.
-- Billz katalogini Excel'dan ko'chirish.
+- Tovarlarni Excel shablondan import qilish.
 
 ### ✅ Ikkinchi navbatda
 - Telegram bot: yuk kiritish, kanalga post, kunlik hisobot.
@@ -158,3 +161,12 @@ Botga faqat **ega** (va ruxsat berilganlar) ulanadi. Har bir xabar turini sozlam
 6. **Tizimga kirish** — kim, qachon kirdi (xavfsizlik uchun).
 
 Billz'dan farqi: xabarlarda pachka × juft ko'rinadi va foyda hisoblanadi; filial bo'yicha bo'linish yo'q.
+
+## 12. Foydalanuvchi fikrlari (sinovdan keyin)
+
+- Billz'ning nusxasi emas — zamonaviy, sodda, tez. Ekranda faqat kerakli ma'lumot.
+- Qidiruv — **Space** tugmasi (`/` emas).
+- To'lovda naqd — "qolgani": karta/dollar/nasiya yozilsa naqd o'zi kamayadi; naqdni qo'lda yozsa qaytim chiqadi.
+- Sotuvlar bo'limida juft soni kerak emas.
+- Sozlamalar — bo'limlarga ajratilgan to'liq sahifa.
+- Kechiktirish funksiyasi yoqdi.

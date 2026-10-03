@@ -3,93 +3,143 @@ import type { Sale } from '../types'
 import { getSales, getSettings, type Settings } from '../data/store'
 import { formatSum } from '../lib/money'
 import { Receipt } from '../components/Receipt'
+import { Segmented } from '../components/ui'
 
-const sameDay = (iso: string, d: Date) => new Date(iso).toDateString() === d.toDateString()
+type Period = 'today' | 'yesterday' | 'week' | 'month'
+
+function inPeriod(iso: string, period: Period): boolean {
+  const d = new Date(iso)
+  const start = new Date()
+  start.setHours(0, 0, 0, 0)
+  if (period === 'today') return d >= start
+  if (period === 'yesterday') {
+    const y = new Date(start)
+    y.setDate(y.getDate() - 1)
+    return d >= y && d < start
+  }
+  const from = new Date(start)
+  from.setDate(from.getDate() - (period === 'week' ? 6 : 29))
+  return d >= from
+}
 
 export function SalesPage() {
   const [sales, setSales] = useState<Sale[]>([])
   const [settings, setSettings] = useState<Settings | null>(null)
   const [open, setOpen] = useState<Sale | null>(null)
+  const [period, setPeriod] = useState<Period>('today')
 
   useEffect(() => {
     getSales().then(setSales)
     getSettings().then(setSettings)
   }, [])
 
-  const today = sales.filter((s) => sameDay(s.createdAt, new Date()))
-  const sum = (f: (s: Sale) => number) => today.reduce((a, s) => a + f(s), 0)
-  const usd = sum((s) => s.payment.usd)
+  const list = sales.filter((s) => inPeriod(s.createdAt, period))
+  const sum = (f: (s: Sale) => number) => list.reduce((a, s) => a + f(s), 0)
+  const revenue = sum((s) => s.total)
+  const profit = sum((s) => s.profit)
 
-  const byBrand = new Map<string, { pairs: number; total: number; profit: number }>()
-  for (const s of today)
+  const byBrand = new Map<string, { total: number; profit: number }>()
+  for (const s of list)
     for (const l of s.lines) {
-      const b = byBrand.get(l.brand) ?? { pairs: 0, total: 0, profit: 0 }
-      b.pairs += l.pairs
+      const b = byBrand.get(l.brand) ?? { total: 0, profit: 0 }
       b.total += l.total
       b.profit += l.total - l.costPrice * l.pairs
       byBrand.set(l.brand, b)
     }
+  const brands = [...byBrand].sort((a, b) => b[1].total - a[1].total)
+  const maxBrand = brands[0]?.[1].total ?? 0
+
+  const payments = [
+    ['Naqd', sum((s) => s.payment.cash - s.change)],
+    ['Karta', sum((s) => s.payment.card)],
+    ['Dollar', sum((s) => Math.round(s.payment.usd * s.payment.usdRate))],
+    ['Nasiya', sum((s) => s.payment.debt)],
+  ].filter(([, v]) => (v as number) > 0) as [string, number][]
+  const usd = sum((s) => s.payment.usd)
 
   return (
     <div className="page">
-      <h1>Bugungi sotuvlar</h1>
-      <div className="stats">
-        <div className="stat"><span>Tushum</span><b>{formatSum(sum((s) => s.total))}</b></div>
-        <div className="stat"><span>Foyda</span><b>{formatSum(sum((s) => s.profit))}</b></div>
-        <div className="stat"><span>Sotuvlar</span><b>{today.length}</b></div>
-        <div className="stat"><span>Juft</span><b>{sum((s) => s.lines.reduce((a, l) => a + l.pairs, 0))}</b></div>
-        <div className="stat"><span>Naqd so'm</span><b>{formatSum(sum((s) => s.payment.cash - s.change))}</b></div>
-        <div className="stat"><span>Dollar</span><b>{usd} $</b></div>
-        <div className="stat"><span>Karta</span><b>{formatSum(sum((s) => s.payment.card))}</b></div>
-        <div className="stat"><span>Nasiya</span><b>{formatSum(sum((s) => s.payment.debt))}</b></div>
+      <div className="page-head">
+        <h1>Sotuvlar</h1>
+        <Segmented<Period>
+          value={period}
+          onChange={setPeriod}
+          options={[['today', 'Bugun'], ['yesterday', 'Kecha'], ['week', '7 kun'], ['month', '30 kun']]}
+        />
       </div>
 
-      {byBrand.size > 0 && (
-        <>
-          <h2>Brendlar bo'yicha</h2>
-          <table className="table">
-            <thead><tr><th>Brend</th><th>Juft</th><th>Tushum</th><th>Foyda</th></tr></thead>
-            <tbody>
-              {[...byBrand].sort((a, b) => b[1].total - a[1].total).map(([brand, b]) => (
-                <tr key={brand}><td>{brand}</td><td>{b.pairs}</td><td>{formatSum(b.total)}</td><td>{formatSum(b.profit)}</td></tr>
-              ))}
-            </tbody>
-          </table>
-        </>
+      <div className="kpis">
+        <div className="kpi"><span>Tushum</span><b>{formatSum(revenue)}</b></div>
+        <div className="kpi accent"><span>Foyda</span><b>{formatSum(profit)}</b></div>
+        <div className="kpi"><span>Sotuvlar</span><b>{list.length}</b></div>
+      </div>
+
+      {payments.length > 0 && (
+        <div className="pay-split">
+          {payments.map(([k, v]) => (
+            <span key={k}>
+              {k} <b>{formatSum(v)}</b>
+              {k === 'Dollar' && <span className="muted"> ({usd} $)</span>}
+            </span>
+          ))}
+        </div>
       )}
 
-      <h2>Barcha sotuvlar</h2>
-      {sales.length === 0 ? (
-        <p className="muted">Hali sotuv yo'q.</p>
-      ) : (
-        <table className="table clickable">
-          <thead><tr><th>№</th><th>Vaqt</th><th>Mijoz</th><th>Tovar</th><th>Summa</th><th>Foyda</th><th>To'lov</th></tr></thead>
-          <tbody>
-            {sales.map((s) => (
-              <tr key={s.id} onClick={() => setOpen(s)}>
-                <td>{s.number}</td>
-                <td>{new Date(s.createdAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
-                <td>{s.customerName || '—'}</td>
-                <td>{s.lines.reduce((a, l) => a + l.pairs, 0)} juft</td>
-                <td>{formatSum(s.total)}</td>
-                <td>{formatSum(s.profit)}</td>
-                <td className="small">
-                  {[s.payment.cash && 'naqd', s.payment.usd && `${s.payment.usd}$`, s.payment.card && 'karta', s.payment.debt && 'nasiya']
-                    .filter(Boolean).join(' + ')}
-                </td>
-              </tr>
+      {brands.length > 0 && (
+        <section className="card">
+          <h2>Brendlar</h2>
+          <div className="brand-bars">
+            {brands.map(([brand, b]) => (
+              <div key={brand} className="brand-bar">
+                <span className="bb-name">{brand}</span>
+                <div className="bb-track"><div className="bb-fill" style={{ width: `${(b.total / maxBrand) * 100}%` }} /></div>
+                <span className="num">{formatSum(b.total)}</span>
+                <span className="num ok">+{formatSum(b.profit)}</span>
+              </div>
             ))}
-          </tbody>
-        </table>
+          </div>
+        </section>
       )}
+
+      <section className="card">
+        <h2>Cheklar</h2>
+        {list.length === 0 ? (
+          <p className="muted">Bu davrda sotuv yo'q.</p>
+        ) : (
+          <div className="table-wrap">
+            <table className="table clickable">
+              <thead><tr><th>№</th><th>Vaqt</th><th>Mijoz</th><th className="num">Summa</th><th className="num">Foyda</th><th>To'lov</th></tr></thead>
+              <tbody>
+                {list.map((s) => (
+                  <tr key={s.id} onClick={() => setOpen(s)}>
+                    <td className="muted">{s.number}</td>
+                    <td>{new Date(s.createdAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
+                    <td>{s.customerName || <span className="muted">—</span>}</td>
+                    <td className="num"><b>{formatSum(s.total)}</b></td>
+                    <td className="num ok">{formatSum(s.profit)}</td>
+                    <td>
+                      <div className="tags">
+                        {s.payment.cash > 0 && <span className="tag">naqd</span>}
+                        {s.payment.card > 0 && <span className="tag">karta</span>}
+                        {s.payment.usd > 0 && <span className="tag">{s.payment.usd}$</span>}
+                        {s.payment.debt > 0 && <span className="tag warn">nasiya</span>}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       {open && settings && (
         <div className="modal-bg" onMouseDown={() => setOpen(null)}>
           <div className="modal receipt-modal" onMouseDown={(e) => e.stopPropagation()}>
             <div className="print-area"><Receipt sale={open} settings={settings} /></div>
             <div className="modal-actions">
-              <button className="btn ghost" onClick={() => window.print()}>Chop etish</button>
-              <button className="btn primary" onClick={() => setOpen(null)}>Yopish</button>
+              <button className="btn ghost" onClick={() => window.print()}>Chek chiqarish</button>
+              <button className="btn primary grow" onClick={() => setOpen(null)}>Yopish</button>
             </div>
           </div>
         </div>

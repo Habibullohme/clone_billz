@@ -1,33 +1,12 @@
-import type { Product } from '../types'
+import type { ProductInput } from '../types'
 
-/** Sinov uchun namunaviy mahsulotlar. Haqiqiy katalog Billz'dan import qilinadi. */
-const rows: [brand: string, name: string, pack: number, cost: number, sale: number][] = [
-  ['Little', 'Little 01', 5, 95_000, 105_000],
-  ['Little', 'Little 02', 5, 95_000, 105_000],
-  ['Little', 'Little qalin', 5, 105_000, 115_000],
-  ['Ezel', 'Ezel 18', 5, 93_000, 110_000],
-  ['Richmen', 'Richmen Pol klassika 29', 5, 150_000, 175_000],
-  ['Nike', 'Nike Air 270', 5, 160_000, 190_000],
-  ['Velikan', 'Velikan 46-48 qora', 3, 180_000, 215_000],
-  ['Adidas', 'Adidas Run 6li', 6, 120_000, 140_000],
+/** Sinov uchun namunaviy tovarlar. Haqiqiy tovarlar Excel shablon orqali import qilinadi. */
+export const demoInputs: ProductInput[] = [
+  { brand: 'Little', name: 'Little 01', size: '36-40', color: 'qora', packSize: 5, packs: 12, costPrice: 95_000, salePrice: 105_000 },
+  { brand: 'Little', name: 'Little qalin', size: '36-40', color: 'jigarrang', packSize: 5, packs: 8, costPrice: 105_000, salePrice: 115_000 },
+  { brand: 'Ezel', name: 'Ezel 18', size: '40-44', color: 'oq', packSize: 5, packs: 10, costPrice: 93_000, salePrice: 110_000 },
+  { brand: 'Richmen', name: 'Richmen Pol klassika 29', size: '40-44', color: 'qora', packSize: 5, packs: 6, costPrice: 150_000, salePrice: 175_000 },
+  { brand: 'Nike', name: 'Nike Air 270', size: '40-44', color: 'oq', packSize: 5, packs: 20, costPrice: 160_000, salePrice: 190_000 },
+  { brand: 'Velikan', name: 'Velikan klassika', size: '46-48', color: 'qora', packSize: 3, packs: 9, costPrice: 180_000, salePrice: 215_000 },
+  { brand: 'Adidas', name: 'Adidas Run', size: '39-44', color: 'kulrang', packSize: 6, packs: 5, costPrice: 120_000, salePrice: 140_000 },
 ]
-
-/** EAN-13 nazorat raqami. */
-export function ean13(base12: string): string {
-  const sum = base12
-    .split('')
-    .reduce((s, d, i) => s + Number(d) * (i % 2 ? 3 : 1), 0)
-  return base12 + ((10 - (sum % 10)) % 10)
-}
-
-export const demoProducts: Product[] = rows.map(([brand, name, packSize, costPrice, salePrice], i) => ({
-  id: `demo-${i + 1}`,
-  brand,
-  name,
-  article: `DM-${1000 + i}`,
-  barcode: ean13(String(200000000100 + i)),
-  packSize,
-  costPrice,
-  salePrice,
-  stock: packSize * 20,
-}))

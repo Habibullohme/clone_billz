@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { formatSum, parseSum } from '../lib/money'
-import { summarizePayment } from '../lib/cart'
+import { balancePayment } from '../lib/cart'
 import type { Payment } from '../types'
+import { CustomerInput } from './CustomerInput'
+import { MoneyInput } from './ui'
 
 interface Props {
   total: number
   usdRate: number
   customerName: string
+  onCustomerChange: (name: string) => void
   onCancel: () => void
   onConfirm: (payment: Payment, change: number, usdRate: number) => void
 }
@@ -16,40 +19,40 @@ const num = (s: string) => {
   return Number.isFinite(v) ? v : 0
 }
 
-export function PaymentModal({ total, usdRate: initialRate, customerName, onCancel, onConfirm }: Props) {
-  const [cash, setCash] = useState('')
+export function PaymentModal({ total, usdRate: initialRate, customerName, onCustomerChange, onCancel, onConfirm }: Props) {
+  const [cash, setCash] = useState<string | null>(null)
   const [usd, setUsd] = useState('')
   const [rate, setRate] = useState(String(initialRate))
   const [card, setCard] = useState('')
-  const cashRef = useRef<HTMLInputElement>(null)
+  const [debt, setDebt] = useState('')
+  const firstRef = useRef<HTMLInputElement>(null)
+  const sent = useRef(false)
 
-  useEffect(() => cashRef.current?.focus(), [])
+  useEffect(() => firstRef.current?.focus(), [])
 
   const usdRate = num(rate)
   const usdAmount = parseFloat(usd.replace(',', '.')) || 0
-  const p = { cash: num(cash), usd: usdAmount, usdRate, card: num(card) }
-  const s = summarizePayment(total, p)
-  const debt = s.remaining
-  const debtNeedsName = debt > 0 && !customerName.trim()
-  const nothingPaid = s.paid === 0 && debt === total
+  const s = balancePayment(total, {
+    usd: usdAmount, usdRate, card: num(card), debt: num(debt),
+    cashManual: cash === null ? null : num(cash),
+  })
+  const debtNeedsName = num(debt) > 0 && !customerName.trim()
+  const blocked = s.short > 0 || debtNeedsName
 
-  // "Qolganini shu yerga" — boshqa maydonlar to'ldirilgandan keyin qolgan summani qo'yadi.
-  const restFor = (field: 'cash' | 'card') => {
-    const other = field === 'cash' ? p.card : p.cash
-    return Math.max(0, total - other - Math.round(p.usd * p.usdRate))
-  }
-
-  const sent = useRef(false)
   const confirm = () => {
-    if (debtNeedsName || sent.current) return
+    if (blocked || sent.current) return
     sent.current = true
-    onConfirm({ ...p, debt }, s.change, usdRate)
+    onConfirm({ cash: s.cash, usd: usdAmount, usdRate, card: num(card), debt: num(debt) }, s.change, usdRate)
   }
+
+  /** Boshqa maydonlar to'ldirilgandan keyin qolgan summa. */
+  const rest = (except: 'card' | 'debt') =>
+    Math.max(0, total - Math.round(usdAmount * usdRate) - (except === 'card' ? num(debt) : num(card)))
 
   return (
     <div className="modal-bg" onMouseDown={onCancel}>
       <div
-        className="modal"
+        className="modal pay-modal"
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           if (e.key === 'Escape') onCancel()
@@ -60,52 +63,80 @@ export function PaymentModal({ total, usdRate: initialRate, customerName, onCanc
           }
         }}
       >
-        <div className="modal-head">
-          <h2>To'lov</h2>
-          <div className="big">{formatSum(total)} so'm</div>
+        <div className="pay-total">
+          <span>To'lanadi</span>
+          <b>{formatSum(total)}</b>
         </div>
 
-        <label className="field">
-          <span>💵 Naqd, so'm</span>
-          <div className="with-btn">
-            <input ref={cashRef} className="input" inputMode="numeric" value={cash} onChange={(e) => setCash(e.target.value)} placeholder="0" />
-            <button className="btn ghost" onClick={() => setCash(String(restFor('cash')))}>qolgani</button>
-          </div>
-        </label>
+        <div className="pay-grid">
+          <label className="pay-field">
+            <span>Naqd</span>
+            <input
+              ref={firstRef}
+              className={`input${s.cashAuto ? ' auto' : ''}`}
+              inputMode="numeric"
+              value={cash ?? (s.cash ? formatSum(s.cash) : '')}
+              placeholder="0"
+              onFocus={(e) => e.target.select()}
+              onChange={(e) => setCash(e.target.value)}
+            />
+            {s.cashAuto ? (
+              <small className="muted">avtomatik · qolgani</small>
+            ) : (
+              <button className="link small" onClick={() => setCash(null)}>avtomatikka qaytarish</button>
+            )}
+          </label>
 
-        <div className="field">
-          <span>💲 Dollar</span>
-          <div className="usd">
-            <input className="input" inputMode="decimal" value={usd} onChange={(e) => setUsd(e.target.value)} placeholder="0 $" />
-            <span className="muted">×</span>
-            <input className="input rate" inputMode="numeric" value={rate} onChange={(e) => setRate(e.target.value)} title="Kurs" />
-            <span className="muted">= {formatSum(Math.round(p.usd * p.usdRate))}</span>
+          <label className="pay-field">
+            <span>Karta</span>
+            <MoneyInput value={card} placeholder="0" onChange={setCard} />
+            <button className="link small" onClick={() => { setCash(null); setCard(String(rest('card'))) }}>hammasi kartaga</button>
+          </label>
+
+          <div className="pay-field">
+            <span>Dollar</span>
+            <div className="usd">
+              <input className="input" inputMode="decimal" value={usd} placeholder="0 $" onChange={(e) => setUsd(e.target.value)} />
+              <span className="muted">×</span>
+              <input className="input rate" inputMode="numeric" value={rate} onChange={(e) => setRate(e.target.value)} aria-label="Kurs" />
+            </div>
+            <small className="muted">{usdAmount ? `= ${formatSum(Math.round(usdAmount * usdRate))} so'm` : 'kurs o\'zgarsa eslab qolinadi'}</small>
           </div>
+
+          <label className="pay-field">
+            <span>Nasiya</span>
+            <MoneyInput value={debt} placeholder="0" onChange={setDebt} />
+            <button className="link small" onClick={() => { setCash(null); setDebt(String(rest('debt'))) }}>hammasi nasiyaga</button>
+          </label>
         </div>
 
-        <label className="field">
-          <span>💳 Karta, so'm</span>
-          <div className="with-btn">
-            <input className="input" inputMode="numeric" value={card} onChange={(e) => setCard(e.target.value)} placeholder="0" />
-            <button className="btn ghost" onClick={() => setCard(String(restFor('card')))}>qolgani</button>
+        {(s.change > 0 || s.short > 0) && (
+          <div className={`pay-result ${s.short > 0 ? 'bad' : 'good'}`}>
+            {s.short > 0 ? (
+              <>
+                <span>Yetmayapti</span>
+                <b>{formatSum(s.short)}</b>
+                <button className="btn ghost small" onClick={() => setDebt(String(num(debt) + s.short))}>Nasiyaga yozish</button>
+              </>
+            ) : (
+              <>
+                <span>Qaytim</span>
+                <b>{formatSum(s.change)}</b>
+              </>
+            )}
           </div>
-        </label>
-
-        <div className="pay-sum">
-          <div><span>To'landi</span><b>{formatSum(s.paid)}</b></div>
-          {s.change > 0 && (
-            <div className="ok"><span>Qaytim</span><b>{formatSum(s.change)} so'm</b></div>
-          )}
-          {debt > 0 && (
-            <div className="warn"><span>Nasiyaga</span><b>{formatSum(debt)} so'm</b></div>
-          )}
-        </div>
-        {debtNeedsName && <p className="error">Nasiya uchun mijoz ismini yozing (o'ng tomonda).</p>}
+        )}
+        {num(debt) > 0 && (
+          <div className="pay-field">
+            <span>Kimga nasiya{debtNeedsName && <b className="error"> · ism kerak</b>}</span>
+            <CustomerInput value={customerName} onChange={onCustomerChange} />
+          </div>
+        )}
 
         <div className="modal-actions">
-          <button className="btn ghost" onClick={onCancel}>Bekor (Esc)</button>
-          <button className="btn primary" onClick={confirm} disabled={debtNeedsName}>
-            {nothingPaid ? "To'liq nasiyaga" : debt > 0 ? 'Saqlash (qisman nasiya)' : 'Saqlash'} · Enter
+          <button className="btn ghost" onClick={onCancel}>Bekor</button>
+          <button className="btn primary grow" onClick={confirm} disabled={blocked}>
+            Sotuvni yakunlash <kbd>Enter</kbd>
           </button>
         </div>
       </div>

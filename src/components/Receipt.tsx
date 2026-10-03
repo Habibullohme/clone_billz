@@ -7,21 +7,22 @@ export function Receipt({ sale, settings }: { sale: Sale; settings: Settings }) 
   const d = new Date(sale.createdAt)
   const p = sale.payment
   return (
-    <div className="receipt">
+    <div className={`receipt w${settings.receiptWidth}`}>
       <div className="r-center">
         <b className="r-shop">{settings.shopName}</b>
+        {settings.shopAddress && <div>{settings.shopAddress}</div>}
         {settings.shopPhone && <div>{settings.shopPhone}</div>}
       </div>
       <div className="r-line" />
       <div className="r-kv"><span>Chek №</span><span>{String(sale.number).padStart(6, '0')}</span></div>
       <div className="r-kv"><span>Sana</span><span>{d.toLocaleDateString('ru-RU')} {d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span></div>
-      {sale.customerName && <div className="r-kv"><span>Mijoz</span><b>{sale.customerName}</b></div>}
+      {settings.receiptShowCustomer && sale.customerName && <div className="r-kv"><span>Mijoz</span><b>{sale.customerName}</b></div>}
       <div className="r-line" />
       {sale.lines.map((l) => (
         <div key={l.productId} className="r-item">
           <div>{l.name}</div>
           <div className="r-kv">
-            <span>{packsLabel(l.pairs, l.packSize)} · {l.pairs} × {formatSum(l.price)}</span>
+            <span>{settings.receiptShowPacks && `${packsLabel(l.pairs, l.packSize)} · `}{l.pairs} × {formatSum(l.price)}</span>
             <span>{formatSum(l.pairs * l.price)}</span>
           </div>
         </div>

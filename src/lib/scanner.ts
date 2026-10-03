@@ -9,7 +9,7 @@ export class ScanDetector {
   constructor(
     /** Ikki belgi orasidagi maksimal o'rtacha vaqt (ms). */
     private maxAvgGap = 40,
-    private minLength = 4,
+    private minLength = 6,
     /** Shuncha vaqt jim tursa bufer tozalanadi. */
     private resetAfter = 300,
   ) {}

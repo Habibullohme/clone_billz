@@ -11,6 +11,10 @@ import { CartRow } from '../components/CartRow'
 import { CustomerInput } from '../components/CustomerInput'
 import { PaymentModal } from '../components/PaymentModal'
 import { Receipt } from '../components/Receipt'
+import { MoneyInput } from '../components/ui'
+
+const isTyping = (t: EventTarget | null) =>
+  t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement
 
 export function PosPage() {
   const [products, setProducts] = useState<Product[]>([])
@@ -18,6 +22,7 @@ export function PosPage() {
   const [lines, setLines] = useState<CartLine[]>([])
   const [customer, setCustomer] = useState('')
   const [note, setNote] = useState('')
+  const [showNote, setShowNote] = useState(false)
   const [finalDraft, setFinalDraft] = useState('')
   const [query, setQuery] = useState('')
   const [activeHit, setActiveHit] = useState(0)
@@ -41,44 +46,53 @@ export function PosPage() {
     setTimeout(() => setToast((t) => (t?.text === text ? null : t)), 2200)
   }
 
-  const add = useCallback((p: Product) => {
-    setLines((ls) => addProduct(ls, p))
-    setFlashId(p.id)
-    setTimeout(() => setFlashId((f) => (f === p.id ? null : f)), 600)
-  }, [])
+  const add = useCallback(
+    (p: Product) => {
+      const inCart = lines.find((l) => l.productId === p.id)?.pairs ?? 0
+      if (settings && !settings.allowNegativeStock && inCart + p.packSize > p.stock) {
+        if (settings.scanSound) beep(false)
+        showToast(`${p.name}: omborda faqat ${Math.max(0, p.stock)} juft bor`, true)
+        return false
+      }
+      setLines((ls) => addProduct(ls, p))
+      setFlashId(p.id)
+      setTimeout(() => setFlashId((f) => (f === p.id ? null : f)), 700)
+      return true
+    },
+    [lines, settings],
+  )
 
   const onScan = useCallback(
     async (code: string) => {
       const p = await findByBarcode(code)
-      if (p) {
-        beep(true)
-        setDone(null)
-        add(p)
-      } else {
-        beep(false)
-        showToast(`Topilmadi: ${code}`, true)
+      if (!p) {
+        if (settings?.scanSound) beep(false)
+        showToast(`Bunday shtrix-kod yo'q: ${code}`, true)
+        return
       }
+      setDone(null)
+      if (add(p) && settings?.scanSound) beep(true)
     },
-    [add],
+    [add, settings],
   )
 
   useScanner(onScan, !paying)
 
-  // "/" — qidiruvga o'tish, F2 — to'lov.
+  // Space — qidiruv, F2 — to'lov.
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement
-      if (e.key === '/' && !typing) {
+      if (paying || done) return
+      if (e.code === 'Space' && !isTyping(e.target)) {
         e.preventDefault()
         searchRef.current?.focus()
       }
-      if (e.key === 'F2' && lines.length && !paying && !done) {
+      if (e.key === 'F2' && lines.length) {
         e.preventDefault()
         setPaying(true)
       }
     }
-    window.addEventListener('keydown', h)
-    return () => window.removeEventListener('keydown', h)
+    window.addEventListener('keydown', h, true)
+    return () => window.removeEventListener('keydown', h, true)
   }, [lines.length, paying, done])
 
   const hits = searchProducts(products, query)
@@ -90,24 +104,24 @@ export function PosPage() {
   const total = finalTotal ?? sub
   const discount = sub - total
   const distributed = finalTotal !== null ? distributeTotal(lines.map(lineTotal), finalTotal) : null
-  const totalPairs = lines.reduce((s, l) => s + l.pairs, 0)
+  const packs = lines.reduce((s, l) => s + l.pairs / (byId.get(l.productId)?.packSize ?? 1), 0)
 
-  // Tezkor yaxlitlash tugmalari: pastga yaxlitlangan summalar.
+  // Tezkor yaxlitlash: jamini pastga yaxlitlangan summalar.
   const quickTotals = useMemo(() => {
-    if (sub <= 0) return []
-    const steps = [10_000, 50_000, 100_000]
+    if (sub <= 0 || !settings) return []
     const out = new Set<number>()
-    for (const st of steps) {
+    for (const st of settings.roundSteps) {
       const v = Math.floor(sub / st) * st
       if (v > 0 && v < sub) out.add(v)
     }
     return [...out].sort((a, b) => b - a).slice(0, 3)
-  }, [sub])
+  }, [sub, settings])
 
   const reset = () => {
     setLines([])
     setCustomer('')
     setNote('')
+    setShowNote(false)
     setFinalDraft('')
     setQuery('')
   }
@@ -141,7 +155,7 @@ export function PosPage() {
     await holdCart({ customerName: customer, lines, finalTotal })
     setHeld(await getHeld())
     reset()
-    showToast('Savatcha keyinga qoldirildi')
+    showToast('Savat keyinga qoldirildi')
   }
 
   const resume = async (id: string) => {
@@ -161,11 +175,11 @@ export function PosPage() {
     <div className="pos">
       <section className="pos-main">
         <div className="search">
-          <span className="scan-dot" title="Skaner doim tayyor" />
+          <svg className="search-ic" viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="6" fill="none" stroke="currentColor" strokeWidth="2" /><path d="M14 14l4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
           <input
             ref={searchRef}
-            className="input search-in"
-            placeholder="Qidiruv: nom, artikul, shtrix-kod   ( / )"
+            className="search-in"
+            placeholder="Tovar qidirish"
             value={query}
             onChange={(e) => {
               setQuery(e.target.value)
@@ -187,6 +201,7 @@ export function PosPage() {
               }
             }}
           />
+          <kbd className="search-kbd">Space</kbd>
           {hits.length > 0 && (
             <ul className="hits">
               {hits.map((p, i) => (
@@ -201,12 +216,12 @@ export function PosPage() {
                 >
                   <div>
                     <b>{p.name}</b>
-                    <div className="muted small">{p.brand} · {p.article} · {p.barcode}</div>
+                    <div className="muted small">{[p.brand, p.size, p.color].filter(Boolean).join(' · ')}</div>
                   </div>
                   <div className="hit-r">
                     <b>{formatSum(p.salePrice)}</b>
-                    <div className="muted small">
-                      qoldiq: {Math.floor(p.stock / p.packSize)} pachka
+                    <div className={`small ${p.stock < p.packSize ? 'error' : 'muted'}`}>
+                      {Math.max(0, Math.floor(p.stock / p.packSize))} pachka bor
                     </div>
                   </div>
                 </li>
@@ -215,22 +230,11 @@ export function PosPage() {
           )}
         </div>
 
-        <div className="cart-head">
-          <h1>Savatcha</h1>
-          {lines.length > 0 && (
-            <>
-              <span className="pill">{lines.length} xil · {totalPairs} juft</span>
-              <button className="link" onClick={reset}>tozalash</button>
-            </>
-          )}
-          <span className="muted scan-hint">Skaner doim ishlaydi — hech narsani bosish shart emas</span>
-        </div>
-
         {lines.length === 0 ? (
           <div className="empty">
-            <div className="empty-icon">▥</div>
-            <b>Savatcha bo'sh</b>
-            <span className="muted">Tovarni skaner qiling — bir pachka avtomatik tushadi</span>
+            <div className="scan-ready"><span className="scan-dot" /> Skaner tayyor</div>
+            <b>Tovarni skaner qiling</b>
+            <span className="muted">Har skanerda bir pachka qo'shiladi. Qidirish uchun Space bosing.</span>
           </div>
         ) : (
           <div className="rows">
@@ -244,71 +248,82 @@ export function PosPage() {
                   product={p}
                   discountedTotal={distributed ? distributed[i] : null}
                   highlight={flashId === l.productId}
+                  allowPriceEdit={settings.allowPriceEdit}
                   onChange={(nl) => setLines((ls) => ls.map((x) => (x.productId === nl.productId ? nl : x)))}
                   onRemove={() => setLines((ls) => ls.filter((x) => x.productId !== l.productId))}
                 />
               )
             })}
+            <button className="link small clear" onClick={reset}>Savatni tozalash</button>
           </div>
         )}
       </section>
 
       <aside className="pos-side">
+        {held.length > 0 && (
+          <div className="block">
+            <div className="label">Kutayotganlar</div>
+            <div className="held-list">
+              {held.map((h) => (
+                <button key={h.id} className="held" onClick={() => resume(h.id)}>
+                  <b>{h.customerName || 'Mijozsiz'}</b>
+                  <span className="small">
+                    {formatSum(subtotal(h.lines))} · {new Date(h.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="block">
           <div className="label">Mijoz</div>
           <CustomerInput value={customer} onChange={setCustomer} />
         </div>
 
         <div className="block">
-          <div className="label">Yakuniy summa (chegirma)</div>
-          <input
-            className="input"
-            inputMode="numeric"
-            placeholder={sub ? formatSum(sub) : 'masalan 1 400 000'}
+          <div className="label">Yakuniy summa</div>
+          <MoneyInput
+            placeholder={sub ? formatSum(sub) : 'chegirma uchun'}
             value={finalDraft}
-            onChange={(e) => setFinalDraft(e.target.value)}
+            onChange={setFinalDraft}
             disabled={!lines.length}
           />
-          {finalDraft && finalTotal === null && (
-            <div className="error small">Summa jamidan katta bo'lmasligi kerak</div>
+          {finalDraft && finalTotal === null && <div className="error small">Jamidan katta bo'lmasin</div>}
+          {quickTotals.length > 0 && (
+            <div className="quick">
+              {quickTotals.map((v) => (
+                <button key={v} className={`chip${finalTotal === v ? ' on' : ''}`} onClick={() => setFinalDraft(String(v))}>
+                  {shortSum(v)}
+                </button>
+              ))}
+              {finalDraft && <button className="chip" onClick={() => setFinalDraft('')}>✕</button>}
+            </div>
           )}
-          <div className="quick">
-            {quickTotals.map((v) => (
-              <button key={v} className="chip" onClick={() => setFinalDraft(String(v))}>
-                {shortSum(v)}
-              </button>
-            ))}
-            {finalDraft && (
-              <button className="chip" onClick={() => setFinalDraft('')}>bekor</button>
-            )}
-          </div>
         </div>
 
-        <div className="block">
-          <div className="label">Eslatma</div>
-          <input className="input" placeholder="ixtiyoriy" value={note} onChange={(e) => setNote(e.target.value)} />
-        </div>
-
-        {held.length > 0 && (
+        {showNote ? (
           <div className="block">
-            <div className="label">Kechiktirilganlar</div>
-            {held.map((h) => (
-              <button key={h.id} className="held" onClick={() => resume(h.id)}>
-                <span>{h.customerName || 'Mijozsiz'}</span>
-                <span className="muted small">
-                  {h.lines.length} xil · {new Date(h.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
-                </span>
-              </button>
-            ))}
+            <div className="label">Eslatma</div>
+            <input className="input" autoFocus value={note} onChange={(e) => setNote(e.target.value)} />
           </div>
+        ) : (
+          <button className="link small left" onClick={() => setShowNote(true)}>+ eslatma</button>
         )}
 
         <div className="totals">
-          <div><span>Oraliq jami</span><span>{formatSum(sub)}</span></div>
-          <div><span>Chegirma</span><span>{discount ? `−${formatSum(discount)}` : '0'}</span></div>
+          {discount > 0 && (
+            <>
+              <div className="muted"><span>Jami</span><span>{formatSum(sub)}</span></div>
+              <div className="muted"><span>Chegirma</span><span>−{formatSum(discount)}</span></div>
+            </>
+          )}
+          <div className="grand">
+            <span>{lines.length ? `${+packs.toFixed(1)} pachka` : 'Jami'}</span>
+            <b>{formatSum(total)}</b>
+          </div>
           <button className="btn primary pay" disabled={!lines.length} onClick={() => setPaying(true)}>
-            <span>TO'LASH <kbd>F2</kbd></span>
-            <span>{formatSum(total)} so'm</span>
+            To'lash <kbd>F2</kbd>
           </button>
           <button className="btn ghost" disabled={!lines.length} onClick={hold}>Kechiktirish</button>
         </div>
@@ -319,6 +334,7 @@ export function PosPage() {
           total={total}
           usdRate={settings.usdRate}
           customerName={customer}
+          onCustomerChange={setCustomer}
           onCancel={() => setPaying(false)}
           onConfirm={pay}
         />
@@ -328,15 +344,15 @@ export function PosPage() {
         <div className="modal-bg">
           <div className="modal receipt-modal">
             <div className="done-head">
-              <b>✓ Sotuv saqlandi</b>
-              {done.change > 0 && <span className="ok">Qaytim: {formatSum(done.change)} so'm</span>}
+              <b>Sotuv saqlandi</b>
+              {done.change > 0 && <span className="change">Qaytim {formatSum(done.change)}</span>}
             </div>
             <div className="print-area">
               <Receipt sale={done} settings={settings} />
             </div>
             <div className="modal-actions">
-              <button className="btn ghost" onClick={() => window.print()}>Chek chop etish</button>
-              <button className="btn primary" autoFocus onClick={() => setDone(null)}>Yangi sotuv · Enter</button>
+              <button className="btn ghost" onClick={() => window.print()}>Chek chiqarish</button>
+              <button className="btn primary grow" autoFocus onClick={() => setDone(null)}>Yangi sotuv <kbd>Enter</kbd></button>
             </div>
           </div>
         </div>

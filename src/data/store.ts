@@ -2,36 +2,66 @@
  * Ma'lumotlar qatlami. Hozircha brauzer xotirasida (localStorage) ishlaydi,
  * keyin shu funksiyalar Supabase bilan almashtiriladi — sahifalar o'zgarmaydi.
  */
-import type { Customer, HeldCart, Product, Sale } from '../types'
-import { demoProducts } from './demo'
+import type { Customer, HeldCart, ImportBatch, Product, ProductInput, Sale } from '../types'
+import { makeArticle, makeBarcode } from '../lib/codes'
+import { demoInputs } from './demo'
 
 export interface Settings {
+  // Do'kon
   shopName: string
   shopPhone: string
+  shopAddress: string
+  // Chek
+  receiptWidth: 58 | 80
   receiptFooter: string
+  receiptShowCustomer: boolean
+  receiptShowPacks: boolean
+  // Valyuta
   usdRate: number
-  /** Tezkor yakuniy summa tugmalari uchun yaxlitlash qadami, so'm. */
-  roundStep: number
+  // Kassa
+  allowPriceEdit: boolean
+  allowNegativeStock: boolean
+  scanSound: boolean
+  /** Yakuniy summa tugmalari uchun yaxlitlash qadamlari, so'm. */
+  roundSteps: number[]
+  // Ombor
+  lowStockPacks: number
+  // Etiketka
+  labelSize: '58x40' | '40x30' | '30x20'
+  labelShowPrice: boolean
+  labelShowSize: boolean
 }
 
-const defaults: Settings = {
+export const defaultSettings: Settings = {
   shopName: "Do'kon",
   shopPhone: '',
+  shopAddress: '',
+  receiptWidth: 58,
   receiptFooter: 'Xaridingiz uchun rahmat!',
+  receiptShowCustomer: true,
+  receiptShowPacks: true,
   usdRate: 11_850,
-  roundStep: 50_000,
+  allowPriceEdit: true,
+  allowNegativeStock: true,
+  scanSound: true,
+  roundSteps: [10_000, 50_000, 100_000],
+  lowStockPacks: 2,
+  labelSize: '58x40',
+  labelShowPrice: true,
+  labelShowSize: true,
 }
 
 const memory = new Map<string, string>()
 
 function read<T>(key: string, fallback: T): T {
+  let raw: string | null | undefined
   try {
-    const raw = localStorage.getItem(key) ?? memory.get(key)
-    return raw ? (JSON.parse(raw) as T) : fallback
+    raw = localStorage.getItem(key)
   } catch {
-    const raw = memory.get(key)
-    return raw ? (JSON.parse(raw) as T) : fallback
+    // Xotira yopiq (maxfiy oyna) — sessiya xotirasidan o'qiymiz.
   }
+  raw ??= memory.get(key)
+  return raw ? (JSON.parse(raw) as T) : fallback
 }
 
 function write(key: string, value: unknown) {
@@ -40,25 +70,48 @@ function write(key: string, value: unknown) {
   try {
     localStorage.setItem(key, raw)
   } catch {
-    // Xotira yopiq bo'lsa (masalan, maxfiy oyna) — faqat sessiya davomida saqlanadi.
+    // Faqat sessiya davomida saqlanadi.
   }
 }
 
 const K = {
-  products: 'dk.products',
-  sales: 'dk.sales',
-  customers: 'dk.customers',
-  held: 'dk.held',
-  settings: 'dk.settings',
-  saleSeq: 'dk.saleSeq',
+  products: 'dk2.products',
+  batches: 'dk2.batches',
+  sales: 'dk2.sales',
+  customers: 'dk2.customers',
+  held: 'dk2.held',
+  settings: 'dk2.settings',
+  seq: 'dk2.seq',
+}
+
+type SeqName = 'product' | 'sale' | 'batch'
+
+function nextSeq(name: SeqName): number {
+  const seq = read<Record<string, number>>(K.seq, {})
+  seq[name] = (seq[name] ?? 0) + 1
+  write(K.seq, seq)
+  return seq[name]
 }
 
 export function uid(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
 }
 
+// ---------- Mahsulotlar ----------
+
+let seeded = false
+function ensureSeed() {
+  if (seeded) return
+  seeded = true
+  if (read<Product[] | null>(K.products, null) === null) {
+    write(K.products, [])
+    createBatch(demoInputs, 'manual')
+  }
+}
+
 export async function getProducts(): Promise<Product[]> {
-  return read<Product[] | null>(K.products, null) ?? demoProducts
+  ensureSeed()
+  return read<Product[]>(K.products, [])
 }
 
 export async function findByBarcode(code: string): Promise<Product | undefined> {
@@ -73,19 +126,86 @@ export function searchProducts(products: Product[], query: string, limit = 8): P
   const words = q.split(/\s+/)
   return products
     .filter((p) => {
-      const hay = `${p.brand} ${p.name} ${p.article} ${p.barcode}`.toLowerCase()
+      const hay = `${p.brand} ${p.name} ${p.size} ${p.color} ${p.article} ${p.barcode}`.toLowerCase()
       return words.every((w) => hay.includes(w))
     })
     .slice(0, limit)
 }
 
+/**
+ * Kirim: yangi tovarlarga kod beradi. Bir xil brend + model + razmer + rang
+ * allaqachon bo'lsa, yangisini ochmaydi — qoldig'iga qo'shadi va narxini yangilaydi.
+ */
+function createBatch(inputs: ProductInput[], source: ImportBatch['source']): ImportBatch {
+  const products = read<Product[]>(K.products, [])
+  const now = new Date().toISOString()
+  const batch: ImportBatch = {
+    id: uid(), number: nextSeq('batch'), createdAt: now, source,
+    productIds: [], packs: {}, costTotal: 0, saleTotal: 0,
+  }
+  const key = (x: { brand: string; name: string; size: string; color: string }) =>
+    [x.brand, x.name, x.size, x.color].map((s) => s.trim().toLowerCase()).join('|')
+
+  for (const inp of inputs) {
+    const pairs = inp.packs * inp.packSize
+    let p = products.find((x) => key(x) === key(inp))
+    if (p) {
+      p.stock += pairs
+      p.costPrice = inp.costPrice
+      p.salePrice = inp.salePrice
+      p.packSize = inp.packSize
+      p.batchId = batch.id
+    } else {
+      const seq = nextSeq('product')
+      p = {
+        id: uid(), brand: inp.brand.trim(), name: inp.name.trim(), size: inp.size.trim(), color: inp.color.trim(),
+        article: makeArticle(inp.brand, seq), barcode: makeBarcode(seq),
+        packSize: inp.packSize, costPrice: inp.costPrice, salePrice: inp.salePrice,
+        stock: pairs, createdAt: now, batchId: batch.id,
+      }
+      products.push(p)
+    }
+    if (!batch.productIds.includes(p.id)) batch.productIds.push(p.id)
+    batch.packs[p.id] = (batch.packs[p.id] ?? 0) + inp.packs
+    batch.costTotal += pairs * inp.costPrice
+    batch.saleTotal += pairs * inp.salePrice
+  }
+  write(K.products, products)
+  write(K.batches, [batch, ...read<ImportBatch[]>(K.batches, [])])
+  return batch
+}
+
+export async function importProducts(inputs: ProductInput[], source: ImportBatch['source'] = 'excel'): Promise<ImportBatch> {
+  ensureSeed()
+  return createBatch(inputs, source)
+}
+
+export async function updateProduct(p: Product): Promise<void> {
+  const products = await getProducts()
+  write(K.products, products.map((x) => (x.id === p.id ? p : x)))
+}
+
+export async function deleteProduct(id: string): Promise<void> {
+  const products = await getProducts()
+  write(K.products, products.filter((x) => x.id !== id))
+}
+
+export async function getBatches(): Promise<ImportBatch[]> {
+  ensureSeed()
+  return read<ImportBatch[]>(K.batches, [])
+}
+
+// ---------- Sozlamalar ----------
+
 export async function getSettings(): Promise<Settings> {
-  return { ...defaults, ...read<Partial<Settings>>(K.settings, {}) }
+  return { ...defaultSettings, ...read<Partial<Settings>>(K.settings, {}) }
 }
 
 export async function saveSettings(s: Settings) {
   write(K.settings, s)
 }
+
+// ---------- Mijozlar ----------
 
 export async function getCustomers(): Promise<Customer[]> {
   return read<Customer[]>(K.customers, [])
@@ -113,19 +233,15 @@ export function matchCustomers(list: Customer[], query: string, limit = 6): Cust
     .slice(0, limit)
 }
 
+// ---------- Sotuvlar ----------
+
 export async function getSales(): Promise<Sale[]> {
   return read<Sale[]>(K.sales, [])
 }
 
-export async function nextSaleNumber(): Promise<number> {
-  return read<number>(K.saleSeq, 0) + 1
-}
-
 /** Sotuvni saqlaydi va qoldiqni kamaytiradi. */
 export async function saveSale(sale: Omit<Sale, 'id' | 'number' | 'createdAt'>): Promise<Sale> {
-  const number = await nextSaleNumber()
-  const full: Sale = { ...sale, id: uid(), number, createdAt: new Date().toISOString() }
-  write(K.saleSeq, number)
+  const full: Sale = { ...sale, id: uid(), number: nextSeq('sale'), createdAt: new Date().toISOString() }
   write(K.sales, [full, ...(await getSales())])
 
   const products = await getProducts()
@@ -137,6 +253,8 @@ export async function saveSale(sale: Omit<Sale, 'id' | 'number' | 'createdAt'>):
   await rememberCustomer(sale.customerName)
   return full
 }
+
+// ---------- Kechiktirilgan savatlar ----------
 
 export async function getHeld(): Promise<HeldCart[]> {
   return read<HeldCart[]>(K.held, [])

@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { addProduct, distributeTotal, packsLabel, subtotal, summarizePayment } from './cart'
+import { addProduct, balancePayment, distributeTotal, packsLabel, subtotal } from './cart'
 import { parseSum } from './money'
 import { ScanDetector } from './scanner'
 import type { Product } from '../types'
 
 const p = (id: string, packSize = 5, salePrice = 160_000): Product => ({
   id, brand: 'B', name: id, article: id, barcode: id, packSize, costPrice: 130_000, salePrice, stock: 100,
+  size: '', color: '', createdAt: '', batchId: null,
 })
 
 describe('savatcha', () => {
@@ -30,9 +31,23 @@ describe('savatcha', () => {
     expect(packsLabel(2, 5)).toBe('2 juft')
   })
 
-  it('aralash to\'lov: 100$ kurs bilan, qolgani so\'mda, qaytim', () => {
-    const s = summarizePayment(1_500_000, { cash: 320_000, usd: 100, usdRate: 11_850, card: 0 })
-    expect(s).toEqual({ paid: 1_505_000, remaining: 0, change: 5_000 })
+  it('karta yozilsa naqd o\'zi kamayadi', () => {
+    const base = { usd: 0, usdRate: 11_850, card: 0, debt: 0, cashManual: null }
+    expect(balancePayment(2_650_000, base).cash).toBe(2_650_000)
+    const s = balancePayment(2_650_000, { ...base, card: 500_000 })
+    expect(s).toMatchObject({ cash: 2_150_000, short: 0, change: 0 })
+  })
+
+  it('100$ kurs bilan, qolgani naqd; mijoz ko\'proq bersa qaytim', () => {
+    const base = { usd: 100, usdRate: 11_850, card: 0, debt: 0, cashManual: null }
+    expect(balancePayment(1_500_000, base).cash).toBe(315_000)
+    expect(balancePayment(1_500_000, { ...base, cashManual: 320_000 }).change).toBe(5_000)
+  })
+
+  it('kam berilsa yetmayotgan summa ko\'rinadi, nasiya bilan yopiladi', () => {
+    const base = { usd: 0, usdRate: 11_850, card: 0, debt: 0, cashManual: 1_000_000 }
+    expect(balancePayment(1_500_000, base).short).toBe(500_000)
+    expect(balancePayment(1_500_000, { ...base, debt: 500_000 }).short).toBe(0)
   })
 })
 
@@ -65,7 +80,7 @@ describe('skaner', () => {
   it('input fokusda bo\'lmasa qo\'lda yozilgan kod ham qabul qilinadi', () => {
     const d = new ScanDetector()
     let t = 1000
-    for (const ch of '11790') d.feed(ch, (t += 150))
-    expect(d.feed('Enter', (t += 150), true)).toBe('11790')
+    for (const ch of '2100000000050') d.feed(ch, (t += 150))
+    expect(d.feed('Enter', (t += 150), true)).toBe('2100000000050')
   })
 })
