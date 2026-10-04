@@ -183,4 +183,9 @@ Billz'dan farqi: xabarlarda pachka × juft ko'rinadi va foyda hisoblanadi; filia
 - Login (reja): Telegram orqali. Egasi bot ichidagi mini-app'dan parolsiz kiradi; kompyuterda
   "Telegram orqali kirish" — bot tasdiq so'raydi; seans uzoq saqlanadi (Telegram Web kabi).
   "Qurilmalar" bo'limi: qaysi qurilmalar kirgan, oxirgi faollik, chiqarib yuborish; yangi kirish haqida botga xabar.
-- Artikul/kod masalasi hali hal qilinmagan (11-taklif: bitta kod — vitrina, etiketka va shtrix-kodda bir xil).
+- Kod (brend harfi + raqam) g'oyasi bekor qilindi — egasi boshqa narsani nazarda tutgan, keyinroq muhokama qilinadi.
+- Tovarlar bo'limi brendlar bo'yicha: tepada jami pachka, sotuv va kelish narxidagi qiymat; pastda brend kartalari.
+  Brendni bossa — o'sha brendning pachkalari, qiymati va tovarlari ro'yxati.
+- Brendlar Sozlamalar → Brendlar'da kiritiladi, yangi tovar formasida ro'yxatdan tanlanadi.
+- Chek kengligi qo'lda (mm) ham sozlanadi. Mavzu: Avto / Yorug' / Qorong'i (kassa tepasida tezkor tugma).
+- PIN to'liq terilishi bilan o'zi ochiladi.

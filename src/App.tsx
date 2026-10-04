@@ -5,7 +5,8 @@ import { ProductsPage } from './pages/ProductsPage'
 import { LabelsPage } from './pages/LabelsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { PinGate } from './components/PinGate'
-import { getSettings, type Settings } from './data/store'
+import { getSettings, saveSettings, type Settings } from './data/store'
+import { applyTheme, type Theme } from './lib/theme'
 
 const ownerTabs = [
   ['sales', 'Sotuvlar', 'Tushum, foyda, brendlar'],
@@ -34,8 +35,21 @@ export function App() {
 
   // Kassaga qaytganda sozlamalar (logo, nom) yangilanadi.
   useEffect(() => {
-    getSettings().then(setSettings)
+    getSettings().then((s) => {
+      setSettings(s)
+      applyTheme(s.theme)
+    })
   }, [tab])
+
+  // Kassa sarlavhasidagi tugma: yorug' ↔ qorong'i.
+  const toggleTheme = async () => {
+    const s = await getSettings()
+    const dark = s.theme === 'dark' || (s.theme === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches)
+    const next = { ...s, theme: (dark ? 'light' : 'dark') as Theme }
+    await saveSettings(next)
+    applyTheme(next.theme)
+    setSettings(next)
+  }
 
   const open = (t: OwnerTab) => {
     setMenu(false)
@@ -58,6 +72,9 @@ export function App() {
           {shop}
           <span className="grow" />
           <Clock />
+          <button className="burger" onClick={toggleTheme} aria-label="Yorug' / qorong'i">
+            <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M10 2a8 8 0 1 0 0 16z" fill="currentColor" /><circle cx="10" cy="10" r="7.25" fill="none" stroke="currentColor" strokeWidth="1.5" /></svg>
+          </button>
           <button className="burger" onClick={() => setMenu(true)} aria-label="Menyu">
             <span /><span /><span />
           </button>

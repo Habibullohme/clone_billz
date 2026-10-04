@@ -1,3 +1,4 @@
+import type React from 'react'
 import type { Sale } from '../types'
 import type { Settings } from '../data/store'
 import { formatSum } from '../lib/money'
@@ -7,7 +8,7 @@ export function Receipt({ sale, settings }: { sale: Sale; settings: Settings }) 
   const d = new Date(sale.createdAt)
   const p = sale.payment
   return (
-    <div className={`receipt w${settings.receiptWidth}`}>
+    <div className="receipt" style={{ '--rw': `${settings.receiptWidth}mm` } as React.CSSProperties}>
       <div className="r-center">
         {settings.receiptShowLogo && settings.shopLogo && <img className="r-logo" src={settings.shopLogo} alt="" />}
         <b className="r-shop">{settings.shopName}</b>

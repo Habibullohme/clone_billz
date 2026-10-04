@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { defaultSettings, getSettings, saveSettings, type Settings } from '../data/store'
+import { addBrand, defaultSettings, getBrands, getProducts, getSettings, removeBrand, renameBrand, saveSettings, type Settings } from '../data/store'
 import { formatSum } from '../lib/money'
 import { Segmented, Toggle } from '../components/ui'
+import { applyTheme, type Theme } from '../lib/theme'
 import { Receipt } from '../components/Receipt'
 import type { Sale } from '../types'
 
 const sections = [
   ['shop', "Do'kon"],
+  ['brands', 'Brendlar'],
   ['pos', 'Kassa'],
   ['receipt', 'Chek'],
   ['stock', 'Ombor'],
@@ -106,6 +108,16 @@ export function SettingsPage() {
               <Row id="set-shopName" title="Do'kon nomi" hint="Kassa tepasida va chekda chiqadi">{text('shopName')}</Row>
               <Row id="set-shopAddress" title="Manzil" hint="Masalan: Abu Saxiy, 3-qator, 112-do'kon">{text('shopAddress')}</Row>
               <Row id="set-shopPhone" title="Telefon">{text('shopPhone', '+998 90 123 45 67')}</Row>
+              <Row id="set-theme" title="Mavzu" hint="Avto — kompyuter yoki telefon sozlamasiga qarab">
+                <Segmented<Theme>
+                  value={s.theme}
+                  onChange={(v) => {
+                    update('theme', v)
+                    applyTheme(v)
+                  }}
+                  options={[['auto', 'Avto'], ['light', "Yorug'"], ['dark', "Qorong'i"]]}
+                />
+              </Row>
             </>
           )}
 
@@ -142,8 +154,22 @@ export function SettingsPage() {
           {section === 'receipt' && (
             <div className="set-split">
               <div>
-                <Row id="set-receiptWidth" title="Chek kengligi" hint="Printeringiz lentasi">
-                  <Segmented<58 | 80> value={s.receiptWidth} onChange={(v) => update('receiptWidth', v)} options={[[58, '58 mm'], [80, '80 mm']]} />
+                <Row id="set-receiptWidth" title="Chek kengligi" hint="Printeringiz lentasi. Boshqa o'lcham bo'lsa — mm da yozing">
+                  <div className="width-pick">
+                    <Segmented<number> value={s.receiptWidth} onChange={(v) => update('receiptWidth', v)} options={[[58, '58'], [80, '80']]} />
+                    <div className="with-suffix">
+                      <input
+                        id="set-receiptWidth"
+                        className="input"
+                        type="number"
+                        min={30}
+                        max={120}
+                        value={s.receiptWidth}
+                        onChange={(e) => update('receiptWidth', Math.min(120, Math.max(30, Number(e.target.value) || 58)))}
+                      />
+                      <span>mm</span>
+                    </div>
+                  </div>
                 </Row>
                 <Row id="set-receiptShowLogo" title="Logotip">{toggle('receiptShowLogo')}</Row>
                 <Row id="set-receiptShowCustomer" title="Mijoz ismi">{toggle('receiptShowCustomer')}</Row>
@@ -156,6 +182,8 @@ export function SettingsPage() {
               </div>
             </div>
           )}
+
+          {section === 'brands' && <BrandsSection />}
 
           {section === 'stock' && (
             <>
@@ -267,5 +295,73 @@ function PinSection({ s, onSave }: { s: Settings; onSave: (pin: string) => void 
         </button>
       </div>
     </>
+  )
+}
+
+function BrandsSection() {
+  const [brands, setBrands] = useState<string[]>([])
+  const [counts, setCounts] = useState<Record<string, number>>({})
+  const [name, setName] = useState('')
+  const [editing, setEditing] = useState<{ from: string; to: string } | null>(null)
+
+  const reload = async () => {
+    setBrands(await getBrands())
+    const c: Record<string, number> = {}
+    for (const p of await getProducts()) c[p.brand] = (c[p.brand] ?? 0) + 1
+    setCounts(c)
+  }
+  useEffect(() => {
+    reload()
+  }, [])
+
+  return (
+    <div className="brands">
+      <p className="muted small note">Brendlarni bir marta kiriting — yangi tovar qo'shganda ro'yxatdan tanlanadi.</p>
+      <form
+        className="brand-add"
+        onSubmit={async (e) => {
+          e.preventDefault()
+          if (!name.trim()) return
+          await addBrand(name)
+          setName('')
+          reload()
+        }}
+      >
+        <input id="brand-new" className="input" placeholder="Brend nomi, masalan Ezel" value={name} onChange={(e) => setName(e.target.value)} />
+        <button className="btn primary" type="submit" disabled={!name.trim()}>Qo'shish</button>
+      </form>
+      <div className="brand-list">
+        {brands.map((b) => (
+          <div key={b} className="brand-item">
+            <div className="grow">
+              {editing?.from === b ? (
+                <input
+                  id={`brand-${b}`}
+                  className="input"
+                  autoFocus
+                  value={editing.to}
+                  onChange={(e) => setEditing({ from: b, to: e.target.value })}
+                  onKeyDown={async (e) => {
+                    if (e.key === 'Enter') {
+                      await renameBrand(b, editing.to)
+                      setEditing(null)
+                      reload()
+                    }
+                    if (e.key === 'Escape') setEditing(null)
+                  }}
+                />
+              ) : (
+                <b>{b}</b>
+              )}
+              <div className="muted small">{counts[b] ?? 0} ta tovar</div>
+            </div>
+            <button className="link small" onClick={() => setEditing({ from: b, to: b })}>nomini o'zgartirish</button>
+            {!counts[b] && (
+              <button className="icon danger" aria-label="O'chirish" onClick={async () => { await removeBrand(b); reload() }}>✕</button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }

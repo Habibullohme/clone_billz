@@ -5,6 +5,7 @@
 import type { Customer, HeldCart, ImportBatch, Product, ProductInput, Sale } from '../types'
 import { makeArticle, makeBarcode } from '../lib/codes'
 import { demoInputs } from './demo'
+import type { Theme } from '../lib/theme'
 import { defaultTemplates, type LabelTemplate } from '../lib/labels'
 
 export interface Settings {
@@ -17,11 +18,14 @@ export interface Settings {
   /** Kassadan boshqa bo'limlarga kirish PIN kodi. Bo'sh — hali o'rnatilmagan. */
   ownerPin: string
   // Chek
-  receiptWidth: 58 | 80
+  /** Chek lentasi kengligi, mm. */
+  receiptWidth: number
   receiptFooter: string
   receiptShowCustomer: boolean
   receiptShowPacks: boolean
   receiptShowLogo: boolean
+  // Ko'rinish
+  theme: Theme
   // Valyuta
   usdRate: number
   // Kassa
@@ -49,6 +53,7 @@ export const defaultSettings: Settings = {
   receiptShowPacks: true,
   receiptShowLogo: true,
   usdRate: 11_850,
+  theme: 'auto',
   allowPriceEdit: true,
   allowNegativeStock: true,
   scanSound: true,
@@ -88,6 +93,7 @@ const K = {
   customers: 'dk2.customers',
   held: 'dk2.held',
   settings: 'dk2.settings',
+  brands: 'dk2.brands',
   seq: 'dk2.seq',
 }
 
@@ -185,6 +191,39 @@ export async function deleteProduct(id: string): Promise<void> {
 export async function getBatches(): Promise<ImportBatch[]> {
   ensureSeed()
   return read<ImportBatch[]>(K.batches, [])
+}
+
+// ---------- Brendlar ----------
+
+/** Brendlar: sozlamalarda kiritilganlar + tovarlarda uchraganlar, alifbo tartibida. */
+export async function getBrands(): Promise<string[]> {
+  const saved = read<string[]>(K.brands, [])
+  const fromProducts = (await getProducts()).map((p) => p.brand)
+  const seen = new Map<string, string>()
+  for (const b of [...saved, ...fromProducts]) {
+    const name = b.trim()
+    if (name && !seen.has(name.toLowerCase())) seen.set(name.toLowerCase(), name)
+  }
+  return [...seen.values()].sort((a, b) => a.localeCompare(b))
+}
+
+export async function addBrand(name: string): Promise<void> {
+  const saved = read<string[]>(K.brands, [])
+  if (!saved.some((b) => b.toLowerCase() === name.trim().toLowerCase())) write(K.brands, [...saved, name.trim()])
+}
+
+export async function renameBrand(from: string, to: string): Promise<void> {
+  if (!to.trim()) return
+  write(K.brands, read<string[]>(K.brands, []).map((b) => (b === from ? to.trim() : b)))
+  const products = await getProducts()
+  write(K.products, products.map((p) => (p.brand === from ? { ...p, brand: to.trim() } : p)))
+}
+
+/** Faqat tovari yo'q brendni o'chiradi. */
+export async function removeBrand(name: string): Promise<boolean> {
+  if ((await getProducts()).some((p) => p.brand === name)) return false
+  write(K.brands, read<string[]>(K.brands, []).filter((b) => b !== name))
+  return true
 }
 
 // ---------- Sozlamalar ----------

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ImportBatch, Product, ProductInput } from '../types'
-import { deleteProduct, getProducts, getSettings, importProducts, searchProducts, updateProduct, type Settings } from '../data/store'
+import { addBrand, deleteProduct, getBrands, getProducts, getSettings, importProducts, searchProducts, updateProduct, type Settings } from '../data/store'
 import { formatSum, parseSum } from '../lib/money'
 import { packsLabel } from '../lib/cart'
 import { downloadTemplate, parseRows, readExcel, type ParsedRow } from '../lib/excel'
@@ -8,11 +8,33 @@ import { Modal, MoneyInput, Segmented } from '../components/ui'
 
 type Filter = 'all' | 'low' | 'out'
 
+/** Pachkalar soni va qoldiqning sotuv/kelish narxidagi qiymati. */
+function totals(items: Product[]) {
+  return items.reduce(
+    (t, p) => {
+      const pairs = Math.max(0, p.stock)
+      t.packs += Math.floor(pairs / p.packSize)
+      t.sale += pairs * p.salePrice
+      t.cost += pairs * p.costPrice
+      return t
+    },
+    { packs: 0, sale: 0, cost: 0 },
+  )
+}
+
+/** Brendlar: qoldig'i ko'pi (sotuv narxida) birinchi. */
+function groupByBrand(products: Product[]): [string, Product[]][] {
+  const m = new Map<string, Product[]>()
+  for (const p of products) m.set(p.brand, [...(m.get(p.brand) ?? []), p])
+  return [...m].sort((a, b) => totals(b[1]).sale - totals(a[1]).sale)
+}
+
 
 export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: string) => void }) {
   const [products, setProducts] = useState<Product[]>([])
   const [settings, setSettings] = useState<Settings | null>(null)
   const [q, setQ] = useState('')
+  const [brand, setBrand] = useState<string | null>(null)
   const [filter, setFilter] = useState<Filter>('all')
   const [editing, setEditing] = useState<Product | null>(null)
   const [adding, setAdding] = useState(false)
@@ -28,9 +50,6 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
 
   const low = (p: Product) => settings !== null && p.stock > 0 && p.stock < p.packSize * settings.lowStockPacks
   const out = (p: Product) => p.stock < p.packSize
-  const base = q ? searchProducts(products, q, 5000) : [...products].reverse()
-  const list = base.filter((p) => (filter === 'low' ? low(p) : filter === 'out' ? out(p) : true))
-  const stockValue = products.reduce((s, p) => s + Math.max(0, p.stock) * p.costPrice, 0)
 
   const onFile = async (file: File) => {
     try {
@@ -50,12 +69,22 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
     reload()
   }
 
+  // Brend ichida yoki qidiruvda — tovarlar ro'yxati; aks holda — brendlar.
+  const inBrand = brand !== null ? products.filter((p) => p.brand === brand) : products
+  const scope = q ? searchProducts(inBrand, q, 5000) : brand !== null ? [...inBrand].reverse() : []
+  const list = scope.filter((p) => (filter === 'low' ? low(p) : filter === 'out' ? out(p) : true))
+  const showList = brand !== null || q.trim() !== ''
+  const summary = totals(inBrand)
+  const brands = groupByBrand(products)
+
   return (
     <div className="page">
       <div className="page-head">
-        <div>
-          <h1>Tovarlar</h1>
-          <div className="muted small">{products.length} model · omborda {formatSum(stockValue)} so'mlik (kelish narxida)</div>
+        <div className="head-title">
+          {brand !== null && (
+            <button className="icon back" onClick={() => { setBrand(null); setQ(''); setFilter('all') }} aria-label="Barcha brendlar">←</button>
+          )}
+          <h1>{brand ?? 'Tovarlar'}</h1>
         </div>
         <div className="head-actions">
           <button className="btn ghost" onClick={() => downloadTemplate()}>Shablon</button>
@@ -75,41 +104,81 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
         </div>
       </div>
 
-      <div className="toolbar">
-        <input className="input" placeholder="Qidirish: nom, brend, razmer, shtrix-kod" value={q} onChange={(e) => setQ(e.target.value)} />
-        <Segmented<Filter>
-          value={filter}
-          onChange={setFilter}
-          options={[['all', 'Hammasi'], ['low', `Kam qolgan (${products.filter(low).length})`], ['out', `Tugagan (${products.filter(out).length})`]]}
-        />
+      <div className="kpis four">
+        <div className="kpi"><span>Pachka</span><b>{summary.packs}</b></div>
+        <div className="kpi"><span>Sotuv narxida</span><b>{formatSum(summary.sale)}</b></div>
+        <div className="kpi"><span>Kelish narxida</span><b>{formatSum(summary.cost)}</b></div>
+        <div className="kpi accent"><span>Kutilayotgan foyda</span><b>{formatSum(summary.sale - summary.cost)}</b></div>
       </div>
 
-      <div className="table-wrap">
-        <table className="table clickable">
-          <thead>
-            <tr><th>Model</th><th>Qoldiq</th><th className="num">Sotuv narxi</th><th className="num">Foyda / pachka</th><th>Shtrix-kod</th></tr>
-          </thead>
-          <tbody>
-            {list.map((p) => (
-              <tr key={p.id} onClick={() => setEditing(p)}>
-                <td>
-                  <b>{p.name}</b>
-                  <div className="muted small">{[p.brand, p.size, p.color].filter(Boolean).join(' · ')}</div>
-                </td>
-                <td>
-                  <span className={`stock ${out(p) ? 'out' : low(p) ? 'low' : ''}`}>
-                    {p.stock <= 0 ? 'tugagan' : packsLabel(p.stock, p.packSize)}
-                  </span>
-                </td>
-                <td className="num">{formatSum(p.salePrice)}</td>
-                <td className="num">{formatSum((p.salePrice - p.costPrice) * p.packSize)}</td>
-                <td className="mono muted">{p.barcode}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {list.length === 0 && <p className="muted pad">Hech narsa topilmadi.</p>}
+      <div className="toolbar">
+        <input
+          className="input"
+          placeholder={brand ? `${brand} ichidan qidirish` : 'Qidirish: model, brend, razmer, rang'}
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+        {showList && (
+          <Segmented<Filter>
+            value={filter}
+            onChange={setFilter}
+            options={[['all', 'Hammasi'], ['low', `Kam qolgan (${scope.filter(low).length})`], ['out', `Tugagan (${scope.filter(out).length})`]]}
+          />
+        )}
       </div>
+
+      {!showList ? (
+        brands.length === 0 ? (
+          <div className="empty"><b>Hali tovar yo'q</b><span className="muted">Excel'dan import qiling yoki "+ Tovar" bilan qo'shing.</span></div>
+        ) : (
+          <div className="brand-grid">
+            {brands.map(([name, items]) => {
+              const t = totals(items)
+              return (
+                <button key={name} className="brand-card" onClick={() => setBrand(name)}>
+                  <div className="bc-head">
+                    <b>{name}</b>
+                    <span className="muted small">{items.length} model</span>
+                  </div>
+                  <div className="bc-packs"><b>{t.packs}</b> <span className="muted">pachka</span></div>
+                  <div className="bc-rows">
+                    <div><span className="muted">Sotuv narxida</span><b>{formatSum(t.sale)}</b></div>
+                    <div><span className="muted">Kelish narxida</span><span>{formatSum(t.cost)}</span></div>
+                  </div>
+                  {items.some(out) && <span className="bc-warn">{items.filter(out).length} ta tugagan</span>}
+                </button>
+              )
+            })}
+          </div>
+        )
+      ) : (
+        <div className="table-wrap">
+          <table className="table clickable">
+            <thead>
+              <tr><th>Model</th><th>Qoldiq</th><th className="num">Sotuv narxi</th><th className="num">Kelish narxi</th><th className="num">Jami (sotuv)</th></tr>
+            </thead>
+            <tbody>
+              {list.map((p) => (
+                <tr key={p.id} onClick={() => setEditing(p)}>
+                  <td>
+                    <b>{p.name}</b>
+                    <div className="muted small">{[brand === null && p.brand, p.size, p.color].filter(Boolean).join(' · ')}</div>
+                  </td>
+                  <td>
+                    <span className={`stock ${out(p) ? 'out' : low(p) ? 'low' : ''}`}>
+                      {p.stock <= 0 ? 'tugagan' : packsLabel(p.stock, p.packSize)}
+                    </span>
+                  </td>
+                  <td className="num">{formatSum(p.salePrice)}</td>
+                  <td className="num muted">{formatSum(p.costPrice)}</td>
+                  <td className="num"><b>{formatSum(Math.max(0, p.stock) * p.salePrice)}</b></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {list.length === 0 && <p className="muted pad">Hech narsa topilmadi.</p>}
+        </div>
+      )}
 
       {preview && (
         <Modal title="Excel'dan import" onClose={() => setPreview(null)} wide>
@@ -172,6 +241,7 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
 
       {adding && (
         <NewProductForm
+          initialBrand={brand}
           onClose={() => setAdding(false)}
           onSave={async (inputs) => {
             const batch = await importProducts(inputs, 'manual')
@@ -302,9 +372,20 @@ function loadDraft(): { brand: string; size: string; packSize: number } {
   }
 }
 
-function NewProductForm({ onClose, onSave }: { onClose: () => void; onSave: (inputs: ProductInput[]) => void }) {
+function NewProductForm({
+  initialBrand, onClose, onSave,
+}: { initialBrand: string | null; onClose: () => void; onSave: (inputs: ProductInput[]) => void }) {
   const draft = loadDraft()
-  const [brand, setBrand] = useState(draft.brand)
+  const [brand, setBrand] = useState(initialBrand ?? draft.brand)
+  const [brands, setBrands] = useState<string[]>([])
+  const [newBrand, setNewBrand] = useState(false)
+  useEffect(() => {
+    getBrands().then((list) => {
+      setBrands(list)
+      if (!list.length) setNewBrand(true)
+      else if (!list.includes(brand)) setBrand(list[0])
+    })
+  }, [])
   const [name, setName] = useState('')
   const [size, setSize] = useState(draft.size)
   const [packSize, setPackSize] = useState(draft.packSize)
@@ -325,6 +406,7 @@ function NewProductForm({ onClose, onSave }: { onClose: () => void; onSave: (inp
     } catch {
       // Eslab qolinmasa ham saqlash ishlayveradi.
     }
+    if (newBrand) addBrand(brand)
     onSave(rows.map((r) => ({ brand, name, size, color: r.color.trim(), packSize, packs: r.packs, costPrice: c, salePrice: sp })))
   }
 
@@ -336,7 +418,24 @@ function NewProductForm({ onClose, onSave }: { onClose: () => void; onSave: (inp
       <div className="form-grid">
         <label className="field">
           <span>Brend</span>
-          <input id="np-brand" className="input" value={brand} placeholder="Ezel" onChange={(e) => setBrand(e.target.value)} />
+          {newBrand ? (
+            <input id="np-brand" className="input" value={brand} placeholder="Yangi brend nomi" onChange={(e) => setBrand(e.target.value)} />
+          ) : (
+            <select
+              id="np-brand"
+              className="input"
+              value={brand}
+              onChange={(e) => {
+                if (e.target.value === '__new') {
+                  setNewBrand(true)
+                  setBrand('')
+                } else setBrand(e.target.value)
+              }}
+            >
+              {brands.map((b) => <option key={b} value={b}>{b}</option>)}
+              <option value="__new">+ Yangi brend…</option>
+            </select>
+          )}
         </label>
         <label className="field">
           <span>Model nomi</span>

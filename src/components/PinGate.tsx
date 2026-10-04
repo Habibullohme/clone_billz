@@ -58,8 +58,17 @@ export function PinGate({ onOk, onCancel }: { onOk: () => void; onCancel: () => 
           placeholder="••••"
           value={value}
           onChange={(e) => {
-            setValue(e.target.value.replace(/\D/g, ''))
+            const v = e.target.value.replace(/\D/g, '')
+            setValue(v)
             setError('')
+            // PIN to'liq terilishi bilan o'zi ochiladi.
+            if (!creating && v.length === pin.length) {
+              if (v === pin) onOk()
+              else {
+                setError('PIN noto\'g\'ri')
+                setValue('')
+              }
+            }
           }}
         />
         {creating && (
@@ -76,7 +85,7 @@ export function PinGate({ onOk, onCancel }: { onOk: () => void; onCancel: () => 
           />
         )}
         {error && <div className="error small">{error}</div>}
-        <button className="btn primary" type="submit">{creating ? 'Saqlash va kirish' : 'Kirish'}</button>
+        {creating && <button className="btn primary" type="submit">Saqlash va kirish</button>}
       </form>
     </Modal>
   )
