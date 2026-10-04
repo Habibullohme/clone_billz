@@ -4,6 +4,7 @@ import { getSales, getSettings, type Settings } from '../data/store'
 import { formatSum } from '../lib/money'
 import { Receipt } from '../components/Receipt'
 import { Segmented } from '../components/ui'
+import { hueStyle } from '../lib/colors'
 
 type Period = 'today' | 'yesterday' | 'week' | 'month'
 
@@ -69,15 +70,15 @@ export function SalesPage() {
       </div>
 
       <div className="kpis">
-        <div className="kpi"><span>Tushum</span><b>{formatSum(revenue)}</b></div>
-        <div className="kpi accent"><span>Foyda</span><b>{formatSum(profit)}</b></div>
-        <div className="kpi"><span>Sotuvlar</span><b>{list.length}</b></div>
+        <div className="kpi tone-violet"><span>Tushum</span><b>{formatSum(revenue)}</b></div>
+        <div className="kpi tone-green"><span>Foyda</span><b>{formatSum(profit)}</b></div>
+        <div className="kpi tone-blue"><span>Sotuvlar</span><b>{list.length}</b></div>
       </div>
 
       {payments.length > 0 && (
         <div className="pay-split">
           {payments.map(([k, v]) => (
-            <span key={k}>
+            <span key={k} className={`pm pm-${k.toLowerCase()}`}>
               {k} <b>{formatSum(v)}</b>
               {k === 'Dollar' && <span className="muted"> ({usd} $)</span>}
             </span>
@@ -90,8 +91,8 @@ export function SalesPage() {
           <h2>Brendlar</h2>
           <div className="brand-bars">
             {brands.map(([brand, b]) => (
-              <div key={brand} className="brand-bar">
-                <span className="bb-name">{brand}</span>
+              <div key={brand} className="brand-bar" style={hueStyle(brand)}>
+                <span className="bb-name"><i className="dot" />{brand}</span>
                 <div className="bb-track"><div className="bb-fill" style={{ width: `${(b.total / maxBrand) * 100}%` }} /></div>
                 <span className="num">{formatSum(b.total)}</span>
                 <span className="num ok">+{formatSum(b.profit)}</span>
@@ -119,10 +120,10 @@ export function SalesPage() {
                     <td className="num ok">{formatSum(s.profit)}</td>
                     <td>
                       <div className="tags">
-                        {s.payment.cash > 0 && <span className="tag">naqd</span>}
-                        {s.payment.card > 0 && <span className="tag">karta</span>}
-                        {s.payment.usd > 0 && <span className="tag">{s.payment.usd}$</span>}
-                        {s.payment.debt > 0 && <span className="tag warn">nasiya</span>}
+                        {s.payment.cash > 0 && <span className="tag t-naqd">naqd</span>}
+                        {s.payment.card > 0 && <span className="tag t-karta">karta</span>}
+                        {s.payment.usd > 0 && <span className="tag t-dollar">{s.payment.usd}$</span>}
+                        {s.payment.debt > 0 && <span className="tag t-nasiya">nasiya</span>}
                       </div>
                     </td>
                   </tr>

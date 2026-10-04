@@ -34,7 +34,7 @@ export function PinGate({ onOk, onCancel }: { onOk: () => void; onCancel: () => 
   }
 
   return (
-    <Modal title={creating ? 'PIN kod yarating' : 'PIN kodni kiriting'} onClose={onCancel}>
+    <Modal title={creating ? 'PIN kod yarating' : 'PIN kodni kiriting'} onClose={onCancel} center>
       <p className="muted small">
         {creating
           ? "Sotuvlar, tovarlar va sozlamalarga faqat siz kirishingiz uchun. Sotuvchi faqat kassani ko'radi."
@@ -79,7 +79,7 @@ export function PinGate({ onOk, onCancel }: { onOk: () => void; onCancel: () => 
             inputMode="numeric"
             autoComplete="off"
             maxLength={6}
-            placeholder="yana bir bor"
+            placeholder="takrorlang"
             value={repeat}
             onChange={(e) => setRepeat(e.target.value.replace(/\D/g, ''))}
           />

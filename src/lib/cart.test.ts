@@ -5,7 +5,7 @@ import { ScanDetector } from './scanner'
 import type { Product } from '../types'
 
 const p = (id: string, packSize = 5, salePrice = 160_000): Product => ({
-  id, brand: 'B', name: id, article: id, barcode: id, packSize, costPrice: 130_000, salePrice, stock: 100,
+  id, brand: 'B', name: id, barcode: id, packSize, costPrice: 130_000, salePrice, stock: 100,
   size: '', color: '', createdAt: '', batchId: null,
 })
 

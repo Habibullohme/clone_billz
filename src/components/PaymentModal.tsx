@@ -70,7 +70,7 @@ export function PaymentModal({ total, usdRate: initialRate, customerName, onCust
 
         <div className="pay-grid">
           <label className="pay-field">
-            <span>Naqd</span>
+            <span className="pm pm-naqd">Naqd</span>
             <input
               ref={firstRef}
               className={`input${s.cashAuto ? ' auto' : ''}`}
@@ -88,13 +88,13 @@ export function PaymentModal({ total, usdRate: initialRate, customerName, onCust
           </label>
 
           <label className="pay-field">
-            <span>Karta</span>
+            <span className="pm pm-karta">Karta</span>
             <MoneyInput value={card} placeholder="0" onChange={setCard} />
             <button className="link small" onClick={() => { setCash(null); setCard(String(rest('card'))) }}>hammasi kartaga</button>
           </label>
 
           <div className="pay-field">
-            <span>Dollar</span>
+            <span className="pm pm-dollar">Dollar</span>
             <div className="usd">
               <input className="input" inputMode="decimal" value={usd} placeholder="0 $" onChange={(e) => setUsd(e.target.value)} />
               <span className="muted">×</span>
@@ -104,7 +104,7 @@ export function PaymentModal({ total, usdRate: initialRate, customerName, onCust
           </div>
 
           <label className="pay-field">
-            <span>Nasiya</span>
+            <span className="pm pm-nasiya">Nasiya</span>
             <MoneyInput value={debt} placeholder="0" onChange={setDebt} />
             <button className="link small" onClick={() => { setCash(null); setDebt(String(rest('debt'))) }}>hammasi nasiyaga</button>
           </label>

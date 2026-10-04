@@ -5,8 +5,6 @@ export interface Product {
   /** Razmer qatori, masalan "40-44". */
   size: string
   color: string
-  /** O'zimizning artikul, masalan "NIK-0007". */
-  article: string
   /** O'zimizning EAN-13 shtrix-kod (21... bilan boshlanadi). */
   barcode: string
   /** Bir pachkadagi juftlar soni (odatda 5, Velikan — 3). */

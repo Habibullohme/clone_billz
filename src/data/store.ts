@@ -3,7 +3,7 @@
  * keyin shu funksiyalar Supabase bilan almashtiriladi — sahifalar o'zgarmaydi.
  */
 import type { Customer, HeldCart, ImportBatch, Product, ProductInput, Sale } from '../types'
-import { brandCode, makeArticle, makeBarcode } from '../lib/codes'
+import { brandCode, makeBarcode } from '../lib/codes'
 import { demoInputs } from './demo'
 import type { Theme } from '../lib/theme'
 import { defaultTemplates, type LabelTemplate } from '../lib/labels'
@@ -131,7 +131,7 @@ export async function getProducts(): Promise<Product[]> {
 export async function findByBarcode(code: string): Promise<Product | undefined> {
   const products = await getProducts()
   const c = code.trim()
-  return products.find((p) => p.barcode === c) ?? products.find((p) => p.article.toLowerCase() === c.toLowerCase())
+  return products.find((p) => p.barcode === c)
 }
 
 export function searchProducts(products: Product[], query: string, limit = 8): Product[] {
@@ -140,7 +140,7 @@ export function searchProducts(products: Product[], query: string, limit = 8): P
   const words = q.split(/\s+/)
   return products
     .filter((p) => {
-      const hay = `${p.brand} ${p.name} ${p.size} ${p.color} ${p.article} ${p.barcode}`.toLowerCase()
+      const hay = `${p.brand} ${p.name} ${p.size} ${p.color} ${p.barcode}`.toLowerCase()
       return words.every((w) => hay.includes(w))
     })
     .slice(0, limit)
@@ -154,6 +154,18 @@ function brandSeqKey(brand: string) {
 /** Brendning keyingi tartib raqami (kod uchun), hisoblagichni o'zgartirmaydi. */
 export async function nextBrandNumber(brand: string): Promise<number> {
   return (read<Record<string, number>>(K.brandSeq, {})[brandSeqKey(brand)] ?? 0) + 1
+}
+
+/** Keyingi `count` ta kod (band kodlar o'tkazib yuboriladi) — formada oldindan ko'rsatish uchun. */
+export async function previewCodes(brand: string, count: number): Promise<string[]> {
+  const products = await getProducts()
+  let n = (read<Record<string, number>>(K.brandSeq, {})[brandSeqKey(brand)] ?? 0)
+  const out: string[] = []
+  while (out.length < count) {
+    const code = brandCode(++n)
+    if (!codeTaken(products, brand, code)) out.push(code)
+  }
+  return out
 }
 
 /**
@@ -177,11 +189,11 @@ function createBatch(inputs: ProductInput[], source: ImportBatch['source']): Imp
       do {
         brandSeq[bk] = (brandSeq[bk] ?? 0) + 1
         name = `${inp.name.trim()} ${brandCode(brandSeq[bk])}`
-      } while (nameTaken(products, name))
+      } while (nameTaken(products, name) || codeTaken(products, inp.brand, brandCode(brandSeq[bk])))
       const p: Product = {
         id: uid(), brand: inp.brand.trim(), name,
         size: inp.size.trim(), color: inp.color.trim(),
-        article: makeArticle(inp.brand, seq), barcode: makeBarcode(seq),
+        barcode: makeBarcode(seq),
         packSize: inp.packSize, costPrice: inp.costPrice, salePrice: inp.salePrice,
         stock: inp.packSize, createdAt: now, batchId: batch.id,
       }
@@ -234,6 +246,26 @@ export async function importProducts(inputs: ProductInput[], source: ImportBatch
   return createBatch(inputs, source)
 }
 
+/** Nom oxiridagi kod: "Barsofka B18" → "B18". */
+export function codeOf(name: string): string | null {
+  return name.trim().match(/\s([A-Z]{1,2}\d{1,3})$/)?.[1] ?? null
+}
+
+/** Shu brendda bu kod boshqa tovarda ishlatilganmi. */
+export function codeTaken(products: Product[], brand: string, code: string, exceptId?: string): Product | undefined {
+  const b = brand.trim().toLowerCase()
+  return products.find((x) => x.id !== exceptId && x.brand.trim().toLowerCase() === b && codeOf(x.name) === code)
+}
+
+/** Tovar nomi bo'yicha to'qnashuv: bir xil nom yoki brend ichida band kod. */
+export function nameConflict(products: Product[], brand: string, name: string, exceptId?: string): string | null {
+  const same = nameTaken(products, name, exceptId)
+  if (same) return `"${same.name}" nomli tovar allaqachon bor`
+  const code = codeOf(name)
+  const owner = code ? codeTaken(products, brand, code, exceptId) : undefined
+  return owner ? `${code} kodi band: ${owner.name}` : null
+}
+
 /** Shu nomli boshqa tovar bormi (katta-kichik harf farqsiz). */
 export function nameTaken(products: Product[], name: string, exceptId?: string): Product | undefined {
   const n = name.trim().replace(/\s+/g, ' ').toLowerCase()
@@ -243,8 +275,8 @@ export function nameTaken(products: Product[], name: string, exceptId?: string):
 /** Tovarni saqlaydi. Nomi boshqa tovarniki bilan bir xil bo'lsa — xato matnini qaytaradi. */
 export async function updateProduct(p: Product): Promise<string | null> {
   const products = await getProducts()
-  const clash = nameTaken(products, p.name, p.id)
-  if (clash) return `"${clash.name}" nomli tovar allaqachon bor`
+  const clash = nameConflict(products, p.brand, p.name, p.id)
+  if (clash) return clash
   write(K.products, products.map((x) => (x.id === p.id ? { ...p, name: p.name.trim().replace(/\s+/g, ' ') } : x)))
   return null
 }

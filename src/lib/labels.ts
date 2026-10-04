@@ -1,7 +1,7 @@
 import type { Product } from '../types'
 import { formatSum } from './money'
 
-export type LabelFieldKey = 'name' | 'brand' | 'size' | 'color' | 'pack' | 'price' | 'article' | 'barcode'
+export type LabelFieldKey = 'name' | 'brand' | 'size' | 'color' | 'pack' | 'price' | 'barcode'
 
 export interface LabelField {
   key: LabelFieldKey
@@ -31,7 +31,6 @@ export const fieldNames: Record<LabelFieldKey, string> = {
   color: 'Rang',
   pack: 'Pachkada (juft)',
   price: 'Narx',
-  article: 'Artikul',
   barcode: 'Shtrix-kod',
 }
 
@@ -43,7 +42,6 @@ export function fieldText(key: LabelFieldKey, p: Product): string {
     case 'color': return p.color
     case 'pack': return `${p.packSize} juft`
     case 'price': return `${formatSum(p.salePrice)} so'm`
-    case 'article': return p.article
     case 'barcode': return p.barcode
   }
 }

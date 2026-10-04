@@ -30,9 +30,11 @@ export function Segmented<T extends string | number>({
   )
 }
 
-export function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
+export function Modal({
+  title, onClose, children, wide, center,
+}: { title: string; onClose: () => void; children: ReactNode; wide?: boolean; center?: boolean }) {
   return (
-    <div className="modal-bg" onMouseDown={onClose}>
+    <div className={`modal-bg${center ? ' center' : ''}`} onMouseDown={onClose}>
       <div
         className={`modal${wide ? ' wide' : ''}`}
         onMouseDown={(e) => e.stopPropagation()}

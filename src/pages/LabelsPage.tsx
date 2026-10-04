@@ -3,6 +3,7 @@ import type { ImportBatch, Product } from '../types'
 import { getBatches, getProducts, getSettings, saveSettings, searchProducts, uid, type Settings } from '../data/store'
 import { fieldNames, type LabelFieldKey, type LabelTemplate } from '../lib/labels'
 import { formatSum } from '../lib/money'
+import { hueStyle } from '../lib/colors'
 import { LabelView } from '../components/LabelView'
 import { Modal, Segmented, Toggle } from '../components/ui'
 
@@ -21,6 +22,7 @@ export function LabelsPage({ batchId }: { batchId: string | null }) {
   const [printOnlyOne, setPrintOnlyOne] = useState(false)
   const [picking, setPicking] = useState(false)
   const [custom, setCustom] = useState(false)
+  const [viewing, setViewing] = useState<number | null>(null)
 
   useEffect(() => {
     getProducts().then(setProducts)
@@ -161,7 +163,9 @@ export function LabelsPage({ batchId }: { batchId: string | null }) {
                 const p = byId.get(id)!
                 return (
                   <div key={id} className="label-row">
-                    <div className="lbl-thumb"><LabelView t={template} p={p} /></div>
+                    <button className="lbl-thumb" onClick={() => setViewing(items.indexOf(id))} aria-label="Etiketkani kattalashtirish">
+                      <LabelView t={template} p={p} />
+                    </button>
                     <div className="grow">
                       <b>{p.name}</b>
                       <div className="muted small">{[p.brand, p.size, p.color].filter(Boolean).join(' · ')}</div>
@@ -191,6 +195,16 @@ export function LabelsPage({ batchId }: { batchId: string | null }) {
           Array.from({ length: n }, (_, i) => <LabelView key={`${id}-${i}`} t={template} p={byId.get(id)!} />),
         )}
       </div>
+
+      {viewing !== null && items[viewing] && (
+        <LabelLightbox
+          t={template}
+          items={items.map((id) => byId.get(id)!)}
+          index={viewing}
+          onIndex={setViewing}
+          onClose={() => setViewing(null)}
+        />
+      )}
 
       {picking && (
         <ProductPicker
@@ -391,7 +405,7 @@ function ProductPicker({
       <div className="chips-row">
         <button className={`chip${brand === null ? ' on' : ''}`} onClick={() => setBrand(null)}>Hammasi</button>
         {brands.map((b) => (
-          <button key={b} className={`chip${brand === b ? ' on' : ''}`} onClick={() => setBrand(b)}>{b}</button>
+          <button key={b} className={`chip${brand === b ? ' on' : ''}`} style={hueStyle(b)} onClick={() => setBrand(b)}><i className="dot" />{b}</button>
         ))}
       </div>
       <div className="pick-list">
@@ -421,5 +435,39 @@ function ProductPicker({
         <button className="btn primary" disabled={!picked.size} onClick={() => onDone([...picked])}>Qo'shish</button>
       </div>
     </Modal>
+  )
+}
+
+/** Etiketkani katta ko'rish (Telegram'da rasm ochilgandek): ← → bilan almashtiriladi, Esc yopadi. */
+function LabelLightbox({
+  t, items, index, onIndex, onClose,
+}: { t: LabelTemplate; items: Product[]; index: number; onIndex: (i: number) => void; onClose: () => void }) {
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+      if (e.key === 'ArrowRight' && index < items.length - 1) onIndex(index + 1)
+      if (e.key === 'ArrowLeft' && index > 0) onIndex(index - 1)
+    }
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [index, items.length])
+  const p = items[index]
+  return (
+    <div className="lightbox" onMouseDown={onClose}>
+      <button className="lb-close" aria-label="Yopish" onClick={onClose}>✕</button>
+      {index > 0 && (
+        <button className="lb-nav prev" aria-label="Oldingi" onMouseDown={(e) => { e.stopPropagation(); onIndex(index - 1) }}>‹</button>
+      )}
+      <div className="lb-body" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="lb-label"><LabelView t={t} p={p} /></div>
+        <div className="lb-caption">
+          <b>{p.name}</b>
+          <span>{[p.brand, p.size, p.color, `${t.width}×${t.height} mm`].filter(Boolean).join(' · ')} · {index + 1} / {items.length}</span>
+        </div>
+      </div>
+      {index < items.length - 1 && (
+        <button className="lb-nav next" aria-label="Keyingi" onMouseDown={(e) => { e.stopPropagation(); onIndex(index + 1) }}>›</button>
+      )}
+    </div>
   )
 }

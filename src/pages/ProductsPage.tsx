@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ImportBatch, Product, ProductInput, Sale } from '../types'
 import {
-  nameTaken,
+  nameConflict,
   addBrand, deleteBatch, deleteProducts, getBatches, getBrands, getProducts, getSales, importProducts,
-  nextBrandNumber, searchProducts, updateProduct,
+  previewCodes, searchProducts, updateProduct,
 } from '../data/store'
 import { formatSum, parseSum } from '../lib/money'
-import { brandCode } from '../lib/codes'
+import { hueStyle } from '../lib/colors'
 import { downloadTemplate, parseRows, readExcel, type ParsedRow } from '../lib/excel'
 import { IconEdit, IconTrash, Modal, MoneyInput, Segmented } from '../components/ui'
 
@@ -135,6 +135,7 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
           {brand !== null && (
             <button className="icon back" onClick={() => { setBrand(null); setQ(''); setFilter('all'); setSelected(new Set()) }} aria-label="Barcha brendlar">←</button>
           )}
+          {brand !== null && <span className="avatar" style={hueStyle(brand)}>{brand.slice(0, 1).toUpperCase()}</span>}
           <h1>{brand ?? 'Tovarlar'}</h1>
           {brand === null && (
             <Segmented<View> value={view} onChange={setView} options={[['brands', 'Brendlar'], ['imports', `Kirimlar (${batches.length})`]]} />
@@ -178,10 +179,10 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
       ) : (
         <>
           <div className="kpis four">
-            <div className="kpi"><span>Omborda</span><b>{summary.packs} pachka</b></div>
-            <div className="kpi"><span>Sotuv narxida</span><b>{formatSum(summary.sale)}</b></div>
-            <div className="kpi"><span>Kelish narxida</span><b>{formatSum(summary.cost)}</b></div>
-            <div className="kpi accent"><span>Kutilayotgan foyda</span><b>{formatSum(summary.sale - summary.cost)}</b></div>
+            <div className="kpi tone-blue"><span>Omborda</span><b>{summary.packs} pachka</b></div>
+            <div className="kpi tone-violet"><span>Sotuv narxida</span><b>{formatSum(summary.sale)}</b></div>
+            <div className="kpi tone-amber"><span>Kelish narxida</span><b>{formatSum(summary.cost)}</b></div>
+            <div className="kpi tone-green"><span>Kutilayotgan foyda</span><b>{formatSum(summary.sale - summary.cost)}</b></div>
           </div>
 
           <div className="toolbar">
@@ -209,8 +210,11 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
                   const t = totals(items)
                   const today = Math.round(soldToday.get(name) ?? 0)
                   return (
-                    <button key={name} className="brand-card" onClick={() => setBrand(name)}>
-                      <b className="bc-name">{name}</b>
+                    <button key={name} className="brand-card" style={hueStyle(name)} onClick={() => setBrand(name)}>
+                      <div className="bc-head">
+                        <span className="avatar">{name.slice(0, 1).toUpperCase()}</span>
+                        <b className="bc-name">{name}</b>
+                      </div>
                       <div className="bc-packs"><b>{t.packs}</b> <span className="muted">pachka</span></div>
                       <div className="bc-rows">
                         <div><span className="muted">Sotuv narxida</span><b>{formatSum(t.sale)}</b></div>
@@ -391,7 +395,7 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
             flash(r.removed ? 'O\'chirildi' : 'Sotilgan tovarni o\'chirib bo\'lmaydi')
             reload()
           }}
-          isTaken={(name) => !!nameTaken(products, name, editing.id)}
+          conflict={(brand, name) => nameConflict(products, brand, name, editing.id)}
           onSave={async (inp, stock) => {
             const err = await updateProduct({ ...editing, ...inp, stock: stock ?? editing.stock })
             if (err) return err
@@ -406,12 +410,12 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
 }
 
 function ProductForm({
-  title, initial, product, isTaken, onClose, onSave, onDelete,
+  title, initial, product, conflict, onClose, onSave, onDelete,
 }: {
   title: string
   initial: ProductInput
   product?: Product
-  isTaken: (name: string) => boolean
+  conflict: (brand: string, name: string) => string | null
   onClose: () => void
   onSave: (inp: ProductInput, stock?: number) => Promise<string | null>
   onDelete?: () => void
@@ -427,7 +431,7 @@ function ProductForm({
   const set = (k: string, v: string | number) => setF((x) => ({ ...x, [k]: v }))
   const cost = parseSum(f.costPrice)
   const sale = parseSum(f.salePrice)
-  const dup = f.name.trim() !== '' && isTaken(f.name)
+  const dup = f.name.trim() !== '' ? conflict(f.brand, f.name) : null
   const valid = f.brand.trim() && f.name.trim() && !dup && f.packSize >= 1 && cost > 0 && sale > 0
 
   const text = (k: 'brand' | 'name' | 'size' | 'color', label: string, ph = '') => (
@@ -444,7 +448,7 @@ function ProductForm({
         <label className="field">
           <span>Model nomi</span>
           <input id="pf-name" className={`input${dup ? ' invalid' : ''}`} value={f.name} onChange={(e) => set('name', e.target.value)} />
-          {dup && <span className="error small">Bu nom band — boshqa kod yozing</span>}
+          {dup && <span className="error small">{dup}</span>}
         </label>
         {text('size', 'Razmer', '40-44')}
         {text('color', 'Rang', 'qora')}
@@ -520,10 +524,7 @@ function NewProductForm({
   const [brand, setBrand] = useState(initialBrand ?? draft.brand)
   const [brands, setBrands] = useState<string[]>([])
   const [newBrand, setNewBrand] = useState(false)
-  const [firstNo, setFirstNo] = useState(1)
-  useEffect(() => {
-    nextBrandNumber(brand).then(setFirstNo)
-  }, [brand])
+  const [codes, setCodes] = useState<string[]>([])
   useEffect(() => {
     getBrands().then((list) => {
       setBrands(list)
@@ -542,6 +543,9 @@ function NewProductForm({
   const sp = parseSum(sale)
   const rows = colors.filter((r) => r.packs > 0)
   const totalPacks = rows.reduce((a, r) => a + r.packs, 0)
+  useEffect(() => {
+    if (brand.trim() && totalPacks > 0) previewCodes(brand, Math.min(totalPacks, 500)).then(setCodes)
+  }, [brand, totalPacks])
   const valid = brand.trim() && name.trim() && packSize >= 1 && c > 0 && sp > 0 && totalPacks > 0
 
   const save = () => {
@@ -651,8 +655,8 @@ function NewProductForm({
           </div>
           {brand.trim() && (
             <div className="code-chip-line">
-              Kodlar: <span className="code-chip">{name.trim() || 'Model'} {brandCode(firstNo)}</span>
-              {totalPacks > 1 && <> – <span className="code-chip">{brandCode(firstNo + totalPacks - 1)}</span></>}
+              Kodlar: <span className="code-chip">{name.trim() || 'Model'} {codes[0]}</span>
+              {totalPacks > 1 && codes.length > 1 && <> – <span className="code-chip">{codes[codes.length - 1]}</span></>}
             </div>
           )}
         </div>

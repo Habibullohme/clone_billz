@@ -211,3 +211,17 @@ Billz'dan farqi: xabarlarda pachka × juft ko'rinadi va foyda hisoblanadi; filia
 - Etiketkalar: "Qo'lda tanlash" — barcha tovarlar ro'yxati (qidiruv, brend bo'yicha filtr, belgilash).
 - Telefon: menyu va sozlamalar bo'limlari aylantirish chizig'isiz; tovarlar jadvali kartalarga aylanadi;
   KPI 2×2, brendlar 2 ustun; oynalar pastdan chiqadi.
+
+## 16. 6-sinovdan keyin
+
+- Artikul butunlay olib tashlandi (ishlatilmasdi). Tovarni aniqlash: nom + kod (A12) va shtrix-kod.
+- Kod brend ichida takrorlanmaydi: ishlatilgan kod (masalan B18) qayta berilmaydi — keyingisi olinadi;
+  tahrirlashda band kod yozilsa saqlanmaydi ("B18 kodi band: …"). Formada aniq kodlar oralig'i ko'rsatiladi.
+- Shtrix-kod har doim yangi tartib raqamidan yaratiladi — takrorlanmaydi.
+- Etiketka rasmchasini bosganda katta ko'rinadi (← → bilan almashadi, Esc yopadi).
+- PIN oynasi telefonda ham ekran o'rtasida.
+- Matn maydonlarida sichqoncha ko'rsatkichi ikki mavzuda ham ko'rinadi.
+- Ranglar: har brendga o'z rangi (avatar, grafik), ko'rsatkichlar o'z rangida, to'lov usullari rangli
+  (naqd — yashil, karta — ko'k, dollar — sariq, nasiya — qizil).
+- Bot (redux-counter repo, poyabzal-bot): Python/aiogram, SQLite yoki Supabase sxemasi; narxlar 1 pachka uchun
+  (saytda — 1 juft uchun) — birlashtirishda moslashtirish kerak.
