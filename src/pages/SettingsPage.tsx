@@ -275,11 +275,11 @@ function PinSection({ s, onSave }: { s: Settings; onSave: (pin: string) => void 
     <>
       <Row id="set-pin-old" title={s.ownerPin ? 'Hozirgi PIN' : 'PIN hali o\'rnatilmagan'} hint="Kassadan boshqa bo'limlarga kirishda so'raladi">
         {s.ownerPin && (
-          <input id="set-pin-old" className="input pin" type="password" inputMode="numeric" value={oldPin} onChange={(e) => setOldPin(digits(e.target.value))} />
+          <input id="set-pin-old" className="input pin" type="password" inputMode="numeric" placeholder="••••" value={oldPin} onChange={(e) => setOldPin(digits(e.target.value))} />
         )}
       </Row>
       <Row id="set-pin-new" title="Yangi PIN" hint="4–6 ta raqam">
-        <input id="set-pin-new" className="input pin" type="password" inputMode="numeric" value={pin} onChange={(e) => setPin(digits(e.target.value))} />
+        <input id="set-pin-new" className="input pin" type="password" inputMode="numeric" placeholder="••••" value={pin} onChange={(e) => setPin(digits(e.target.value))} />
       </Row>
       <div className="set-row">
         <span className={msg?.ok ? 'ok' : 'error'}>{msg?.text}</span>

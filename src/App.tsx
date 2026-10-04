@@ -7,15 +7,18 @@ import { SettingsPage } from './pages/SettingsPage'
 import { PinGate } from './components/PinGate'
 import { getSettings, saveSettings, type Settings } from './data/store'
 import { applyTheme, type Theme } from './lib/theme'
+import { IconBox, IconCashbox, IconGear, IconSales, IconTag, IconTheme } from './components/icons'
 
 const ownerTabs = [
-  ['sales', 'Sotuvlar', 'Tushum, foyda, brendlar'],
-  ['products', 'Tovarlar', 'Ro\'yxat, Excel import'],
-  ['labels', 'Etiketkalar', 'Shtrix-kod chiqarish'],
-  ['settings', 'Sozlamalar', 'Do\'kon, chek, PIN'],
+  ['sales', 'Sotuvlar', 'Tushum, foyda, brendlar', IconSales],
+  ['products', 'Tovarlar', 'Ro\'yxat, Excel import', IconBox],
+  ['labels', 'Etiketkalar', 'Shtrix-kod chiqarish', IconTag],
+  ['settings', 'Sozlamalar', 'Do\'kon, chek, PIN', IconGear],
 ] as const
 type OwnerTab = (typeof ownerTabs)[number][0]
 type Tab = 'pos' | OwnerTab
+
+const months = ['yanvar', 'fevral', 'mart', 'aprel', 'may', 'iyun', 'iyul', 'avgust', 'sentabr', 'oktabr', 'noyabr', 'dekabr']
 
 function Clock() {
   const [now, setNow] = useState(new Date())
@@ -23,7 +26,12 @@ function Clock() {
     const t = setInterval(() => setNow(new Date()), 15_000)
     return () => clearInterval(t)
   }, [])
-  return <span className="clock">{now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span>
+  return (
+    <div className="clock">
+      <b>{now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</b>
+      <span>{now.getDate()}-{months[now.getMonth()]}</span>
+    </div>
+  )
 }
 
 export function App() {
@@ -61,8 +69,16 @@ export function App() {
   const shop = (
     <div className="shop">
       {settings?.shopLogo ? <img className="shop-logo" src={settings.shopLogo} alt="" /> : <div className="shop-mark">{(settings?.shopName || 'D')[0]}</div>}
-      <b>{settings?.shopName || "Do'kon"}</b>
+      <div className="shop-text">
+        <b>{settings?.shopName || "Do'kon"}</b>
+        <span>{tab === 'pos' ? 'Kassa' : 'Boshqaruv'}</span>
+      </div>
     </div>
+  )
+  const themeBtn = (
+    <button className="hbtn" onClick={toggleTheme} aria-label="Yorug' / qorong'i" title="Yorug' / qorong'i">
+      <IconTheme />
+    </button>
   )
 
   return (
@@ -72,20 +88,28 @@ export function App() {
           {shop}
           <span className="grow" />
           <Clock />
-          <button className="burger" onClick={toggleTheme} aria-label="Yorug' / qorong'i">
-            <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M10 2a8 8 0 1 0 0 16z" fill="currentColor" /><circle cx="10" cy="10" r="7.25" fill="none" stroke="currentColor" strokeWidth="1.5" /></svg>
-          </button>
-          <button className="burger" onClick={() => setMenu(true)} aria-label="Menyu">
-            <span /><span /><span />
+          {themeBtn}
+          <button className="hbtn" onClick={() => setMenu(true)} aria-label="Menyu" title="Menyu">
+            <span className="burger-lines"><span /><span /><span /></span>
           </button>
         </header>
       ) : (
         <header className="nav owner">
-          <button className="btn primary small" onClick={() => setTab('pos')}>← Kassa</button>
-          <div className="tabs">
-            {ownerTabs.map(([id, label]) => (
-              <button key={id} className={tab === id ? 'on' : ''} onClick={() => setTab(id)}>{label}</button>
+          {shop}
+          <nav className="tabs">
+            {ownerTabs.map(([id, label, , Icon]) => (
+              <button key={id} className={tab === id ? 'on' : ''} onClick={() => setTab(id)}>
+                <Icon />
+                <span>{label}</span>
+              </button>
             ))}
+          </nav>
+          <div className="nav-right">
+            {themeBtn}
+            <button className="btn primary to-pos" onClick={() => setTab('pos')}>
+              <IconCashbox />
+              <span>Kassa</span>
+            </button>
           </div>
         </header>
       )}
@@ -113,10 +137,13 @@ export function App() {
               <button className="icon" onClick={() => setMenu(false)} aria-label="Yopish">✕</button>
             </div>
             <nav className="drawer-nav">
-              {ownerTabs.map(([id, label, hint]) => (
+              {ownerTabs.map(([id, label, hint, Icon]) => (
                 <button key={id} onClick={() => open(id)}>
-                  <b>{label}</b>
-                  <span className="muted small">{hint}</span>
+                  <span className="dn-icon"><Icon /></span>
+                  <span className="dn-text">
+                    <b>{label}</b>
+                    <span className="muted small">{hint}</span>
+                  </span>
                 </button>
               ))}
             </nav>

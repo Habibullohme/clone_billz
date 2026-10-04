@@ -771,3 +771,80 @@ input:not([type=checkbox]):not([type=range]):not([type=file]), textarea {
   .nav.owner .tabs { order: 2; flex: 1 1 100%; justify-content: space-between; }
   .nav.owner .tabs button { flex: 1; padding: 8px 4px; font-size: 13.5px; }
 }
+
+/* ===== Sarlavha (header) — yangi ===== */
+.nav {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 16px;
+  min-height: 64px; padding: 10px 20px; background: var(--surface); border-bottom: 1px solid var(--line);
+}
+.nav:not(.owner) { display: flex; }
+.shop { gap: 12px; }
+.shop-logo, .shop-mark { width: 40px; height: 40px; border-radius: 12px; }
+.shop-mark { font-size: 17px; background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 60%, var(--blue))); box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 35%, transparent); }
+.shop-text { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+.shop-text b { font-family: var(--font-display); font-size: 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.shop-text span { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
+.clock { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.1; margin-right: 6px; }
+.clock b { font-family: var(--font-display); font-size: 17px; font-weight: 600; color: var(--fg); }
+.clock span { font-size: 12px; color: var(--muted); }
+.hbtn {
+  width: 42px; height: 42px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); color: var(--fg);
+  display: grid; place-items: center; flex: none; transition: background 0.15s, border-color 0.15s;
+}
+.hbtn:hover { background: var(--sunken); border-color: var(--accent); }
+.burger-lines { display: flex; flex-direction: column; gap: 4px; }
+.burger-lines span { width: 17px; height: 2px; border-radius: 2px; background: currentColor; }
+
+/* Boshqaruv bo'limlari: o'rtada, belgilari bilan */
+.nav.owner .tabs {
+  justify-self: center; display: flex; gap: 4px; padding: 4px; border-radius: 14px; background: var(--sunken);
+  overflow: visible; flex: none;
+}
+.nav.owner .tabs button {
+  display: flex; align-items: center; gap: 8px; padding: 9px 16px; border-radius: 10px; opacity: 1;
+  color: var(--muted); font-weight: 600; font-size: 14.5px; background: none;
+}
+.nav.owner .tabs button:hover { color: var(--fg); background: color-mix(in srgb, var(--surface) 60%, transparent); }
+.nav.owner .tabs button.on { background: var(--surface); color: var(--accent); box-shadow: 0 1px 3px rgb(0 0 0 / 0.1); }
+:root[data-theme='dark'] .nav.owner .tabs button.on, :root:not([data-theme='light']) .nav.owner .tabs button.on { color: var(--accent); }
+.nav-right { display: flex; align-items: center; gap: 8px; justify-self: end; }
+.btn.to-pos { padding: 10px 16px; border-radius: 12px; gap: 8px; }
+
+/* Menyu (kassadan): belgilar bilan */
+.drawer-nav button { flex-direction: row; align-items: center; gap: 12px; }
+.dn-icon { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); flex: none; }
+.dn-text { display: flex; flex-direction: column; gap: 1px; text-align: left; }
+
+/* PIN maydonlari: aniq ko'rinadi */
+.input.pin {
+  background: var(--sunken); border: 1.5px solid var(--line); font-size: 22px; letter-spacing: 0.35em; text-align: center;
+  width: 220px; max-width: 100%; padding: 10px 12px;
+}
+.input.pin:focus { background: var(--surface); border-color: var(--accent); }
+
+@media (max-width: 1000px) {
+  .nav.owner .tabs button { padding: 9px 11px; font-size: 13.5px; }
+  .btn.to-pos span { display: none; }
+  .btn.to-pos { padding: 10px 12px; }
+}
+
+/* Telefon: bo'limlar pastki panelda */
+@media (max-width: 860px) {
+  .nav { min-height: 58px; padding: 8px 12px; gap: 8px; }
+  .nav.owner { display: flex; flex-wrap: nowrap; }
+  .nav.owner .nav-right { margin-left: auto; }
+  .btn.to-pos span { display: inline; }
+  .shop-logo, .shop-mark { width: 36px; height: 36px; }
+  .shop-text b { font-size: 15px; }
+  .clock span { display: none; }
+  .hbtn { width: 40px; height: 40px; }
+  .nav.owner .tabs {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; justify-content: space-around; gap: 0;
+    justify-self: stretch; width: 100%;
+    border-radius: 0; padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px)); background: var(--surface);
+    border-top: 1px solid var(--line); box-shadow: 0 -4px 16px rgb(0 0 0 / 0.08);
+  }
+  .nav.owner .tabs button { flex: 1; flex-direction: column; gap: 3px; padding: 6px 2px; font-size: 11.5px; border-radius: 10px; }
+  .nav.owner .tabs button.on { background: var(--accent-soft); box-shadow: none; }
+  .app:has(.nav.owner) .main { padding-bottom: 72px; }
+}
