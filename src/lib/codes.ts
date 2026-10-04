@@ -1,68 +1,27 @@
-/**
- * Tovar kodi: brend harfi + raqam (A1 … A200). Shu kod vitrinaga yoziladi,
- * etiketkada chiqadi va shtrix-kodning (CODE128) ichida ham aynan shu kod bo'ladi.
- */
-
-export const MAX_PER_LETTER = 200
-const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
-
-export interface Brand {
-  id: string
-  name: string
-  /** Brendga berilgan harflar, tartib bilan. Oxirgisi — hozir ishlatilayotgani. */
-  letters: string[]
-  /** Hozirgi harf bo'yicha oxirgi berilgan raqam. */
-  last: number
+/** EAN-13 nazorat raqamini qo'shadi. */
+export function ean13(base12: string): string {
+  const sum = base12.split('').reduce((s, d, i) => s + Number(d) * (i % 2 ? 3 : 1), 0)
+  return base12 + ((10 - (sum % 10)) % 10)
 }
 
-/** Hech bir brendga berilmagan birinchi harf. */
-export function freeLetter(brands: Brand[]): string {
-  const used = new Set(brands.flatMap((b) => b.letters))
-  const l = LETTERS.find((x) => !used.has(x))
-  if (l) return l
-  // 26 harf tugasa — ikki harfli: AA, AB, …
-  for (const a of LETTERS) for (const b of LETTERS) if (!used.has(a + b)) return a + b
-  throw new Error('Harflar tugadi')
+/** Do'konning o'z shtrix-kodi: "21" + 10 xonali tartib raqami + nazorat raqami. */
+export function makeBarcode(seq: number): string {
+  return ean13('21' + String(seq).padStart(10, '0'))
 }
 
-/** Brendning navbatdagi kodi (brendni o'zgartirmaydi). */
-export function peekCode(brand: Brand, brands: Brand[]): string {
-  const letter = brand.letters[brand.letters.length - 1]
-  if (brand.last < MAX_PER_LETTER) return `${letter}${brand.last + 1}`
-  return `${freeLetter(brands)}1`
+/** Artikul: brendning 3 harfi + tartib raqami, masalan "NIK-0007". */
+const cyr: Record<string, string> = {
+  А: 'A', Б: 'B', В: 'V', Г: 'G', Д: 'D', Е: 'E', Ё: 'E', Ж: 'J', З: 'Z', И: 'I', Й: 'Y', К: 'K', Л: 'L', М: 'M',
+  Н: 'N', О: 'O', П: 'P', Р: 'R', С: 'S', Т: 'T', У: 'U', Ф: 'F', Х: 'X', Ц: 'S', Ч: 'C', Ш: 'S', Щ: 'S',
+  Ы: 'I', Э: 'E', Ю: 'Y', Я: 'Y', Ў: 'O', Қ: 'Q', Ғ: 'G', Ҳ: 'H',
 }
 
-/** Navbatdagi kodni beradi va brend hisoblagichini oshiradi. Band kodlar o'tkazib yuboriladi. */
-export function takeCode(brand: Brand, brands: Brand[], taken: Set<string>): string {
-  for (;;) {
-    if (brand.last >= MAX_PER_LETTER) {
-      brand.letters.push(freeLetter(brands))
-      brand.last = 0
-    }
-    brand.last++
-    const code = `${brand.letters[brand.letters.length - 1]}${brand.last}`
-    if (!taken.has(code)) return code
-  }
-}
-
-const ruToEn: Record<string, string> = {
-  Й: 'Q', Ц: 'W', У: 'E', К: 'R', Е: 'T', Н: 'Y', Г: 'U', Ш: 'I', Щ: 'O', З: 'P',
-  Ф: 'A', Ы: 'S', В: 'D', А: 'F', П: 'G', Р: 'H', О: 'J', Л: 'K', Д: 'L',
-  Я: 'Z', Ч: 'X', С: 'C', М: 'V', И: 'B', Т: 'N', Ь: 'M',
-}
-
-/**
- * Skanerdan yoki qo'ldan kelgan kodni bir xil ko'rinishga keltiradi:
- * katta harf, bo'shliqsiz; ruscha klaviaturada terilgan harflar lotinga o'giriladi (Ф12 → A12).
- */
-export function normalizeCode(raw: string): string {
-  return raw
-    .trim()
+export function makeArticle(brand: string, seq: number): string {
+  const letters = brand
     .toUpperCase()
-    .replace(/\s+/g, '')
-    .replace(/./g, (ch) => ruToEn[ch] ?? ch)
-}
-
-export function isValidCode(code: string): boolean {
-  return /^[A-Z]{1,2}\d{1,4}$/.test(code)
+    .replace(/./g, (ch) => cyr[ch] ?? ch)
+    .replace(/[^A-Z]/g, '')
+    .padEnd(3, 'X')
+    .slice(0, 3)
+  return `${letters}-${String(seq).padStart(4, '0')}`
 }

@@ -1,8 +1,5 @@
 import type { ProductInput } from '../types'
 
-/** Sinov uchun brendlar: tartibiga qarab harf oladi (Ezel — A, Little — B, …). */
-export const demoBrands = ['Ezel', 'Little', 'Richmen', 'Nike', 'Velikan', 'Adidas']
-
 /** Sinov uchun namunaviy tovarlar. Haqiqiy tovarlar Excel shablon orqali import qilinadi. */
 export const demoInputs: ProductInput[] = [
   { brand: 'Little', name: 'Little 01', size: '36-40', color: 'qora', packSize: 5, packs: 12, costPrice: 95_000, salePrice: 105_000 },

@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { addBrand, defaultSettings, deleteBrand, getBrands, getProducts, getSettings, renameBrand, saveSettings, type Settings } from '../data/store'
-import { MAX_PER_LETTER, peekCode, type Brand } from '../lib/codes'
+import { defaultSettings, getSettings, saveSettings, type Settings } from '../data/store'
 import { formatSum } from '../lib/money'
 import { Segmented, Toggle } from '../components/ui'
 import { Receipt } from '../components/Receipt'
@@ -8,7 +7,6 @@ import type { Sale } from '../types'
 
 const sections = [
   ['shop', "Do'kon"],
-  ['brands', 'Brendlar'],
   ['pos', 'Kassa'],
   ['receipt', 'Chek'],
   ['stock', 'Ombor'],
@@ -159,8 +157,6 @@ export function SettingsPage() {
             </div>
           )}
 
-          {section === 'brands' && <BrandsSection />}
-
           {section === 'stock' && (
             <>
               <Row id="set-lowStockPacks" title="Kam qoldiq chegarasi" hint="Shundan kam pachka qolsa 'Kam qolgan' ro'yxatiga tushadi">
@@ -192,9 +188,9 @@ export function SettingsPage() {
                     onClick={() => {
                       const keep = JSON.stringify(s)
                       try {
-                        Object.keys(localStorage).filter((k) => k.startsWith('dk3.')).forEach((k) => localStorage.removeItem(k))
+                        Object.keys(localStorage).filter((k) => k.startsWith('dk2.')).forEach((k) => localStorage.removeItem(k))
                         localStorage.setItem('dk2.settings', keep)
-                        localStorage.setItem('dk3.products', '[]'); localStorage.setItem('dk3.brands', '[]')
+                        localStorage.setItem('dk2.products', '[]')
                       } catch {
                         // Xotira yopiq — sahifani yangilash yetarli.
                       }
@@ -271,96 +267,5 @@ function PinSection({ s, onSave }: { s: Settings; onSave: (pin: string) => void 
         </button>
       </div>
     </>
-  )
-}
-
-function BrandsSection() {
-  const [brands, setBrands] = useState<Brand[]>([])
-  const [counts, setCounts] = useState<Record<string, number>>({})
-  const [name, setName] = useState('')
-  const [editing, setEditing] = useState<{ id: string; name: string } | null>(null)
-  const [msg, setMsg] = useState('')
-
-  const reload = async () => {
-    setBrands(await getBrands())
-    const c: Record<string, number> = {}
-    for (const p of await getProducts()) c[p.brand] = (c[p.brand] ?? 0) + 1
-    setCounts(c)
-  }
-  useEffect(() => {
-    reload()
-  }, [])
-
-  const add = async () => {
-    if (!name.trim()) return
-    if (brands.some((b) => b.name.toLowerCase() === name.trim().toLowerCase())) return setMsg(`${name.trim()} allaqachon bor`)
-    const b = await addBrand(name)
-    setMsg(`${b.name} qo'shildi — kodlari ${b.letters[0]}1, ${b.letters[0]}2, …`)
-    setName('')
-    reload()
-  }
-
-  return (
-    <div className="brands">
-      <p className="muted small note">
-        Har brendga bitta harf beriladi. Kodlar {`A1 … A${MAX_PER_LETTER}`} gacha boradi, keyin brendga keyingi bo'sh harf qo'shiladi.
-        Yangi tovar kiritganda brend ro'yxatdan tanlanadi.
-      </p>
-      <form
-        className="brand-add"
-        onSubmit={(e) => {
-          e.preventDefault()
-          add()
-        }}
-      >
-        <input id="brand-new" className="input" placeholder="Brend nomi, masalan Ezel" value={name} onChange={(e) => { setName(e.target.value); setMsg('') }} />
-        <button className="btn primary" type="submit" disabled={!name.trim()}>Qo'shish</button>
-      </form>
-      {msg && <div className="small ok">{msg}</div>}
-      <div className="brand-list">
-        {brands.map((b) => (
-          <div key={b.id} className="brand-item">
-            <span className="code-chip big">{b.letters.join(' ')}</span>
-            <div className="grow">
-              {editing?.id === b.id ? (
-                <input
-                  id={`brand-${b.id}`}
-                  className="input"
-                  autoFocus
-                  value={editing.name}
-                  onChange={(e) => setEditing({ id: b.id, name: e.target.value })}
-                  onKeyDown={async (e) => {
-                    if (e.key === 'Enter') {
-                      await renameBrand(b.id, editing.name)
-                      setEditing(null)
-                      reload()
-                    }
-                    if (e.key === 'Escape') setEditing(null)
-                  }}
-                />
-              ) : (
-                <b>{b.name}</b>
-              )}
-              <div className="muted small">
-                {counts[b.name] ?? 0} ta tovar · keyingi kod <b>{peekCode(b, brands)}</b>
-              </div>
-            </div>
-            <button className="link small" onClick={() => setEditing({ id: b.id, name: b.name })}>nomini o'zgartirish</button>
-            {!counts[b.name] && (
-              <button
-                className="icon danger"
-                aria-label="O'chirish"
-                onClick={async () => {
-                  await deleteBrand(b.id)
-                  reload()
-                }}
-              >
-                ✕
-              </button>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
   )
 }
