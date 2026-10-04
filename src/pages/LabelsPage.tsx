@@ -5,7 +5,7 @@ import { fieldNames, type LabelFieldKey, type LabelTemplate } from '../lib/label
 import { formatSum } from '../lib/money'
 import { hueStyle } from '../lib/colors'
 import { LabelView } from '../components/LabelView'
-import { Modal, Segmented, Toggle } from '../components/ui'
+import { Modal, Segmented, Select, Toggle } from '../components/ui'
 
 type CountMode = 'batch' | 'stock' | 'one'
 
@@ -93,16 +93,12 @@ export function LabelsPage({ batchId }: { batchId: string | null }) {
       <div className="tpl-bar">
         <label className="field">
           <span>Shablon</span>
-          <select
+          <Select<string>
             id="tpl-select"
-            className="input"
             value={template.id}
-            onChange={(e) => saveTemplates(settings.labelTemplates, e.target.value)}
-          >
-            {settings.labelTemplates.map((t) => (
-              <option key={t.id} value={t.id}>{t.name} · {t.width}×{t.height} mm</option>
-            ))}
-          </select>
+            onChange={(v) => saveTemplates(settings.labelTemplates, v)}
+            options={settings.labelTemplates.map((t) => ({ value: t.id, label: t.name, hint: `${t.width}×${t.height} mm` }))}
+          />
         </label>
         <button className="btn ghost" onClick={() => setEditing(template)}>Tahrirlash</button>
         <button
@@ -288,10 +284,12 @@ function TemplateEditor({
         </label>
         <label className="field">
           <span>Shtrix-kod formati</span>
-          <select id="tpl-format" className="input" value={t.format} onChange={(e) => set({ format: e.target.value as LabelTemplate['format'] })}>
-            <option value="CODE128">CODE128</option>
-            <option value="EAN13">EAN-13</option>
-          </select>
+          <Select<LabelTemplate['format']>
+            id="tpl-format"
+            value={t.format}
+            onChange={(v) => set({ format: v })}
+            options={[{ value: 'CODE128', label: 'CODE128', hint: 'har qanday kod' }, { value: 'EAN13', label: 'EAN-13', hint: '13 raqam' }]}
+          />
         </label>
       </div>
 
@@ -316,19 +314,17 @@ function TemplateEditor({
             </div>
           ))}
           {unused.length > 0 && (
-            <select
+            <Select<string>
               id="tpl-add"
-              className="input"
               value=""
-              onChange={(e) => {
-                const key = e.target.value as LabelFieldKey
+              placeholder="+ Maydon qo'shish"
+              onChange={(v) => {
+                const key = v as LabelFieldKey
                 set({ fields: [...t.fields, { key, size: key === 'barcode' ? 12 : 9, bold: false, align: 'center' }] })
                 setSel(t.fields.length)
               }}
-            >
-              <option value="">+ Maydon qo'shish</option>
-              {unused.map((k) => <option key={k} value={k}>{fieldNames[k]}</option>)}
-            </select>
+              options={unused.map((k) => ({ value: k, label: fieldNames[k] }))}
+            />
           )}
 
           {field && (

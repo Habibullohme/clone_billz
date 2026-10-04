@@ -731,3 +731,43 @@ input:not([type=checkbox]):not([type=range]):not([type=file]), textarea {
   .avatar { width: 30px; height: 30px; font-size: 13px; }
 }
 .input.pin::placeholder { letter-spacing: 0.3em; font-size: 16px; }
+
+/* ===== Tanlash ro'yxati (Select) ===== */
+.sel { position: relative; width: 100%; }
+.sel-btn {
+  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: left;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--fg);
+  font: inherit; box-shadow: var(--card-shadow); transition: border-color 0.15s, box-shadow 0.15s;
+}
+.sel-btn:hover { border-color: var(--accent); }
+.sel.open .sel-btn, .sel-btn:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); outline: none; }
+.sel-btn > span { display: flex; align-items: center; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sel-ph { color: var(--placeholder); }
+.sel-chev { color: var(--muted); flex: none; transition: transform 0.15s; }
+.sel.open .sel-chev { transform: rotate(180deg); color: var(--accent); }
+.sel-list {
+  position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 6px); margin: 0; padding: 5px; list-style: none;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 32px rgb(0 0 0 / 0.18);
+  max-height: 280px; overflow: auto; scrollbar-width: thin; animation: sel-in 0.12s ease-out;
+}
+@keyframes sel-in { from { opacity: 0; transform: translateY(-4px); } }
+.sel-list li { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 8px; cursor: pointer; }
+.sel-list li.act { background: var(--sunken); }
+.sel-list li.cur { color: var(--accent); font-weight: 600; }
+.sel-list li.action { color: var(--accent); font-weight: 600; border-top: 1px solid var(--line); border-radius: 0 0 8px 8px; margin-top: 4px; }
+.sel-label { display: flex; align-items: center; flex: 1; min-width: 0; }
+.sel-hint { color: var(--muted); font-size: 12.5px; font-weight: 400; }
+.sel-tick { flex: none; color: var(--accent); }
+.field .sel-btn { color: var(--fg); font-size: 15px; }
+.tpl-bar .field:first-child { min-width: 260px; }
+
+/* ===== Menyu: barcha bo'limlar to'liq ko'rinadi ===== */
+.tabs { mask-image: none !important; }
+.tabs button { color: var(--fg); opacity: 0.72; }
+.tabs button:hover { opacity: 1; background: var(--sunken); }
+.tabs button.on { opacity: 1; }
+@media (max-width: 860px) {
+  .nav.owner { flex-wrap: wrap; row-gap: 6px; }
+  .nav.owner .tabs { order: 2; flex: 1 1 100%; justify-content: space-between; }
+  .nav.owner .tabs button { flex: 1; padding: 8px 4px; font-size: 13.5px; }
+}

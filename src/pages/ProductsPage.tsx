@@ -8,7 +8,7 @@ import {
 import { formatSum, parseSum } from '../lib/money'
 import { hueStyle } from '../lib/colors'
 import { downloadTemplate, parseRows, readExcel, type ParsedRow } from '../lib/excel'
-import { IconEdit, IconTrash, Modal, MoneyInput, Segmented } from '../components/ui'
+import { IconEdit, IconTrash, Modal, MoneyInput, Segmented, Select } from '../components/ui'
 
 type View = 'brands' | 'imports'
 type Filter = 'all' | 'instock' | 'sold'
@@ -570,20 +570,20 @@ function NewProductForm({
           {newBrand ? (
             <input id="np-brand" className="input" value={brand} placeholder="Yangi brend nomi" onChange={(e) => setBrand(e.target.value)} />
           ) : (
-            <select
+            <Select<string>
               id="np-brand"
-              className="input"
               value={brand}
-              onChange={(e) => {
-                if (e.target.value === '__new') {
+              onChange={(v) => {
+                if (v === '__new') {
                   setNewBrand(true)
                   setBrand('')
-                } else setBrand(e.target.value)
+                } else setBrand(v)
               }}
-            >
-              {brands.map((b) => <option key={b} value={b}>{b}</option>)}
-              <option value="__new">+ Yangi brend…</option>
-            </select>
+              options={[
+                ...brands.map((b) => ({ value: b, label: <><i className="dot" style={hueStyle(b)} />{b}</> })),
+                { value: '__new', label: '+ Yangi brend…', action: true },
+              ]}
+            />
           )}
         </label>
         <label className="field">
