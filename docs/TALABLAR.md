@@ -202,3 +202,12 @@ Billz'dan farqi: xabarlarda pachka × juft ko'rinadi va foyda hisoblanadi; filia
   Sotilgan tovar o'chirilmaydi (hisobot buzilmasligi uchun).
 - "Kirimlar" ro'yxati: raqam, sana-vaqt, manba, brendlar, pachka, summa, sotilish foizi; etiketka va kirimni o'chirish.
 - "Egasi rejimi" yozuvi olib tashlandi; yorug' mavzu kuchaytirildi (aniq chegaralar, soyalar).
+
+## 15. 5-sinovdan keyin
+
+- Bir xil nomli ikki tovar bo'lmaydi: tahrirlashda band nom yozilsa — saqlanmaydi ("Bu nom band").
+  Yangi kirimda ham avtomatik kod band nom bilan to'qnashsa, keyingi kod olinadi.
+- Artikul ichki raqam edi va hech narsaga ishlatilmasdi — ko'rsatilmaydi. Shtrix-kod — etiketka va skaner uchun.
+- Etiketkalar: "Qo'lda tanlash" — barcha tovarlar ro'yxati (qidiruv, brend bo'yicha filtr, belgilash).
+- Telefon: menyu va sozlamalar bo'limlari aylantirish chizig'isiz; tovarlar jadvali kartalarga aylanadi;
+  KPI 2×2, brendlar 2 ustun; oynalar pastdan chiqadi.

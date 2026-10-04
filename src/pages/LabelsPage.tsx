@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { ImportBatch, Product } from '../types'
 import { getBatches, getProducts, getSettings, saveSettings, searchProducts, uid, type Settings } from '../data/store'
 import { fieldNames, type LabelFieldKey, type LabelTemplate } from '../lib/labels'
+import { formatSum } from '../lib/money'
 import { LabelView } from '../components/LabelView'
 import { Modal, Segmented, Toggle } from '../components/ui'
 
@@ -18,6 +19,8 @@ export function LabelsPage({ batchId }: { batchId: string | null }) {
   const [q, setQ] = useState('')
   const [editing, setEditing] = useState<LabelTemplate | null>(null)
   const [printOnlyOne, setPrintOnlyOne] = useState(false)
+  const [picking, setPicking] = useState(false)
+  const [custom, setCustom] = useState(false)
 
   useEffect(() => {
     getProducts().then(setProducts)
@@ -39,6 +42,7 @@ export function LabelsPage({ batchId }: { batchId: string | null }) {
   }
 
   const chooseBatch = (b: ImportBatch) => {
+    setCustom(false)
     setBatch(b)
     setMode('batch')
     setIds(b.productIds)
@@ -117,6 +121,10 @@ export function LabelsPage({ batchId }: { batchId: string | null }) {
 
       <div className="labels-layout">
         <div className="labels-side">
+          <button className={`batch custom${custom ? ' on' : ''}`} onClick={() => setPicking(true)}>
+            <b>Qo'lda tanlash</b>
+            <span className="muted small">{custom ? `${ids.length} ta tovar tanlangan · o'zgartirish` : 'Istalgan tovarlarni belgilab chiqarish'}</span>
+          </button>
           <div className="label">Kirimlar</div>
           {batches.length === 0 && <p className="muted small">Hali kirim yo'q.</p>}
           {batches.slice(0, 12).map((b) => (
@@ -183,6 +191,22 @@ export function LabelsPage({ batchId }: { batchId: string | null }) {
           Array.from({ length: n }, (_, i) => <LabelView key={`${id}-${i}`} t={template} p={byId.get(id)!} />),
         )}
       </div>
+
+      {picking && (
+        <ProductPicker
+          products={products}
+          initial={custom ? ids : []}
+          onClose={() => setPicking(false)}
+          onDone={(picked) => {
+            setPicking(false)
+            setCustom(true)
+            setBatch(null)
+            setIds(picked)
+            setQty(Object.fromEntries(picked.map((id) => [id, 1])))
+            setMode('one')
+          }}
+        />
+      )}
 
       {editing && (
         <TemplateEditor
@@ -337,6 +361,64 @@ function TemplateEditor({
         <span className="grow" />
         <button className="btn ghost" onClick={onClose}>Bekor</button>
         <button className="btn primary" disabled={!t.name.trim() || !t.fields.length} onClick={() => onSave(t)}>Saqlash</button>
+      </div>
+    </Modal>
+  )
+}
+
+function ProductPicker({
+  products, initial, onClose, onDone,
+}: { products: Product[]; initial: string[]; onClose: () => void; onDone: (ids: string[]) => void }) {
+  const [q, setQ] = useState('')
+  const [brand, setBrand] = useState<string | null>(null)
+  const [picked, setPicked] = useState<Set<string>>(new Set(initial))
+  const brands = [...new Set(products.map((p) => p.brand))].sort()
+  const inStock = products.filter((p) => p.stock > 0)
+  const base = brand ? inStock.filter((p) => p.brand === brand) : inStock
+  const list = q ? searchProducts(base, q, 2000) : base
+  const all = list.length > 0 && list.every((p) => picked.has(p.id))
+  const toggle = (id: string) =>
+    setPicked((s) => {
+      const n = new Set(s)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
+      return n
+    })
+
+  return (
+    <Modal title="Etiketka uchun tovar tanlash" onClose={onClose} wide>
+      <input className="input" autoFocus placeholder="Qidirish: model, razmer, rang" value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="chips-row">
+        <button className={`chip${brand === null ? ' on' : ''}`} onClick={() => setBrand(null)}>Hammasi</button>
+        {brands.map((b) => (
+          <button key={b} className={`chip${brand === b ? ' on' : ''}`} onClick={() => setBrand(b)}>{b}</button>
+        ))}
+      </div>
+      <div className="pick-list">
+        <label className="pick-row head">
+          <input type="checkbox" className="check" checked={all} onChange={() => setPicked((s) => {
+            const n = new Set(s)
+            list.forEach((p) => (all ? n.delete(p.id) : n.add(p.id)))
+            return n
+          })} />
+          <span>Ro'yxatdagi hammasi ({list.length})</span>
+        </label>
+        {list.map((p) => (
+          <label key={p.id} className={`pick-row${picked.has(p.id) ? ' on' : ''}`}>
+            <input type="checkbox" className="check" checked={picked.has(p.id)} onChange={() => toggle(p.id)} />
+            <span className="grow">
+              <b>{p.name}</b>
+              <span className="muted small"> · {[p.brand, p.size, p.color].filter(Boolean).join(' · ')}</span>
+            </span>
+            <span className="num">{formatSum(p.salePrice)}</span>
+          </label>
+        ))}
+        {list.length === 0 && <p className="muted pad">Hech narsa topilmadi.</p>}
+      </div>
+      <div className="modal-actions">
+        <span className="muted small grow">{picked.size} ta tanlandi</span>
+        <button className="btn ghost" onClick={onClose}>Bekor</button>
+        <button className="btn primary" disabled={!picked.size} onClick={() => onDone([...picked])}>Qo'shish</button>
       </div>
     </Modal>
   )

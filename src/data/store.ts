@@ -172,9 +172,14 @@ function createBatch(inputs: ProductInput[], source: ImportBatch['source']): Imp
     for (let k = 0; k < Math.max(1, inp.packs); k++) {
       const seq = nextSeq('product')
       const bk = brandSeqKey(inp.brand)
-      brandSeq[bk] = (brandSeq[bk] ?? 0) + 1
+      // Qo'lda o'zgartirilgan nom bilan to'qnashmasin — band bo'lsa keyingi kod.
+      let name: string
+      do {
+        brandSeq[bk] = (brandSeq[bk] ?? 0) + 1
+        name = `${inp.name.trim()} ${brandCode(brandSeq[bk])}`
+      } while (nameTaken(products, name))
       const p: Product = {
-        id: uid(), brand: inp.brand.trim(), name: `${inp.name.trim()} ${brandCode(brandSeq[bk])}`,
+        id: uid(), brand: inp.brand.trim(), name,
         size: inp.size.trim(), color: inp.color.trim(),
         article: makeArticle(inp.brand, seq), barcode: makeBarcode(seq),
         packSize: inp.packSize, costPrice: inp.costPrice, salePrice: inp.salePrice,
@@ -229,9 +234,19 @@ export async function importProducts(inputs: ProductInput[], source: ImportBatch
   return createBatch(inputs, source)
 }
 
-export async function updateProduct(p: Product): Promise<void> {
+/** Shu nomli boshqa tovar bormi (katta-kichik harf farqsiz). */
+export function nameTaken(products: Product[], name: string, exceptId?: string): Product | undefined {
+  const n = name.trim().replace(/\s+/g, ' ').toLowerCase()
+  return products.find((x) => x.id !== exceptId && x.name.trim().replace(/\s+/g, ' ').toLowerCase() === n)
+}
+
+/** Tovarni saqlaydi. Nomi boshqa tovarniki bilan bir xil bo'lsa — xato matnini qaytaradi. */
+export async function updateProduct(p: Product): Promise<string | null> {
   const products = await getProducts()
-  write(K.products, products.map((x) => (x.id === p.id ? p : x)))
+  const clash = nameTaken(products, p.name, p.id)
+  if (clash) return `"${clash.name}" nomli tovar allaqachon bor`
+  write(K.products, products.map((x) => (x.id === p.id ? { ...p, name: p.name.trim().replace(/\s+/g, ' ') } : x)))
+  return null
 }
 
 export async function deleteProduct(id: string): Promise<void> {

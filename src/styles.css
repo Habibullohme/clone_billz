@@ -533,3 +533,112 @@ kbd {
   .import-row .tag { display: none; }
   .head-title { flex-wrap: wrap; }
 }
+
+/* ===== Yaxlit sayqal: belgilash, shrift o'lchamlari, oynalar ===== */
+body { font-size: 14.5px; }
+h1 { font-size: 22px; }
+.kpi b { font-size: 22px; }
+.bc-packs b { font-size: 26px; }
+
+/* Belgilash katakchasi — ikkala mavzuda ham bir xil, aniq ko'rinadi */
+input[type=checkbox] {
+  appearance: none; -webkit-appearance: none; margin: 0; flex: none; cursor: pointer;
+  width: 18px; height: 18px; border-radius: 5px; border: 1.5px solid var(--line); background: var(--surface);
+  display: inline-grid; place-items: center; transition: background 0.12s, border-color 0.12s;
+}
+input[type=checkbox]:hover { border-color: var(--accent); }
+input[type=checkbox]:checked { background: var(--accent); border-color: var(--accent); }
+input[type=checkbox]:checked::after {
+  content: ''; width: 5px; height: 9px; border: solid var(--accent-fg); border-width: 0 2px 2px 0; transform: translateY(-1px) rotate(45deg);
+}
+:root[data-theme='dark'] input[type=checkbox], :root:not([data-theme='light']) input[type=checkbox] { border-color: var(--muted); }
+@media (prefers-color-scheme: light) { :root:not([data-theme='dark']) input[type=checkbox] { border-color: #a9b6b1; } }
+:root[data-theme='light'] input[type=checkbox] { border-color: #a9b6b1; }
+input[type=checkbox]:checked { border-color: var(--accent) !important; }
+
+.input.invalid { border-color: var(--bad); }
+
+/* Oynalar ixchamroq; aylantirish chizig'i ingichka */
+.modal { gap: 14px; padding: 20px; max-height: calc(100dvh - 32px); scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.form-grid { gap: 10px 12px; }
+.field { gap: 4px; }
+.colors { gap: 5px; }
+
+/* Gorizontal tasmalarda aylantirish chizig'i ko'rinmaydi */
+.tabs, .set-nav, .chips-row { scrollbar-width: none; }
+.tabs::-webkit-scrollbar, .set-nav::-webkit-scrollbar, .chips-row::-webkit-scrollbar { display: none; }
+
+/* Etiketka: qo'lda tanlash */
+.batch.custom { border-style: dashed; }
+.batch.custom.on { border-style: solid; }
+.chips-row { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+.chips-row .chip { white-space: nowrap; }
+.pick-list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 12px; max-height: 50vh; overflow: auto; scrollbar-width: thin; }
+.pick-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.pick-row:last-child { border-bottom: 0; }
+.pick-row:hover { background: var(--sunken); }
+.pick-row.on { background: var(--accent-soft); }
+.pick-row.head { position: sticky; top: 0; background: var(--surface); z-index: 1; font-weight: 600; font-size: 13px; }
+
+/* ===== Telefon ===== */
+@media (max-width: 860px) {
+  body { font-size: 14px; }
+  .nav { padding: 8px 12px; gap: 8px; }
+  .nav.owner .btn.primary.small { padding: 7px 10px; }
+  .tabs { flex: 1; min-width: 0; mask-image: linear-gradient(90deg, #000 85%, transparent); }
+  .tabs button { padding: 7px 10px; font-size: 14px; }
+  .page { padding: 14px 12px; gap: 12px; }
+  .page-head { gap: 10px; }
+  .page-head h1 { font-size: 19px; }
+  .head-title { width: 100%; }
+  .head-title .seg { margin-left: auto; }
+  .head-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; width: 100%; }
+  .head-actions .btn { padding: 9px 6px; font-size: 13px; }
+  .kpis, .kpis.four { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .kpi { padding: 10px 12px; }
+  .kpi b { font-size: 17px; }
+  .kpi span { font-size: 12px; }
+  .brand-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .brand-card { padding: 12px; gap: 8px; }
+  .bc-name { font-size: 15px; }
+  .bc-packs b { font-size: 22px; }
+  .bc-rows { font-size: 12px; }
+  .bc-rows > div { flex-direction: column; gap: 0; }
+  .toolbar { gap: 8px; }
+  .toolbar .seg { width: 100%; }
+  .toolbar .seg button { flex: 1; padding: 6px 4px; font-size: 12.5px; }
+  .settings-layout { gap: 12px; }
+  .set-nav { flex-direction: row; flex-wrap: wrap; gap: 6px; overflow: visible; }
+  .set-nav button { padding: 7px 12px; border: 1px solid var(--line); background: var(--surface); font-size: 13.5px; }
+  .set-nav button.on { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+  .set-body { padding: 2px 14px; }
+  .set-row { padding: 12px 0; gap: 10px; }
+  .set-text { min-width: 0; }
+  .tpl-bar { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .tpl-bar .field:first-child, .tpl-bar .field:last-child { grid-column: 1 / -1; min-width: 0; }
+  .tpl-bar .seg { width: 100%; }
+  .tpl-bar .seg button { flex: 1; font-size: 12.5px; padding: 6px 4px; }
+  .labels-side { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .labels-side .label, .labels-side .search { grid-column: 1 / -1; }
+  .label-row { gap: 10px; padding: 8px 10px; }
+  .lbl-thumb { width: 92px; height: 64px; }
+  .lbl-thumb .lbl { zoom: 0.38; }
+  .bulk { padding: 8px 10px; }
+}
+
+/* Telefonda tovarlar jadvali kartaga aylanadi */
+@media (max-width: 640px) {
+  .table.cards thead { display: none; }
+  .table.cards, .table.cards tbody { display: block; }
+  .table.cards tr {
+    display: grid; grid-template-columns: 28px 1fr auto; grid-template-areas: 'c n a' 'c s p'; gap: 4px 10px;
+    padding: 10px 12px; border-bottom: 1px solid var(--line); align-items: center;
+  }
+  .table.cards td { padding: 0; border: 0; white-space: normal; }
+  .table.cards td:nth-child(1) { grid-area: c; }
+  .table.cards td:nth-child(2) { grid-area: n; }
+  .table.cards td:nth-child(3) { grid-area: s; }
+  .table.cards td:nth-child(4) { grid-area: p; text-align: right; font-weight: 600; }
+  .table.cards td:nth-child(5) { display: none; }
+  .table.cards td:nth-child(6) { grid-area: a; }
+}

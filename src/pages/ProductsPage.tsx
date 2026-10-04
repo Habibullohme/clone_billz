@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ImportBatch, Product, ProductInput, Sale } from '../types'
 import {
+  nameTaken,
   addBrand, deleteBatch, deleteProducts, getBatches, getBrands, getProducts, getSales, importProducts,
   nextBrandNumber, searchProducts, updateProduct,
 } from '../data/store'
@@ -232,7 +233,7 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
                 </div>
               )}
               <div className="table-wrap">
-                <table className="table">
+                <table className="table cards">
                   <thead>
                     <tr>
                       <th className="check">
@@ -390,10 +391,13 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
             flash(r.removed ? 'O\'chirildi' : 'Sotilgan tovarni o\'chirib bo\'lmaydi')
             reload()
           }}
+          isTaken={(name) => !!nameTaken(products, name, editing.id)}
           onSave={async (inp, stock) => {
-            await updateProduct({ ...editing, ...inp, stock: stock ?? editing.stock })
+            const err = await updateProduct({ ...editing, ...inp, stock: stock ?? editing.stock })
+            if (err) return err
             setEditing(null)
             reload()
+            return null
           }}
         />
       )}
@@ -402,15 +406,17 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
 }
 
 function ProductForm({
-  title, initial, product, onClose, onSave, onDelete,
+  title, initial, product, isTaken, onClose, onSave, onDelete,
 }: {
   title: string
   initial: ProductInput
   product?: Product
+  isTaken: (name: string) => boolean
   onClose: () => void
-  onSave: (inp: ProductInput, stock?: number) => void
+  onSave: (inp: ProductInput, stock?: number) => Promise<string | null>
   onDelete?: () => void
 }) {
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [f, setF] = useState({
     ...initial,
     costPrice: initial.costPrice ? String(initial.costPrice) : '',
@@ -421,7 +427,8 @@ function ProductForm({
   const set = (k: string, v: string | number) => setF((x) => ({ ...x, [k]: v }))
   const cost = parseSum(f.costPrice)
   const sale = parseSum(f.salePrice)
-  const valid = f.brand.trim() && f.name.trim() && f.packSize >= 1 && cost > 0 && sale > 0
+  const dup = f.name.trim() !== '' && isTaken(f.name)
+  const valid = f.brand.trim() && f.name.trim() && !dup && f.packSize >= 1 && cost > 0 && sale > 0
 
   const text = (k: 'brand' | 'name' | 'size' | 'color', label: string, ph = '') => (
     <label className="field">
@@ -434,7 +441,11 @@ function ProductForm({
     <Modal title={title} onClose={onClose}>
       <div className="form-grid">
         {text('brand', 'Brend', 'Nike')}
-        {text('name', 'Model nomi', 'Nike Air 270')}
+        <label className="field">
+          <span>Model nomi</span>
+          <input id="pf-name" className={`input${dup ? ' invalid' : ''}`} value={f.name} onChange={(e) => set('name', e.target.value)} />
+          {dup && <span className="error small">Bu nom band — boshqa kod yozing</span>}
+        </label>
         {text('size', 'Razmer', '40-44')}
         {text('color', 'Rang', 'qora')}
         <label className="field">
@@ -447,11 +458,11 @@ function ProductForm({
         </label>
         <label className="field">
           <span>Kelish narxi (1 juft)</span>
-          <input id="pf-cost" className="input" inputMode="numeric" value={f.costPrice} onChange={(e) => set('costPrice', e.target.value)} />
+          <MoneyInput id="pf-cost" value={f.costPrice} onChange={(v) => set('costPrice', v)} />
         </label>
         <label className="field">
           <span>Sotuv narxi (1 juft)</span>
-          <input id="pf-sale" className="input" inputMode="numeric" value={f.salePrice} onChange={(e) => set('salePrice', e.target.value)} />
+          <MoneyInput id="pf-sale" value={f.salePrice} onChange={(v) => set('salePrice', v)} />
         </label>
       </div>
       {cost > 0 && sale > 0 && (
@@ -460,7 +471,7 @@ function ProductForm({
         </div>
       )}
       {product && (
-        <div className="muted small">Artikul {product.article} · shtrix-kod <span className="mono">{product.barcode}</span></div>
+        <div className="muted small">Shtrix-kod <span className="mono">{product.barcode}</span> — etiketkada chiqadi, kassada skanerlanadi</div>
       )}
       <div className="modal-actions">
         {onDelete &&
@@ -470,14 +481,17 @@ function ProductForm({
             <button className="btn ghost danger-text" onClick={() => setConfirmDelete(true)}>O'chirish</button>
           ))}
         <span className="grow" />
+        {saveError && <span className="error small">{saveError}</span>}
         <button className="btn ghost" onClick={onClose}>Bekor</button>
         <button
           className="btn primary"
           disabled={!valid}
-          onClick={() =>
-            onSave(
-              { brand: f.brand, name: f.name, size: f.size, color: f.color, packSize: f.packSize, packs: f.packs, costPrice: cost, salePrice: sale },
-              product ? Number(f.stock) : undefined,
+          onClick={async () =>
+            setSaveError(
+              await onSave(
+                { brand: f.brand, name: f.name, size: f.size, color: f.color, packSize: f.packSize, packs: f.packs, costPrice: cost, salePrice: sale },
+                product ? Number(f.stock) : undefined,
+              ),
             )
           }
         >
@@ -630,7 +644,7 @@ function NewProductForm({
       {totalPacks > 0 && (
         <div className="code-range">
           <div>
-            Jami <b>{totalPacks} pachka</b> — {totalPacks} ta qator qo'shiladi
+            Jami <b>{totalPacks} pachka</b>
             {c > 0 && sp > 0 && (
               <> · bir pachkadan foyda <b className={sp < c ? 'error' : 'ok'}>{formatSum((sp - c) * packSize)}</b></>
             )}
