@@ -25,3 +25,21 @@ export function makeArticle(brand: string, seq: number): string {
     .slice(0, 3)
   return `${letters}-${String(seq).padStart(4, '0')}`
 }
+
+export const CODES_PER_LETTER = 200
+
+/** n-chi harf: 0 → A, 25 → Z, 26 → AA, … */
+function letter(i: number): string {
+  let s = ''
+  for (let n = i; n >= 0; n = Math.floor(n / 26) - 1) s = String.fromCharCode(65 + (n % 26)) + s
+  return s
+}
+
+/**
+ * Brend ichidagi tartib raqamidan kod: 1 → A1, 200 → A200, 201 → B1, …
+ * Har brend o'z hisobini A1 dan boshlaydi; kod model nomi yoniga yoziladi ("Little qalin A20").
+ */
+export function brandCode(n: number): string {
+  const i = n - 1
+  return `${letter(Math.floor(i / CODES_PER_LETTER))}${(i % CODES_PER_LETTER) + 1}`
+}

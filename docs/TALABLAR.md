@@ -189,3 +189,16 @@ Billz'dan farqi: xabarlarda pachka × juft ko'rinadi va foyda hisoblanadi; filia
 - Brendlar Sozlamalar → Brendlar'da kiritiladi, yangi tovar formasida ro'yxatdan tanlanadi.
 - Chek kengligi qo'lda (mm) ham sozlanadi. Mavzu: Avto / Yorug' / Qorong'i (kassa tepasida tezkor tugma).
 - PIN to'liq terilishi bilan o'zi ochiladi.
+
+## 14. Har bir qator — bitta pachka (4-sinovdan keyin)
+
+- Har bir pachka bazada alohida qator. "+ Tovar" da 7 pachka kiritilsa — 7 ta qator qo'shiladi.
+- Model nomi yoniga brend bo'yicha kod avtomatik qo'shiladi: "Little qalin A20". Har brendning hisobi
+  A1 dan boshlanadi, A200 dan keyin B1, C1 … Formada oldindan ko'rsatiladi: "Kodlar: A20 – A26".
+  Excel importda ham shunday.
+- Tovarlar: brend kartasida faqat pachka soni va qiymati ("model" yozuvi yo'q); sotilgan pachka "sotilgan"
+  deb turadi, kartada "Bugun N ta sotildi".
+- Jadvalda har qatorda tahrirlash / o'chirish; belgilab bir nechtasini birdaniga o'chirish.
+  Sotilgan tovar o'chirilmaydi (hisobot buzilmasligi uchun).
+- "Kirimlar" ro'yxati: raqam, sana-vaqt, manba, brendlar, pachka, summa, sotilish foizi; etiketka va kirimni o'chirish.
+- "Egasi rejimi" yozuvi olib tashlandi; yorug' mavzu kuchaytirildi (aniq chegaralar, soyalar).

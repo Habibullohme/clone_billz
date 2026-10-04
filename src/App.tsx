@@ -87,7 +87,6 @@ export function App() {
               <button key={id} className={tab === id ? 'on' : ''} onClick={() => setTab(id)}>{label}</button>
             ))}
           </div>
-          <span className="owner-badge">Egasi rejimi</span>
         </header>
       )}
 

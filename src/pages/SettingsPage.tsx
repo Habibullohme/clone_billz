@@ -216,9 +216,12 @@ export function SettingsPage() {
                     onClick={() => {
                       const keep = JSON.stringify(s)
                       try {
-                        Object.keys(localStorage).filter((k) => k.startsWith('dk2.')).forEach((k) => localStorage.removeItem(k))
+                        const keepKeys = ['dk2.settings', 'dk2.brands', 'dk2.productDraft']
+                        Object.keys(localStorage)
+                          .filter((k) => /^dk\d\./.test(k) && !keepKeys.includes(k))
+                          .forEach((k) => localStorage.removeItem(k))
                         localStorage.setItem('dk2.settings', keep)
-                        localStorage.setItem('dk2.products', '[]')
+                        localStorage.setItem('dk4.products', '[]')
                       } catch {
                         // Xotira yopiq — sahifani yangilash yetarli.
                       }

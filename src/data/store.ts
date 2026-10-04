@@ -3,7 +3,7 @@
  * keyin shu funksiyalar Supabase bilan almashtiriladi — sahifalar o'zgarmaydi.
  */
 import type { Customer, HeldCart, ImportBatch, Product, ProductInput, Sale } from '../types'
-import { makeArticle, makeBarcode } from '../lib/codes'
+import { brandCode, makeArticle, makeBarcode } from '../lib/codes'
 import { demoInputs } from './demo'
 import type { Theme } from '../lib/theme'
 import { defaultTemplates, type LabelTemplate } from '../lib/labels'
@@ -87,14 +87,15 @@ function write(key: string, value: unknown) {
 }
 
 const K = {
-  products: 'dk2.products',
-  batches: 'dk2.batches',
-  sales: 'dk2.sales',
+  products: 'dk4.products',
+  batches: 'dk4.batches',
+  sales: 'dk4.sales',
   customers: 'dk2.customers',
-  held: 'dk2.held',
+  held: 'dk4.held',
   settings: 'dk2.settings',
   brands: 'dk2.brands',
   seq: 'dk2.seq',
+  brandSeq: 'dk4.brandSeq',
 }
 
 type SeqName = 'product' | 'sale' | 'batch'
@@ -146,31 +147,81 @@ export function searchProducts(products: Product[], query: string, limit = 8): P
 }
 
 /** Kirim: har bir qator alohida tovar bo'lib, o'z kodini oladi. */
+function brandSeqKey(brand: string) {
+  return brand.trim().toLowerCase()
+}
+
+/** Brendning keyingi tartib raqami (kod uchun), hisoblagichni o'zgartirmaydi. */
+export async function nextBrandNumber(brand: string): Promise<number> {
+  return (read<Record<string, number>>(K.brandSeq, {})[brandSeqKey(brand)] ?? 0) + 1
+}
+
+/**
+ * Kirim: har bir pachka — alohida tovar (qator). Nomi yoniga brend bo'yicha kod
+ * qo'shiladi: "Little qalin A20". Har brendning hisobi A1 dan boshlanadi.
+ */
 function createBatch(inputs: ProductInput[], source: ImportBatch['source']): ImportBatch {
   const products = read<Product[]>(K.products, [])
+  const brandSeq = read<Record<string, number>>(K.brandSeq, {})
   const now = new Date().toISOString()
   const batch: ImportBatch = {
     id: uid(), number: nextSeq('batch'), createdAt: now, source,
     productIds: [], packs: {}, costTotal: 0, saleTotal: 0,
   }
   for (const inp of inputs) {
-    const pairs = inp.packs * inp.packSize
-    const seq = nextSeq('product')
-    const p: Product = {
-      id: uid(), brand: inp.brand.trim(), name: inp.name.trim(), size: inp.size.trim(), color: inp.color.trim(),
-      article: makeArticle(inp.brand, seq), barcode: makeBarcode(seq),
-      packSize: inp.packSize, costPrice: inp.costPrice, salePrice: inp.salePrice,
-      stock: pairs, createdAt: now, batchId: batch.id,
+    for (let k = 0; k < Math.max(1, inp.packs); k++) {
+      const seq = nextSeq('product')
+      const bk = brandSeqKey(inp.brand)
+      brandSeq[bk] = (brandSeq[bk] ?? 0) + 1
+      const p: Product = {
+        id: uid(), brand: inp.brand.trim(), name: `${inp.name.trim()} ${brandCode(brandSeq[bk])}`,
+        size: inp.size.trim(), color: inp.color.trim(),
+        article: makeArticle(inp.brand, seq), barcode: makeBarcode(seq),
+        packSize: inp.packSize, costPrice: inp.costPrice, salePrice: inp.salePrice,
+        stock: inp.packSize, createdAt: now, batchId: batch.id,
+      }
+      products.push(p)
+      batch.productIds.push(p.id)
+      batch.packs[p.id] = 1
+      batch.costTotal += inp.packSize * inp.costPrice
+      batch.saleTotal += inp.packSize * inp.salePrice
     }
-    products.push(p)
-    batch.productIds.push(p.id)
-    batch.packs[p.id] = inp.packs
-    batch.costTotal += pairs * inp.costPrice
-    batch.saleTotal += pairs * inp.salePrice
   }
   write(K.products, products)
+  write(K.brandSeq, brandSeq)
   write(K.batches, [batch, ...read<ImportBatch[]>(K.batches, [])])
   return batch
+}
+
+/** Sotuvda qatnashgan tovarlar (ularni o'chirib bo'lmaydi — hisobot buziladi). */
+function soldIds(): Set<string> {
+  return new Set(read<Sale[]>(K.sales, []).flatMap((s) => s.lines.map((l) => l.productId)))
+}
+
+/** Tovarlarni o'chiradi. Sotilganlari o'chirilmaydi; nechta o'chgani qaytadi. */
+export async function deleteProducts(ids: string[]): Promise<{ removed: number; kept: number }> {
+  const sold = soldIds()
+  const want = new Set(ids)
+  const products = await getProducts()
+  const keep = products.filter((p) => !want.has(p.id) || sold.has(p.id))
+  const removed = products.length - keep.length
+  write(K.products, keep)
+  // Kirimlardan ham olib tashlaymiz; bo'shab qolgan kirim o'chadi.
+  const alive = new Set(keep.map((p) => p.id))
+  write(
+    K.batches,
+    read<ImportBatch[]>(K.batches, [])
+      .map((b) => ({ ...b, productIds: b.productIds.filter((id) => alive.has(id)) }))
+      .filter((b) => b.productIds.length > 0),
+  )
+  return { removed, kept: ids.length - removed }
+}
+
+/** Butun kirimni o'chiradi (sotilmagan tovarlari bilan). */
+export async function deleteBatch(id: string): Promise<{ removed: number; kept: number }> {
+  const batch = (await getBatches()).find((b) => b.id === id)
+  if (!batch) return { removed: 0, kept: 0 }
+  return deleteProducts(batch.productIds)
 }
 
 export async function importProducts(inputs: ProductInput[], source: ImportBatch['source'] = 'excel'): Promise<ImportBatch> {

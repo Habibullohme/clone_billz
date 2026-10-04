@@ -1,21 +1,28 @@
-import { useEffect, useRef, useState } from 'react'
-import type { ImportBatch, Product, ProductInput } from '../types'
-import { addBrand, deleteProduct, getBrands, getProducts, getSettings, importProducts, searchProducts, updateProduct, type Settings } from '../data/store'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { ImportBatch, Product, ProductInput, Sale } from '../types'
+import {
+  addBrand, deleteBatch, deleteProducts, getBatches, getBrands, getProducts, getSales, importProducts,
+  nextBrandNumber, searchProducts, updateProduct,
+} from '../data/store'
 import { formatSum, parseSum } from '../lib/money'
-import { packsLabel } from '../lib/cart'
+import { brandCode } from '../lib/codes'
 import { downloadTemplate, parseRows, readExcel, type ParsedRow } from '../lib/excel'
-import { Modal, MoneyInput, Segmented } from '../components/ui'
+import { IconEdit, IconTrash, Modal, MoneyInput, Segmented } from '../components/ui'
 
-type Filter = 'all' | 'low' | 'out'
+type View = 'brands' | 'imports'
+type Filter = 'all' | 'instock' | 'sold'
 
-/** Pachkalar soni va qoldiqning sotuv/kelish narxidagi qiymati. */
+/** Har bir qator — bitta pachka. Qoldig'i bo'lsa — omborda. */
+const inStock = (p: Product) => p.stock > 0
+
+/** Ombordagi pachkalar soni va ularning sotuv/kelish narxidagi qiymati. */
 function totals(items: Product[]) {
   return items.reduce(
     (t, p) => {
-      const pairs = Math.max(0, p.stock)
-      t.packs += Math.floor(pairs / p.packSize)
-      t.sale += pairs * p.salePrice
-      t.cost += pairs * p.costPrice
+      if (!inStock(p)) return t
+      t.packs += 1
+      t.sale += p.stock * p.salePrice
+      t.cost += p.stock * p.costPrice
       return t
     },
     { packs: 0, sale: 0, cost: 0 },
@@ -29,27 +36,52 @@ function groupByBrand(products: Product[]): [string, Product[]][] {
   return [...m].sort((a, b) => totals(b[1]).sale - totals(a[1]).sale)
 }
 
+const isToday = (iso: string) => new Date(iso).toDateString() === new Date().toDateString()
+const dayTime = (iso: string) =>
+  new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 
 export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: string) => void }) {
   const [products, setProducts] = useState<Product[]>([])
-  const [settings, setSettings] = useState<Settings | null>(null)
-  const [q, setQ] = useState('')
+  const [sales, setSales] = useState<Sale[]>([])
+  const [batches, setBatches] = useState<ImportBatch[]>([])
+  const [view, setView] = useState<View>('brands')
   const [brand, setBrand] = useState<string | null>(null)
+  const [q, setQ] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [confirm, setConfirm] = useState<{ text: string; run: () => Promise<void> } | null>(null)
+  const [toast, setToast] = useState('')
   const [editing, setEditing] = useState<Product | null>(null)
   const [adding, setAdding] = useState(false)
   const [preview, setPreview] = useState<{ items: ParsedRow[]; missing: string[]; file: string } | null>(null)
   const [imported, setImported] = useState<ImportBatch | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const reload = () => getProducts().then(setProducts)
-  useEffect(() => {
-    reload()
-    getSettings().then(setSettings)
-  }, [])
+  const reload = () => {
+    getProducts().then(setProducts)
+    getSales().then(setSales)
+    getBatches().then(setBatches)
+  }
+  useEffect(reload, [])
 
-  const low = (p: Product) => settings !== null && p.stock > 0 && p.stock < p.packSize * settings.lowStockPacks
-  const out = (p: Product) => p.stock < p.packSize
+  // Har bir tovar qachon sotilgan (oxirgi sotuv).
+  const soldAt = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const s of [...sales].reverse()) for (const l of s.lines) m.set(l.productId, s.createdAt)
+    return m
+  }, [sales])
+  // Bugun brend bo'yicha nechta pachka sotilgan.
+  const soldToday = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const s of sales.filter((x) => isToday(x.createdAt)))
+      for (const l of s.lines) m.set(l.brand, (m.get(l.brand) ?? 0) + l.pairs / l.packSize)
+    return m
+  }, [sales])
+
+  const flash = (text: string) => {
+    setToast(text)
+    setTimeout(() => setToast(''), 2500)
+  }
 
   const onFile = async (file: File) => {
     try {
@@ -69,22 +101,43 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
     reload()
   }
 
-  // Brend ichida yoki qidiruvda — tovarlar ro'yxati; aks holda — brendlar.
+  const remove = (ids: string[], what: string) =>
+    setConfirm({
+      text: `${what} o'chirilsinmi?`,
+      run: async () => {
+        const r = await deleteProducts(ids)
+        setSelected(new Set())
+        flash(r.kept ? `${r.removed} ta o'chirildi, ${r.kept} ta sotilgani uchun qoldi` : `${r.removed} ta o'chirildi`)
+        reload()
+      },
+    })
+
   const inBrand = brand !== null ? products.filter((p) => p.brand === brand) : products
   const scope = q ? searchProducts(inBrand, q, 5000) : brand !== null ? [...inBrand].reverse() : []
-  const list = scope.filter((p) => (filter === 'low' ? low(p) : filter === 'out' ? out(p) : true))
+  const list = scope.filter((p) => (filter === 'instock' ? inStock(p) : filter === 'sold' ? !inStock(p) : true))
   const showList = brand !== null || q.trim() !== ''
   const summary = totals(inBrand)
   const brands = groupByBrand(products)
+  const allChecked = list.length > 0 && list.every((p) => selected.has(p.id))
+  const toggle = (id: string) =>
+    setSelected((s) => {
+      const n = new Set(s)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
+      return n
+    })
 
   return (
     <div className="page">
       <div className="page-head">
         <div className="head-title">
           {brand !== null && (
-            <button className="icon back" onClick={() => { setBrand(null); setQ(''); setFilter('all') }} aria-label="Barcha brendlar">←</button>
+            <button className="icon back" onClick={() => { setBrand(null); setQ(''); setFilter('all'); setSelected(new Set()) }} aria-label="Barcha brendlar">←</button>
           )}
           <h1>{brand ?? 'Tovarlar'}</h1>
+          {brand === null && (
+            <Segmented<View> value={view} onChange={setView} options={[['brands', 'Brendlar'], ['imports', `Kirimlar (${batches.length})`]]} />
+          )}
         </div>
         <div className="head-actions">
           <button className="btn ghost" onClick={() => downloadTemplate()}>Shablon</button>
@@ -104,81 +157,155 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
         </div>
       </div>
 
-      <div className="kpis four">
-        <div className="kpi"><span>Pachka</span><b>{summary.packs}</b></div>
-        <div className="kpi"><span>Sotuv narxida</span><b>{formatSum(summary.sale)}</b></div>
-        <div className="kpi"><span>Kelish narxida</span><b>{formatSum(summary.cost)}</b></div>
-        <div className="kpi accent"><span>Kutilayotgan foyda</span><b>{formatSum(summary.sale - summary.cost)}</b></div>
-      </div>
-
-      <div className="toolbar">
-        <input
-          className="input"
-          placeholder={brand ? `${brand} ichidan qidirish` : 'Qidirish: model, brend, razmer, rang'}
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
+      {view === 'imports' && brand === null ? (
+        <ImportsList
+          batches={batches}
+          products={products}
+          soldAt={soldAt}
+          onLabels={onPrintLabels}
+          onDelete={(b) =>
+            setConfirm({
+              text: `Kirim №${b.number} (${b.productIds.length} pachka) o'chirilsinmi? Sotilgan tovarlari qoladi.`,
+              run: async () => {
+                const r = await deleteBatch(b.id)
+                flash(r.kept ? `${r.removed} ta o'chirildi, ${r.kept} ta sotilgani uchun qoldi` : `Kirim №${b.number} o'chirildi`)
+                reload()
+              },
+            })
+          }
         />
-        {showList && (
-          <Segmented<Filter>
-            value={filter}
-            onChange={setFilter}
-            options={[['all', 'Hammasi'], ['low', `Kam qolgan (${scope.filter(low).length})`], ['out', `Tugagan (${scope.filter(out).length})`]]}
-          />
-        )}
-      </div>
-
-      {!showList ? (
-        brands.length === 0 ? (
-          <div className="empty"><b>Hali tovar yo'q</b><span className="muted">Excel'dan import qiling yoki "+ Tovar" bilan qo'shing.</span></div>
-        ) : (
-          <div className="brand-grid">
-            {brands.map(([name, items]) => {
-              const t = totals(items)
-              return (
-                <button key={name} className="brand-card" onClick={() => setBrand(name)}>
-                  <div className="bc-head">
-                    <b>{name}</b>
-                    <span className="muted small">{items.length} model</span>
-                  </div>
-                  <div className="bc-packs"><b>{t.packs}</b> <span className="muted">pachka</span></div>
-                  <div className="bc-rows">
-                    <div><span className="muted">Sotuv narxida</span><b>{formatSum(t.sale)}</b></div>
-                    <div><span className="muted">Kelish narxida</span><span>{formatSum(t.cost)}</span></div>
-                  </div>
-                  {items.some(out) && <span className="bc-warn">{items.filter(out).length} ta tugagan</span>}
-                </button>
-              )
-            })}
-          </div>
-        )
       ) : (
-        <div className="table-wrap">
-          <table className="table clickable">
-            <thead>
-              <tr><th>Model</th><th>Qoldiq</th><th className="num">Sotuv narxi</th><th className="num">Kelish narxi</th><th className="num">Jami (sotuv)</th></tr>
-            </thead>
-            <tbody>
-              {list.map((p) => (
-                <tr key={p.id} onClick={() => setEditing(p)}>
-                  <td>
-                    <b>{p.name}</b>
-                    <div className="muted small">{[brand === null && p.brand, p.size, p.color].filter(Boolean).join(' · ')}</div>
-                  </td>
-                  <td>
-                    <span className={`stock ${out(p) ? 'out' : low(p) ? 'low' : ''}`}>
-                      {p.stock <= 0 ? 'tugagan' : packsLabel(p.stock, p.packSize)}
-                    </span>
-                  </td>
-                  <td className="num">{formatSum(p.salePrice)}</td>
-                  <td className="num muted">{formatSum(p.costPrice)}</td>
-                  <td className="num"><b>{formatSum(Math.max(0, p.stock) * p.salePrice)}</b></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {list.length === 0 && <p className="muted pad">Hech narsa topilmadi.</p>}
-        </div>
+        <>
+          <div className="kpis four">
+            <div className="kpi"><span>Omborda</span><b>{summary.packs} pachka</b></div>
+            <div className="kpi"><span>Sotuv narxida</span><b>{formatSum(summary.sale)}</b></div>
+            <div className="kpi"><span>Kelish narxida</span><b>{formatSum(summary.cost)}</b></div>
+            <div className="kpi accent"><span>Kutilayotgan foyda</span><b>{formatSum(summary.sale - summary.cost)}</b></div>
+          </div>
+
+          <div className="toolbar">
+            <input
+              className="input"
+              placeholder={brand ? `${brand} ichidan qidirish` : 'Qidirish: model, brend, razmer, rang'}
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+            {showList && (
+              <Segmented<Filter>
+                value={filter}
+                onChange={setFilter}
+                options={[['all', 'Hammasi'], ['instock', `Omborda (${scope.filter(inStock).length})`], ['sold', `Sotilgan (${scope.filter((p) => !inStock(p)).length})`]]}
+              />
+            )}
+          </div>
+
+          {!showList ? (
+            brands.length === 0 ? (
+              <div className="empty"><b>Hali tovar yo'q</b><span className="muted">Excel'dan import qiling yoki "+ Tovar" bilan qo'shing.</span></div>
+            ) : (
+              <div className="brand-grid">
+                {brands.map(([name, items]) => {
+                  const t = totals(items)
+                  const today = Math.round(soldToday.get(name) ?? 0)
+                  return (
+                    <button key={name} className="brand-card" onClick={() => setBrand(name)}>
+                      <b className="bc-name">{name}</b>
+                      <div className="bc-packs"><b>{t.packs}</b> <span className="muted">pachka</span></div>
+                      <div className="bc-rows">
+                        <div><span className="muted">Sotuv narxida</span><b>{formatSum(t.sale)}</b></div>
+                        <div><span className="muted">Kelish narxida</span><span>{formatSum(t.cost)}</span></div>
+                      </div>
+                      {today > 0 && <span className="bc-sold">Bugun {today} ta sotildi</span>}
+                    </button>
+                  )
+                })}
+              </div>
+            )
+          ) : (
+            <>
+              {selected.size > 0 && (
+                <div className="bulk">
+                  <b>{selected.size} ta tanlandi</b>
+                  <button className="link small" onClick={() => setSelected(new Set())}>bekor</button>
+                  <span className="grow" />
+                  <button className="btn danger small" onClick={() => remove([...selected], `${selected.size} ta tovar`)}>O'chirish</button>
+                </div>
+              )}
+              <div className="table-wrap">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th className="check">
+                        <input
+                          type="checkbox"
+                          aria-label="Hammasini tanlash"
+                          checked={allChecked}
+                          onChange={() => setSelected(allChecked ? new Set() : new Set(list.map((p) => p.id)))}
+                        />
+                      </th>
+                      <th>Model</th><th>Holat</th><th className="num">Sotuv narxi</th><th className="num">Kelish narxi</th><th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {list.map((p) => {
+                      const sold = soldAt.get(p.id)
+                      return (
+                        <tr key={p.id} className={`${selected.has(p.id) ? 'picked' : ''}${inStock(p) ? '' : ' is-sold'}`}>
+                          <td className="check">
+                            <input type="checkbox" aria-label={`${p.name} tanlash`} checked={selected.has(p.id)} onChange={() => toggle(p.id)} />
+                          </td>
+                          <td>
+                            <b>{p.name}</b>
+                            <div className="muted small">{[brand === null && p.brand, p.size, p.color, `${p.packSize} juft`].filter(Boolean).join(' · ')}</div>
+                          </td>
+                          <td>
+                            {inStock(p) ? (
+                              p.stock < p.packSize ? <span className="tag warn">{p.stock} juft qoldi</span> : <span className="tag ok-tag">omborda</span>
+                            ) : (
+                              <span className="tag">sotilgan{sold ? ` · ${isToday(sold) ? 'bugun' : dayTime(sold).slice(0, 5)}` : ''}</span>
+                            )}
+                          </td>
+                          <td className="num">{formatSum(p.salePrice)}</td>
+                          <td className="num muted">{formatSum(p.costPrice)}</td>
+                          <td>
+                            <div className="row-actions">
+                              <button className="icon" aria-label="Tahrirlash" title="Tahrirlash" onClick={() => setEditing(p)}><IconEdit /></button>
+                              <button className="icon danger" aria-label="O'chirish" title="O'chirish" onClick={() => remove([p.id], p.name)}><IconTrash /></button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+                {list.length === 0 && <p className="muted pad">Hech narsa topilmadi.</p>}
+              </div>
+            </>
+          )}
+        </>
       )}
+
+      {confirm && (
+        <Modal title="Tasdiqlang" onClose={() => setConfirm(null)}>
+          <p>{confirm.text}</p>
+          <div className="modal-actions">
+            <span className="grow" />
+            <button className="btn ghost" onClick={() => setConfirm(null)}>Yo'q</button>
+            <button
+              className="btn danger"
+              autoFocus
+              onClick={async () => {
+                const c = confirm
+                setConfirm(null)
+                await c.run()
+              }}
+            >
+              Ha, o'chirish
+            </button>
+          </div>
+        </Modal>
+      )}
+      {toast && <div className="toast">{toast}</div>}
 
       {preview && (
         <Modal title="Excel'dan import" onClose={() => setPreview(null)} wide>
@@ -229,8 +356,7 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
       {imported && (
         <Modal title="Tovarlar qo'shildi" onClose={() => setImported(null)}>
           <p>
-            Kirim №{imported.number}: <b>{imported.productIds.length}</b> model,{' '}
-            <b>{Object.values(imported.packs).reduce((a, b) => a + b, 0)}</b> pachka. Shtrix-kodlar yaratildi.
+            Kirim №{imported.number}: <b>{imported.productIds.length}</b> pachka qo'shildi, har biriga shtrix-kod yaratildi.
           </p>
           <div className="modal-actions">
             <button className="btn ghost" onClick={() => setImported(null)}>Keyinroq</button>
@@ -259,8 +385,9 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
           product={editing}
           onClose={() => setEditing(null)}
           onDelete={async () => {
-            await deleteProduct(editing.id)
+            const r = await deleteProducts([editing.id])
             setEditing(null)
+            flash(r.removed ? 'O\'chirildi' : 'Sotilgan tovarni o\'chirib bo\'lmaydi')
             reload()
           }}
           onSave={async (inp, stock) => {
@@ -379,6 +506,10 @@ function NewProductForm({
   const [brand, setBrand] = useState(initialBrand ?? draft.brand)
   const [brands, setBrands] = useState<string[]>([])
   const [newBrand, setNewBrand] = useState(false)
+  const [firstNo, setFirstNo] = useState(1)
+  useEffect(() => {
+    nextBrandNumber(brand).then(setFirstNo)
+  }, [brand])
   useEffect(() => {
     getBrands().then((list) => {
       setBrands(list)
@@ -496,11 +627,20 @@ function NewProductForm({
         </button>
       </div>
 
-      {c > 0 && sp > 0 && (
-        <div className="muted small">
-          Jami <b>{totalPacks} pachka</b>
-          {rows.length > 1 && ` (${rows.length} xil rang — har biri alohida tovar)`} · bir pachkadan foyda{' '}
-          <b className={sp < c ? 'error' : 'ok'}>{formatSum((sp - c) * packSize)}</b>
+      {totalPacks > 0 && (
+        <div className="code-range">
+          <div>
+            Jami <b>{totalPacks} pachka</b> — {totalPacks} ta qator qo'shiladi
+            {c > 0 && sp > 0 && (
+              <> · bir pachkadan foyda <b className={sp < c ? 'error' : 'ok'}>{formatSum((sp - c) * packSize)}</b></>
+            )}
+          </div>
+          {brand.trim() && (
+            <div className="code-chip-line">
+              Kodlar: <span className="code-chip">{name.trim() || 'Model'} {brandCode(firstNo)}</span>
+              {totalPacks > 1 && <> – <span className="code-chip">{brandCode(firstNo + totalPacks - 1)}</span></>}
+            </div>
+          )}
         </div>
       )}
 
@@ -510,5 +650,49 @@ function NewProductForm({
         <button className="btn primary" disabled={!valid} onClick={save}>Saqlash</button>
       </div>
     </Modal>
+  )
+}
+
+function ImportsList({
+  batches, products, soldAt, onLabels, onDelete,
+}: {
+  batches: ImportBatch[]
+  products: Product[]
+  soldAt: Map<string, string>
+  onLabels: (id: string) => void
+  onDelete: (b: ImportBatch) => void
+}) {
+  const byId = new Map(products.map((p) => [p.id, p]))
+  if (!batches.length) return <div className="empty"><b>Hali kirim yo'q</b><span className="muted">Excel'dan import qiling yoki "+ Tovar" bilan qo'shing.</span></div>
+  return (
+    <div className="imports">
+      {batches.map((b) => {
+        const items = b.productIds.map((id) => byId.get(id)).filter((p): p is Product => !!p)
+        const sold = items.filter((p) => soldAt.has(p.id)).length
+        const brands = [...new Set(items.map((p) => p.brand))]
+        const pct = items.length ? Math.round((sold / items.length) * 100) : 0
+        return (
+          <div key={b.id} className="import-row">
+            <div className="ir-main">
+              <b>Kirim №{b.number}</b>
+              <span className="muted small">
+                {dayTime(b.createdAt)} · {b.source === 'excel' ? 'Excel' : 'qo\'lda'} · {brands.join(', ')}
+              </span>
+            </div>
+            <div className="ir-num"><b>{items.length}</b><span className="muted small">pachka</span></div>
+            <div className="ir-num"><b>{formatSum(items.reduce((a, p) => a + p.packSize * p.salePrice, 0))}</b><span className="muted small">sotuv narxida</span></div>
+            <div className="ir-progress">
+              <div className="bb-track"><div className="bb-fill" style={{ width: `${pct}%` }} /></div>
+              <span className="muted small">{sold} ta sotildi · {pct}%</span>
+            </div>
+            <span className="tag ok-tag">qo'shilgan</span>
+            <div className="row-actions">
+              <button className="btn ghost small" onClick={() => onLabels(b.id)}>Etiketka</button>
+              <button className="icon danger" aria-label="Kirimni o'chirish" title="O'chirish" onClick={() => onDelete(b)}><IconTrash /></button>
+            </div>
+          </div>
+        )
+      })}
+    </div>
   )
 }

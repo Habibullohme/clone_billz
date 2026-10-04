@@ -73,3 +73,15 @@ export function MoneyInput({
     />
   )
 }
+
+export const IconEdit = () => (
+  <svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true">
+    <path d="M13.6 3.4a2 2 0 0 1 2.9 2.9L7 15.8l-3.6.8.8-3.6z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+  </svg>
+)
+
+export const IconTrash = () => (
+  <svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true">
+    <path d="M4 6h12M8 6V4h4v2M6 6l.8 10h6.4L14 6" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)

@@ -1,11 +1,13 @@
 /* Layout: yuqorida ingichka menyu; kassada chapda savat (asosiy ish), o'ngda to'lov ustuni. */
 :root {
-  --bg: #f4f6f5;
+  --bg: #eef2f1;
   --surface: #ffffff;
-  --sunken: #eceff0;
-  --line: #dfe5e3;
-  --fg: #141b19;
-  --muted: #66746f;
+  --sunken: #e7ecea;
+  --line: #d2dbd8;
+  --fg: #111917;
+  --muted: #55635e;
+  --placeholder: #8b9894;
+  --card-shadow: 0 1px 2px rgb(16 24 22 / 0.06), 0 3px 10px rgb(16 24 22 / 0.05);
   --accent: #0d7a62;
   --accent-fg: #ffffff;
   --accent-soft: #dff1eb;
@@ -24,14 +26,14 @@
   :root:not([data-theme='light']) {
     --bg: #0f1413; --surface: #171e1c; --sunken: #1f2826; --line: #29342f; --fg: #e8efec; --muted: #8fa19a;
     --accent: #3cc7a2; --accent-fg: #052219; --accent-soft: #163a31; --kraft: #3d3221;
-    --ok: #5fd08a; --warn: #f0a94a; --bad: #ff7a6e; --bad-soft: #3a1f1c;
+    --ok: #5fd08a; --warn: #f0a94a; --bad: #ff7a6e; --bad-soft: #3a1f1c; --placeholder: #6f807a; --card-shadow: none;
     --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 30px rgb(0 0 0 / 0.25); color-scheme: dark;
   }
 }
 :root[data-theme='dark'] {
   --bg: #0f1413; --surface: #171e1c; --sunken: #1f2826; --line: #29342f; --fg: #e8efec; --muted: #8fa19a;
   --accent: #3cc7a2; --accent-fg: #052219; --accent-soft: #163a31; --kraft: #3d3221;
-  --ok: #5fd08a; --warn: #f0a94a; --bad: #ff7a6e; --bad-soft: #3a1f1c;
+  --ok: #5fd08a; --warn: #f0a94a; --bad: #ff7a6e; --bad-soft: #3a1f1c; --placeholder: #6f807a; --card-shadow: none;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 30px rgb(0 0 0 / 0.25); color-scheme: dark;
 }
 
@@ -75,14 +77,14 @@ kbd {
 .tabs button:hover { color: var(--fg); }
 .tabs button.on { background: var(--sunken); color: var(--fg); }
 .demo { margin-left: auto; font-size: 12px; color: var(--warn); white-space: nowrap; }
-.main { flex: 1; min-height: 0; overflow: auto; }
+.main { flex: 1; min-height: 0; overflow: auto; scrollbar-gutter: stable; }
 
 /* ---------- Controls ---------- */
 .input {
   width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
   background: var(--surface); color: var(--fg); font: inherit; transition: border-color 0.15s, box-shadow 0.15s;
 }
-.input::placeholder { color: var(--muted); opacity: 0.7; }
+.input::placeholder, .search-in::placeholder { color: var(--placeholder); opacity: 1; }
 .input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
 .input:disabled { opacity: 0.5; }
 .btn {
@@ -100,7 +102,7 @@ kbd {
 .link { background: none; border: 0; color: var(--accent); padding: 0; font-weight: 500; }
 .link:hover { text-decoration: underline; text-underline-offset: 2px; }
 .link.left { align-self: flex-start; }
-.icon { background: none; border: 0; width: 32px; height: 32px; border-radius: 8px; color: var(--muted); flex: none; }
+.icon { background: none; border: 0; width: 34px; height: 34px; border-radius: 8px; color: var(--muted); flex: none; display: inline-grid; place-items: center; }
 .icon:hover { background: var(--sunken); color: var(--fg); }
 .icon.danger:hover { color: var(--bad); }
 .label { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 600; }
@@ -488,4 +490,46 @@ kbd {
 .width-pick .with-suffix .input { width: 90px; }
 @media (max-width: 860px) {
   .kpis.four { grid-template-columns: 1fr 1fr; }
+}
+
+/* Kartalarga yengil soya — yorug' mavzuda chegaralar aniq ko'rinsin */
+.kpi, .brand-card, .table-wrap, .row, .set-body, .card, .import-row, .label-row, .batch, .empty, .search-in { box-shadow: var(--card-shadow); }
+.nav { box-shadow: var(--card-shadow); position: relative; z-index: 5; }
+.empty { background: var(--surface); }
+
+/* Tovarlar jadvali */
+.table th.check, .table td.check { width: 40px; padding-right: 0; }
+.table input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
+.table tbody tr:hover { background: var(--sunken); }
+.table tbody tr.picked { background: var(--accent-soft); }
+.table tr.is-sold td:not(.check):not(:last-child) { opacity: 0.6; }
+.row-actions { display: flex; gap: 2px; justify-content: flex-end; align-items: center; white-space: nowrap; }
+.tag.ok-tag { background: var(--accent-soft); color: var(--ok); font-weight: 600; }
+.bulk {
+  display: flex; align-items: center; gap: 12px; background: var(--accent-soft); border-radius: 12px; padding: 10px 14px;
+  position: sticky; top: 0; z-index: 4;
+}
+.bc-name { font-family: var(--font-display); font-size: 17px; font-weight: 600; }
+.bc-sold { font-size: 12.5px; font-weight: 600; color: var(--ok); }
+.head-title .seg { margin-left: 8px; }
+
+/* Kirimlar */
+.imports { display: flex; flex-direction: column; gap: 8px; }
+.import-row {
+  display: grid; grid-template-columns: minmax(180px, 1.4fr) 90px 150px minmax(140px, 1fr) auto auto; gap: 16px; align-items: center;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 12px 16px;
+}
+.ir-main, .ir-num, .ir-progress { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ir-num b { font-size: 16px; }
+.ir-main .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Yangi tovar: kodlar */
+.code-range { display: flex; flex-direction: column; gap: 6px; background: var(--sunken); border-radius: 12px; padding: 10px 14px; font-size: 13.5px; }
+.code-chip { display: inline-block; font-family: var(--font-mono); font-weight: 600; font-size: 12.5px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px; }
+
+@media (max-width: 860px) {
+  .import-row { grid-template-columns: 1fr auto; }
+  .import-row .ir-progress { grid-column: 1 / -1; }
+  .import-row .tag { display: none; }
+  .head-title { flex-wrap: wrap; }
 }
