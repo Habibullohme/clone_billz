@@ -147,10 +147,17 @@ export function PosPage() {
       }
     })
     const profit = saleLines.reduce((s, l) => s + l.total - l.costPrice * l.pairs, 0)
-    const sale = await saveSale({
-      customerName: customer.trim(), note: note.trim(), lines: saleLines,
-      subtotal: sub, discount, total, profit, payment, change,
-    })
+    let sale: Sale
+    try {
+      sale = await saveSale({
+        customerName: customer.trim(), note: note.trim(), lines: saleLines,
+        subtotal: sub, discount, total, profit, payment, change,
+      })
+    } catch (e) {
+      console.error(e)
+      showToast("Sotuv saqlanmadi — internetni tekshirib, qayta urinib ko'ring", true)
+      return
+    }
     if (settings && usdRate !== settings.usdRate && usdRate > 0) {
       const s = { ...settings, usdRate }
       setSettings(s)

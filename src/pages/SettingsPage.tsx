@@ -5,6 +5,7 @@ import { Segmented, Toggle } from '../components/ui'
 import { applyTheme, type Theme } from '../lib/theme'
 import { Receipt } from '../components/Receipt'
 import type { Sale } from '../types'
+import { cloudEnabled, signOut, supabase } from '../data/cloud'
 
 const sections = [
   ['shop', "Do'kon"],
@@ -208,7 +209,8 @@ export function SettingsPage() {
 
           {section === 'data' && (
             <>
-              <Row id="set-reset" title="Sinov ma'lumotlarini tozalash" hint="Namunaviy tovarlar, sotuvlar va mijozlar o'chiriladi. Sozlamalar qoladi.">
+              {cloudEnabled && <AccountRow />}
+              {!cloudEnabled && <Row id="set-reset" title="Sinov ma'lumotlarini tozalash" hint="Namunaviy tovarlar, sotuvlar va mijozlar o'chiriladi. Sozlamalar qoladi.">
                 {confirmReset ? (
                   <button
                     id="set-reset"
@@ -233,12 +235,14 @@ export function SettingsPage() {
                 ) : (
                   <button id="set-reset" className="btn ghost danger-text" onClick={() => setConfirmReset(true)}>Tozalash</button>
                 )}
-              </Row>
+              </Row>}
               <Row id="set-defaults" title="Sozlamalarni tiklash" hint="Barcha sozlamalar boshlang'ich holatga qaytadi">
                 <button id="set-defaults" className="btn ghost" onClick={() => { setS(defaultSettings); saveSettings(defaultSettings) }}>Tiklash</button>
               </Row>
               <p className="muted small note">
-                Xodimlar (kassir akkauntlari) va Telegram bot baza ulangach shu yerga qo'shiladi.
+                {cloudEnabled
+                  ? "Ma'lumotlar bazada saqlanadi: kassa, telefon va boshqa qurilmalar bir xil ma'lumotni ko'radi."
+                  : "Sinov rejimi: ma'lumotlar faqat shu brauzerda saqlanmoqda."}
               </p>
             </>
           )}
@@ -366,5 +370,17 @@ function BrandsSection() {
         ))}
       </div>
     </div>
+  )
+}
+
+function AccountRow() {
+  const [email, setEmail] = useState('')
+  useEffect(() => {
+    supabase?.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? ''))
+  }, [])
+  return (
+    <Row id="set-logout" title="Hisob" hint={email ? `Kirgan: ${email}` : undefined}>
+      <button id="set-logout" className="btn ghost danger-text" onClick={() => signOut()}>Chiqish</button>
+    </Row>
   )
 }

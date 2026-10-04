@@ -5,7 +5,9 @@ import { ProductsPage } from './pages/ProductsPage'
 import { LabelsPage } from './pages/LabelsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { PinGate } from './components/PinGate'
-import { getSettings, saveSettings, type Settings } from './data/store'
+import { getSettings, initStore, onSyncError, refresh, saveSettings, type Settings } from './data/store'
+import { cloudEnabled, getSession, isStaff, signOut, supabase } from './data/cloud'
+import { LoginPage } from './pages/LoginPage'
 import { applyTheme, type Theme } from './lib/theme'
 import { IconBox, IconCashbox, IconGear, IconSales, IconTag, IconTheme } from './components/icons'
 
@@ -34,16 +36,82 @@ function Clock() {
   )
 }
 
+type Boot = 'loading' | 'login' | 'denied' | 'offline' | 'ready'
+
+/** Kirish va ma'lumot yuklanishini kutadi, keyin ilovani ochadi. */
 export function App() {
+  const [boot, setBoot] = useState<Boot>('loading')
+
+  const start = async () => {
+    setBoot('loading')
+    try {
+      if (cloudEnabled) {
+        if (!(await getSession())) return setBoot('login')
+        if (!(await isStaff())) return setBoot('denied')
+      }
+      await initStore()
+      setBoot('ready')
+    } catch (e) {
+      console.error(e)
+      setBoot('offline')
+    }
+  }
+
+  useEffect(() => {
+    start()
+    // Boshqa joyda chiqib ketilsa (yoki sessiya tugasa) — kirish oynasi.
+    const sub = supabase?.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') setBoot('login')
+    })
+    return () => sub?.data.subscription.unsubscribe()
+  }, [])
+
+  if (boot === 'ready') return <Shop />
+  if (boot === 'login') return <LoginPage onDone={start} />
+  return (
+    <div className="login">
+      <div className="login-card">
+        <div className="shop-mark big">D</div>
+        {boot === 'loading' && <p className="muted">Yuklanmoqda…</p>}
+        {boot === 'offline' && (
+          <>
+            <h1>Internet yo'q</h1>
+            <p className="muted small">Bazaga ulanib bo'lmadi. Internetni tekshirib, qayta urinib ko'ring.</p>
+            <button className="btn primary big" onClick={start}>Qayta urinish</button>
+          </>
+        )}
+        {boot === 'denied' && (
+          <>
+            <h1>Ruxsat yo'q</h1>
+            <p className="muted small">Bu hisobga do'konga kirish ruxsati berilmagan. Do'kon egasiga murojaat qiling.</p>
+            <button className="btn ghost big" onClick={() => signOut()}>Boshqa hisob bilan kirish</button>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function Shop() {
   const [tab, setTab] = useState<Tab>('pos')
   const [menu, setMenu] = useState(false)
   const [asking, setAsking] = useState<OwnerTab | null>(null)
   const [labelsBatch, setLabelsBatch] = useState<string | null>(null)
   const [settings, setSettings] = useState<Settings | null>(null)
+  const [syncError, setSyncError] = useState('')
+
+  useEffect(() => onSyncError(setSyncError), [])
+
+  // Boshqa qurilmada qilingan o'zgarishlar: oynaga qaytganda bazadan yangilanadi.
+  useEffect(() => {
+    const onFocus = () => refresh().catch(() => {})
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [])
 
   // Kassaga qaytganda sozlamalar (logo, nom) yangilanadi.
   useEffect(() => {
-    getSettings().then((s) => {
+    refresh().catch(() => {}).then(getSettings).then((s) => {
       setSettings(s)
       applyTheme(s.theme)
     })
@@ -112,6 +180,13 @@ export function App() {
             </button>
           </div>
         </header>
+      )}
+
+      {syncError && (
+        <div className="sync-error" role="alert">
+          <span>⚠ {syncError}</span>
+          <button className="icon" onClick={() => setSyncError('')} aria-label="Yopish">✕</button>
+        </div>
       )}
 
       <main className="main">

@@ -1,12 +1,13 @@
 /**
- * Ma'lumotlar qatlami. Hozircha brauzer xotirasida (localStorage) ishlaydi,
- * keyin shu funksiyalar Supabase bilan almashtiriladi — sahifalar o'zgarmaydi.
+ * Ma'lumotlar qatlami. Baza (Supabase) ulangan bo'lsa — hammasi bazada, xotirada esa
+ * tez o'qish uchun nusxasi turadi. Ulanmagan bo'lsa — brauzer xotirasida (sinov rejimi).
  */
 import type { Customer, HeldCart, ImportBatch, Product, ProductInput, Sale } from '../types'
 import { brandCode, makeBarcode } from '../lib/codes'
 import { demoInputs } from './demo'
 import type { Theme } from '../lib/theme'
 import { defaultTemplates, type LabelTemplate } from '../lib/labels'
+import * as cloud from './cloud'
 
 export interface Settings {
   // Do'kon
@@ -63,26 +64,40 @@ export const defaultSettings: Settings = {
   labelTemplateId: defaultTemplates[0].id,
 }
 
+/** Ma'lumot nusxasi (JSON matn ko'rinishida — har o'qishda yangi nusxa qaytadi). */
 const memory = new Map<string, string>()
+let mode: 'local' | 'cloud' = 'local'
 
 function read<T>(key: string, fallback: T): T {
-  let raw: string | null | undefined
-  try {
-    raw = localStorage.getItem(key)
-  } catch {
-    // Xotira yopiq (maxfiy oyna) — sessiya xotirasidan o'qiymiz.
+  let raw = memory.get(key)
+  if (raw === undefined && mode === 'local') {
+    try {
+      raw = localStorage.getItem(key) ?? undefined
+    } catch {
+      // Xotira yopiq (maxfiy oyna) — faqat sessiya xotirasi.
+    }
+    if (raw !== undefined) memory.set(key, raw)
   }
-  raw ??= memory.get(key)
   return raw ? (JSON.parse(raw) as T) : fallback
+}
+
+/** Faqat nusxani yangilaydi (bazaga yozilmaydi). */
+function put(key: string, value: unknown) {
+  memory.set(key, JSON.stringify(value))
 }
 
 function write(key: string, value: unknown) {
   const raw = JSON.stringify(value)
+  const prev = memory.get(key)
   memory.set(key, raw)
-  try {
-    localStorage.setItem(key, raw)
-  } catch {
-    // Faqat sessiya davomida saqlanadi.
+  if (mode === 'local') {
+    try {
+      localStorage.setItem(key, raw)
+    } catch {
+      // Faqat sessiya davomida saqlanadi.
+    }
+  } else if (prev !== raw) {
+    pending.push(syncKey(key, prev ? JSON.parse(prev) : undefined, value))
   }
 }
 
@@ -98,13 +113,133 @@ const K = {
   brandSeq: 'dk4.brandSeq',
 }
 
+// ---------- Baza bilan sinxronlash ----------
+
+let pending: Promise<void>[] = []
+const errorListeners = new Set<(msg: string) => void>()
+
+/** Bazaga yozib bo'lmaganda chaqiriladi (sarlavhada ogohlantirish chiqadi). */
+export function onSyncError(cb: (msg: string) => void): () => void {
+  errorListeners.add(cb)
+  return () => errorListeners.delete(cb)
+}
+
+function syncFailed(e: unknown) {
+  console.error(e)
+  const msg = /fetch|network/i.test(String((e as Error)?.message ?? e))
+    ? "Internet yo'q — o'zgarish saqlanmadi"
+    : "Bazaga saqlanmadi: " + ((e as Error)?.message ?? String(e))
+  errorListeners.forEach((cb) => cb(msg))
+}
+
+/** Navbatdagi yozuvlar tugashini kutadi. Xato bo'lsa — xabar beradi va bazadan qayta yuklaydi. */
+async function flush() {
+  const jobs = pending
+  pending = []
+  const failed = (await Promise.allSettled(jobs)).find((r) => r.status === 'rejected')
+  if (failed) {
+    syncFailed((failed as PromiseRejectedResult).reason)
+    await refresh().catch(() => {})
+  }
+}
+
+function diff<T>(prev: T[] = [], next: T[], id: (x: T) => string) {
+  const before = new Map(prev.map((x) => [id(x), JSON.stringify(x)]))
+  const added: T[] = []
+  const changed: T[] = []
+  for (const x of next) {
+    const b = before.get(id(x))
+    if (b === undefined) added.push(x)
+    else if (b !== JSON.stringify(x)) changed.push(x)
+    before.delete(id(x))
+  }
+  return { added, changed, removed: [...before.keys()] }
+}
+
+async function syncKey(key: string, prev: unknown, next: unknown) {
+  const byId = (x: { id: string }) => x.id
+  if (key === K.products) {
+    const d = diff(prev as Product[], next as Product[], byId)
+    return cloud.syncProducts(d.added, d.changed, d.removed)
+  }
+  if (key === K.settings) return cloud.saveSettingsRow(next as Record<string, unknown>)
+  const kinds: Record<string, cloud.DocKind> = { [K.batches]: 'batches', [K.customers]: 'customers', [K.held]: 'held' }
+  if (kinds[key]) {
+    const d = diff(prev as { id: string; createdAt?: string }[], next as { id: string; createdAt?: string }[], byId)
+    const rows = [...d.added, ...d.changed].map((x) => ({ id: x.id, data: x, ...(key === K.batches && { created_at: x.createdAt }) }))
+    return cloud.syncDocs(kinds[key], rows, d.removed)
+  }
+  if (key === K.brands) {
+    const brandId = (b: string) => b.trim().toLowerCase()
+    const d = diff(prev as string[], next as string[], brandId)
+    return cloud.syncDocs('brands', [...d.added, ...d.changed].map((b) => ({ id: brandId(b), data: b })), d.removed)
+  }
+  // Sotuvlar va hisoblagichlar alohida (atomar) yoziladi.
+}
+
+/** Kirishdan keyin: baza ulangan bo'lsa, hamma ma'lumotni yuklab oladi. */
+export async function initStore(): Promise<void> {
+  if (!cloud.cloudEnabled) return
+  mode = 'cloud'
+  await refresh()
+  // Birinchi marta: shu brauzerda sozlangan do'kon sozlamalari va brendlar bazaga ko'chadi.
+  if (!memory.has(K.settings)) {
+    const local = localRead(K.settings)
+    write(K.settings, local ?? {})
+    const brands = localRead(K.brands)
+    if (Array.isArray(brands) && brands.length) write(K.brands, brands)
+    await flush()
+  }
+}
+
+function localRead(key: string): unknown {
+  try {
+    const raw = localStorage.getItem(key)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+/** Bazadan yangilab oladi (boshqa kassada qilingan sotuvlar, kirimlar ko'rinadi). */
+export async function refresh(): Promise<void> {
+  if (mode !== 'cloud' || pending.length) return
+  const snap = await cloud.loadAll()
+  put(K.products, snap.products)
+  put(K.sales, snap.sales)
+  put(K.batches, snap.batches)
+  put(K.customers, snap.customers)
+  put(K.held, snap.held)
+  put(K.brands, snap.brands)
+  if (snap.settings) put(K.settings, snap.settings)
+  else memory.delete(K.settings)
+  put(K.brandSeq, Object.fromEntries(
+    Object.entries(snap.counters).filter(([k]) => k.startsWith('brand:')).map(([k, v]) => [k.slice(6), v]),
+  ))
+}
+
 type SeqName = 'product' | 'sale' | 'batch'
 
-function nextSeq(name: SeqName): number {
+/** n ta tartib raqamini band qiladi, oxirgisini qaytaradi. */
+async function takeSeq(name: SeqName, count = 1): Promise<number> {
+  if (mode === 'cloud') return cloud.takeSeq(name, count)
   const seq = read<Record<string, number>>(K.seq, {})
-  seq[name] = (seq[name] ?? 0) + 1
+  seq[name] = (seq[name] ?? 0) + count
   write(K.seq, seq)
   return seq[name]
+}
+
+/** Brendning n ta kod raqamini band qiladi, oxirgisini qaytaradi. */
+async function takeBrandSeq(bk: string, count: number): Promise<number> {
+  const map = read<Record<string, number>>(K.brandSeq, {})
+  if (mode === 'cloud') {
+    map[bk] = await cloud.takeSeq('brand:' + bk, count)
+    put(K.brandSeq, map)
+  } else {
+    map[bk] = (map[bk] ?? 0) + count
+    write(K.brandSeq, map)
+  }
+  return map[bk]
 }
 
 export function uid(): string {
@@ -113,18 +248,19 @@ export function uid(): string {
 
 // ---------- Mahsulotlar ----------
 
-let seeded = false
+let seeded: Promise<unknown> | null = null
 function ensureSeed() {
-  if (seeded) return
-  seeded = true
-  if (read<Product[] | null>(K.products, null) === null) {
-    write(K.products, [])
-    createBatch(demoInputs, 'manual')
+  // Sinov rejimida birinchi ochilganda namunaviy tovarlar qo'shiladi.
+  if (!seeded) {
+    seeded = mode === 'local' && read<Product[] | null>(K.products, null) === null
+      ? (write(K.products, []), createBatch(demoInputs, 'manual'))
+      : Promise.resolve()
   }
+  return seeded
 }
 
 export async function getProducts(): Promise<Product[]> {
-  ensureSeed()
+  await ensureSeed()
   return read<Product[]>(K.products, [])
 }
 
@@ -172,28 +308,42 @@ export async function previewCodes(brand: string, count: number): Promise<string
  * Kirim: har bir pachka — alohida tovar (qator). Nomi yoniga brend bo'yicha kod
  * qo'shiladi: "Little qalin A20". Har brendning hisobi A1 dan boshlanadi.
  */
-function createBatch(inputs: ProductInput[], source: ImportBatch['source']): ImportBatch {
+async function createBatch(inputs: ProductInput[], source: ImportBatch['source']): Promise<ImportBatch> {
+  const packsOf = (inp: ProductInput) => Math.max(1, inp.packs)
+  const total = inputs.reduce((s, inp) => s + packsOf(inp), 0)
+  // Raqamlar oldindan bir yo'la band qilinadi — ikki kassa bir vaqtda kiritsa ham takrorlanmaydi.
+  let seq = (await takeSeq('product', total)) - total
+  const pool = new Map<string, number[]>()
+  for (const inp of inputs) {
+    const bk = brandSeqKey(inp.brand)
+    pool.set(bk, [...(pool.get(bk) ?? []), ...Array<number>(packsOf(inp)).fill(0)])
+  }
+  for (const [bk, list] of pool) {
+    const last = await takeBrandSeq(bk, list.length)
+    pool.set(bk, list.map((_, i) => last - list.length + 1 + i))
+  }
+  const number = await takeSeq('batch')
+
   const products = read<Product[]>(K.products, [])
-  const brandSeq = read<Record<string, number>>(K.brandSeq, {})
   const now = new Date().toISOString()
   const batch: ImportBatch = {
-    id: uid(), number: nextSeq('batch'), createdAt: now, source,
+    id: uid(), number, createdAt: now, source,
     productIds: [], packs: {}, costTotal: 0, saleTotal: 0,
   }
   for (const inp of inputs) {
-    for (let k = 0; k < Math.max(1, inp.packs); k++) {
-      const seq = nextSeq('product')
-      const bk = brandSeqKey(inp.brand)
+    const bk = brandSeqKey(inp.brand)
+    for (let k = 0; k < packsOf(inp); k++) {
       // Qo'lda o'zgartirilgan nom bilan to'qnashmasin — band bo'lsa keyingi kod.
       let name: string
+      let n: number
       do {
-        brandSeq[bk] = (brandSeq[bk] ?? 0) + 1
-        name = `${inp.name.trim()} ${brandCode(brandSeq[bk])}`
-      } while (nameTaken(products, name) || codeTaken(products, inp.brand, brandCode(brandSeq[bk])))
+        n = pool.get(bk)!.shift() ?? (await takeBrandSeq(bk, 1))
+        name = `${inp.name.trim()} ${brandCode(n)}`
+      } while (nameTaken(products, name) || codeTaken(products, inp.brand, brandCode(n)))
       const p: Product = {
         id: uid(), brand: inp.brand.trim(), name,
         size: inp.size.trim(), color: inp.color.trim(),
-        barcode: makeBarcode(seq),
+        barcode: makeBarcode(++seq),
         packSize: inp.packSize, costPrice: inp.costPrice, salePrice: inp.salePrice,
         stock: inp.packSize, createdAt: now, batchId: batch.id,
       }
@@ -205,8 +355,8 @@ function createBatch(inputs: ProductInput[], source: ImportBatch['source']): Imp
     }
   }
   write(K.products, products)
-  write(K.brandSeq, brandSeq)
   write(K.batches, [batch, ...read<ImportBatch[]>(K.batches, [])])
+  await flush()
   return batch
 }
 
@@ -231,6 +381,7 @@ export async function deleteProducts(ids: string[]): Promise<{ removed: number; 
       .map((b) => ({ ...b, productIds: b.productIds.filter((id) => alive.has(id)) }))
       .filter((b) => b.productIds.length > 0),
   )
+  await flush()
   return { removed, kept: ids.length - removed }
 }
 
@@ -242,7 +393,7 @@ export async function deleteBatch(id: string): Promise<{ removed: number; kept: 
 }
 
 export async function importProducts(inputs: ProductInput[], source: ImportBatch['source'] = 'excel'): Promise<ImportBatch> {
-  ensureSeed()
+  await ensureSeed()
   return createBatch(inputs, source)
 }
 
@@ -278,16 +429,18 @@ export async function updateProduct(p: Product): Promise<string | null> {
   const clash = nameConflict(products, p.brand, p.name, p.id)
   if (clash) return clash
   write(K.products, products.map((x) => (x.id === p.id ? { ...p, name: p.name.trim().replace(/\s+/g, ' ') } : x)))
+  await flush()
   return null
 }
 
 export async function deleteProduct(id: string): Promise<void> {
   const products = await getProducts()
   write(K.products, products.filter((x) => x.id !== id))
+  await flush()
 }
 
 export async function getBatches(): Promise<ImportBatch[]> {
-  ensureSeed()
+  await ensureSeed()
   return read<ImportBatch[]>(K.batches, [])
 }
 
@@ -308,6 +461,7 @@ export async function getBrands(): Promise<string[]> {
 export async function addBrand(name: string): Promise<void> {
   const saved = read<string[]>(K.brands, [])
   if (!saved.some((b) => b.toLowerCase() === name.trim().toLowerCase())) write(K.brands, [...saved, name.trim()])
+  await flush()
 }
 
 export async function renameBrand(from: string, to: string): Promise<void> {
@@ -315,23 +469,39 @@ export async function renameBrand(from: string, to: string): Promise<void> {
   write(K.brands, read<string[]>(K.brands, []).map((b) => (b === from ? to.trim() : b)))
   const products = await getProducts()
   write(K.products, products.map((p) => (p.brand === from ? { ...p, brand: to.trim() } : p)))
+  await flush()
 }
 
 /** Faqat tovari yo'q brendni o'chiradi. */
 export async function removeBrand(name: string): Promise<boolean> {
   if ((await getProducts()).some((p) => p.brand === name)) return false
   write(K.brands, read<string[]>(K.brands, []).filter((b) => b !== name))
+  await flush()
   return true
 }
 
 // ---------- Sozlamalar ----------
 
+const THEME_KEY = 'dk.theme'
+
 export async function getSettings(): Promise<Settings> {
-  return { ...defaultSettings, ...read<Partial<Settings>>(K.settings, {}) }
+  const s = { ...defaultSettings, ...read<Partial<Settings>>(K.settings, {}) }
+  // Bazada ishlaganda mavzu har qurilmaning o'zida saqlanadi.
+  if (mode === 'cloud') s.theme = (localRead(THEME_KEY) as Theme | null) ?? 'auto'
+  return s
 }
 
 export async function saveSettings(s: Settings) {
-  write(K.settings, s)
+  if (mode === 'cloud') {
+    try {
+      localStorage.setItem(THEME_KEY, JSON.stringify(s.theme))
+    } catch {
+      // Mavzu faqat shu sessiyada qoladi.
+    }
+    const { theme: _theme, ...shared } = s
+    write(K.settings, shared)
+  } else write(K.settings, s)
+  await flush()
 }
 
 // ---------- Mijozlar ----------
@@ -350,6 +520,7 @@ export async function rememberCustomer(name: string): Promise<void> {
   if (existing) existing.lastSeen = now
   else list.push({ id: uid(), name: clean, lastSeen: now })
   write(K.customers, list)
+  await flush()
 }
 
 export function matchCustomers(list: Customer[], query: string, limit = 6): Customer[] {
@@ -368,17 +539,24 @@ export async function getSales(): Promise<Sale[]> {
   return read<Sale[]>(K.sales, [])
 }
 
-/** Sotuvni saqlaydi va qoldiqni kamaytiradi. */
+/** Sotuvni saqlaydi va qoldiqni kamaytiradi. Bazaga yozilmasa — xato tashlaydi (sotuv bo'lmagan hisoblanadi). */
 export async function saveSale(sale: Omit<Sale, 'id' | 'number' | 'createdAt'>): Promise<Sale> {
-  const full: Sale = { ...sale, id: uid(), number: nextSeq('sale'), createdAt: new Date().toISOString() }
-  write(K.sales, [full, ...(await getSales())])
+  const id = uid()
+  const createdAt = new Date().toISOString()
+  const number = mode === 'cloud'
+    ? await cloud.applySale(id, { ...sale, createdAt })
+    : await takeSeq('sale')
+  const full: Sale = { ...sale, id, number, createdAt }
 
   const products = await getProducts()
   for (const line of sale.lines) {
     const p = products.find((x) => x.id === line.productId)
     if (p) p.stock -= line.pairs
   }
-  write(K.products, products)
+  // Bazada qoldiq allaqachon kamaygan — bu yerda faqat nusxa yangilanadi.
+  const save = mode === 'cloud' ? put : write
+  save(K.sales, [full, ...(await getSales())])
+  save(K.products, products)
   await rememberCustomer(sale.customerName)
   return full
 }
@@ -392,11 +570,13 @@ export async function getHeld(): Promise<HeldCart[]> {
 export async function holdCart(cart: Omit<HeldCart, 'id' | 'createdAt'>): Promise<void> {
   const list = await getHeld()
   write(K.held, [{ ...cart, id: uid(), createdAt: new Date().toISOString() }, ...list])
+  await flush()
 }
 
 export async function takeHeld(id: string): Promise<HeldCart | undefined> {
   const list = await getHeld()
   const found = list.find((h) => h.id === id)
   write(K.held, list.filter((h) => h.id !== id))
+  await flush()
   return found
 }

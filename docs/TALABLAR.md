@@ -225,3 +225,18 @@ Billz'dan farqi: xabarlarda pachka × juft ko'rinadi va foyda hisoblanadi; filia
   (naqd — yashil, karta — ko'k, dollar — sariq, nasiya — qizil).
 - Bot (redux-counter repo, poyabzal-bot): Python/aiogram, SQLite yoki Supabase sxemasi; narxlar 1 pachka uchun
   (saytda — 1 juft uchun) — birlashtirishda moslashtirish kerak.
+
+## 17. Baza (Supabase)
+
+- Loyiha: `kvotnpqbktrroxmtylrw.supabase.co` (Frankfurt). Sxema: `supabase/schema.sql` — SQL Editor'da ishga tushiriladi.
+- `.env` da faqat ochiq (publishable) kalit. Maxfiy service_role kaliti hech qayerga yozilmaydi.
+- Kirish: email + parol. Hisoblar Supabase'da qo'lda yaratiladi (Authentication → Users → Add user),
+  ochiq ro'yxatdan o'tish o'chiriladi. Faqat `staff` jadvalidagilar ma'lumotni ko'radi (RLS).
+  Sessiya uzoq saqlanadi; Telegram orqali kirish va "Qurilmalar" — bot ulanganda.
+- Sayt kirishda hamma ma'lumotni yuklaydi, har o'zgarishni bazaga yozadi; oynaga qaytganda va bo'lim
+  almashganda bazadan yangilanadi (boshqa kassa / telefondagi o'zgarishlar ko'rinadi).
+- Ikki kassa bir vaqtda ishlasa ham takrorlanmaydi: shtrix-kod, chek raqami, brend kodlari bazadagi
+  hisoblagichdan (`take_seq`) olinadi; sotuv `apply_sale` bilan bitta amalda yoziladi va qoldiqni kamaytiradi.
+- Internet yo'q bo'lsa: sotuv saqlanmaydi va bu aniq aytiladi; boshqa o'zgarishlarda ogohlantirish chiqadi.
+- Mavzu (yorug'/qorong'i) har qurilmaning o'zida; qolgan sozlamalar umumiy.
+- `.env` siz yig'ilsa (VITE_SUPABASE_URL bo'sh) — eski sinov rejimi: brauzer xotirasida, namunaviy tovarlar bilan.
