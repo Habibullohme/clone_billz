@@ -86,7 +86,11 @@ function put(key: string, value: unknown) {
   memory.set(key, JSON.stringify(value))
 }
 
+/** Har yozuvda oshadi — bazadan yangilash paytida yozuv bo'lsa, eski ma'lumot ustiga yozilmasin. */
+let writeCount = 0
+
 function write(key: string, value: unknown) {
+  writeCount++
   const raw = JSON.stringify(value)
   const prev = memory.get(key)
   memory.set(key, raw)
@@ -182,6 +186,8 @@ export async function initStore(): Promise<void> {
   if (!cloud.cloudEnabled) return
   mode = 'cloud'
   await refresh()
+  // Nasiyaga qilingan sotuvlar Nasiyalar daftarida bo'lsin (oldingilari ham).
+  await syncSaleDebts().catch((e) => console.error(e))
   // Birinchi marta: shu brauzerda sozlangan do'kon sozlamalari va brendlar bazaga ko'chadi.
   if (!memory.has(K.settings)) {
     const local = localRead(K.settings)
@@ -204,7 +210,10 @@ function localRead(key: string): unknown {
 /** Bazadan yangilab oladi (boshqa kassada qilingan sotuvlar, kirimlar ko'rinadi). */
 export async function refresh(): Promise<void> {
   if (mode !== 'cloud' || pending.length) return
+  const before = writeCount
   const snap = await cloud.loadAll()
+  // Yuklash davomida biror narsa yozilgan bo'lsa — bu ma'lumot eskirgan, tashlab yuboramiz.
+  if (writeCount !== before || pending.length) return
   put(K.products, snap.products)
   put(K.sales, snap.sales)
   put(K.batches, snap.batches)
