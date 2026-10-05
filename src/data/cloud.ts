@@ -263,3 +263,11 @@ export function watchRevoke(onRevoked: () => void): () => void {
     supabase!.removeChannel(ch)
   }
 }
+
+/**
+ * Telegram botga xabar: sotilgan (yoki o'chirilgan) tovarlarning postlari kanaldan olinsin.
+ * Bot hali ulanmagan bo'lsa — jim o'tib ketadi (sotuvga ta'sir qilmaydi).
+ */
+export function notifyBot() {
+  supabase?.functions.invoke('bot', { body: { action: 'sync' } }).catch(() => {})
+}

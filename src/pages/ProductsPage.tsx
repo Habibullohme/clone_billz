@@ -695,7 +695,7 @@ function ImportsList({
             <div className="ir-main">
               <b>Kirim №{b.number}</b>
               <span className="muted small">
-                {dayTime(b.createdAt)} · {b.source === 'excel' ? 'Excel' : 'qo\'lda'} · {brands.join(', ')}
+                {dayTime(b.createdAt)} · {b.source === 'excel' ? 'Excel' : b.source === 'bot' ? 'Telegram bot' : 'qo\'lda'} · {brands.join(', ')}
               </span>
             </div>
             <div className="ir-num"><b>{items.length}</b><span className="muted small">pachka</span></div>

@@ -281,3 +281,14 @@ Billz'dan farqi: xabarlarda pachka × juft ko'rinadi va foyda hisoblanadi; filia
 - Kassa klaviaturasi: skaner → Enter → mijoz ismi → Enter → yakuniy summa → Enter → to'lov → Enter → yakunlash
   → Enter → yangi sotuv. F2 — to'g'ridan-to'g'ri to'lov. Boshqaruv bo'limlarida Kassa tugmasida "Esc" belgisi.
 - Telefonda kassa: "Skaner" tugmasi — kamera bilan ketma-ket skaner (Chrome'ning o'z skaneri, bo'lmasa kutubxona).
+
+## 22. Telegram bot (Supabase Edge Function)
+
+- Yuk kiritish: rasmlar (har rasm — 1 pachka; bitta rasm bo'lsa "nechta pachka?") → brend (saytdagi
+  ro'yxatdan) → model → razmer → rang → juft → kelish → sotuv → tasdiq. Saytdagi Excel import bilan bir xil:
+  har pachka alohida tovar, kod A1…, shtrix-kod, kirim (manba: Telegram bot), brend ro'yxatga qo'shiladi.
+- Har rasm asosiy kanalga post (tavsif shablon bo'yicha, kod bilan, kelish narxisiz).
+- Saytda sotilganda sayt botni chaqiradi: hammasi sotilgan post "Sotilganlar" kanaliga (kun nomi, sana,
+  vaqt, narx × juft, chek №, mijoz) ko'chiriladi va asosiy kanaldan o'chiriladi. Saytdan o'chirilgan tovar
+  posti ham olinadi. Rasmlar Telegram'da turadi — bazada faqat file_id.
+- O'rnatish: docs/BOT.md.

@@ -391,6 +391,7 @@ export async function deleteProducts(ids: string[]): Promise<{ removed: number; 
       .filter((b) => b.productIds.length > 0),
   )
   await flush()
+  if (mode === 'cloud' && removed) cloud.notifyBot()
   return { removed, kept: ids.length - removed }
 }
 
@@ -655,6 +656,8 @@ export async function saveSale(sale: Omit<Sale, 'id' | 'number' | 'createdAt'>):
       kind: 'debt', amount: sale.payment.debt, note: '', saleId: id, saleNumber: number, date: createdAt,
     })
   } else await rememberCustomer(sale.customerName, sale.customerPhone)
+  // Kanaldagi sotilgan postlar "Sotilganlar"ga o'tsin.
+  if (mode === 'cloud') cloud.notifyBot()
   return full
 }
 
