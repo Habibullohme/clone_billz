@@ -21,3 +21,18 @@ describe('nasiya daftari', () => {
     expect(balanceOf(list.find((c) => c.name === 'Bobur Urgut')!)).toBe(1_000_000)
   })
 })
+
+describe('eski nasiya sotuvlari', () => {
+  it('daftarga bir marta tushadi, o\'chirilgani qaytmaydi', async () => {
+    const { getSales, syncSaleDebts, deleteLedgerEntry } = await import('./store')
+    const sales = await getSales()
+    // Avvalgi testdagi sotuv allaqachon daftarda — qayta qo'shilmaydi.
+    expect(await syncSaleDebts()).toBe(0)
+    // Daftarsiz "eski" sotuvni taqlid qilamiz: yozuvni o'chiramiz → qaytmasligi kerak.
+    const list = await getCustomers()
+    const a = list.find((c) => c.name === 'Alisher aka Qarshi')!
+    const fromSale = a.ledger!.find((e) => e.saleId === sales[0].id)!
+    await deleteLedgerEntry(a.id, fromSale.id)
+    expect(await syncSaleDebts()).toBe(0)
+  })
+})

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Customer, LedgerEntry } from '../types'
-import { addLedgerEntry, balanceOf, deleteLedgerEntry, getCustomers, updateCustomer } from '../data/store'
+import { addLedgerEntry, balanceOf, deleteLedgerEntry, getCustomers, syncSaleDebts, updateCustomer } from '../data/store'
 import { formatSum, parseSum } from '../lib/money'
 import { hueStyle } from '../lib/colors'
 import { CustomerInput } from '../components/CustomerInput'
@@ -22,7 +22,8 @@ export function DebtsPage() {
 
   const reload = () => getCustomers().then(setCustomers)
   useEffect(() => {
-    reload()
+    // Kassadagi nasiya sotuvlari (shu bo'lim ochilishidan oldingilari ham) daftarga tushadi.
+    syncSaleDebts().catch(() => 0).then(reload)
   }, [])
 
   const withLedger = customers.filter((c) => (c.ledger ?? []).length > 0)

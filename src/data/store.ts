@@ -554,10 +554,38 @@ export async function addLedgerEntry(
   return c
 }
 
+/**
+ * Kassada nasiyaga qilingan barcha sotuvlar daftarda bo'lsin (Nasiyalar bo'limidan oldingi sotuvlar ham).
+ * Har sotuv bir marta qo'shiladi; qo'lda o'chirilgani qayta qo'shilmaydi.
+ */
+export async function syncSaleDebts(): Promise<number> {
+  const list = await getCustomers()
+  const known = new Set(list.flatMap((c) => [...(c.ledger ?? []).map((e) => e.saleId), ...(c.ignoredSales ?? [])]))
+  let added = 0
+  for (const sale of [...(await getSales())].reverse()) {
+    if (!(sale.payment?.debt > 0) || known.has(sale.id)) continue
+    const c = upsertCustomer(list, sale.customerName.trim() || `Noma'lum mijoz (chek №${sale.number})`, sale.customerPhone)
+    c.lastSeen = sale.createdAt > (c.lastSeen ?? '') ? sale.createdAt : c.lastSeen
+    c.ledger = [...(c.ledger ?? []), {
+      id: uid(), kind: 'debt', amount: sale.payment.debt, note: '', saleId: sale.id, saleNumber: sale.number,
+      date: sale.createdAt, createdAt: new Date().toISOString(),
+    }]
+    known.add(sale.id)
+    added++
+  }
+  if (added) {
+    write(K.customers, list)
+    await flush()
+  }
+  return added
+}
+
 export async function deleteLedgerEntry(customerId: string, entryId: string): Promise<void> {
   const list = await getCustomers()
   const c = list.find((x) => x.id === customerId)
   if (!c) return
+  const gone = (c.ledger ?? []).find((e) => e.id === entryId)
+  if (gone?.saleId) c.ignoredSales = [...(c.ignoredSales ?? []), gone.saleId]
   c.ledger = (c.ledger ?? []).filter((e) => e.id !== entryId)
   write(K.customers, list)
   await flush()

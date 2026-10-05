@@ -59,6 +59,8 @@ export interface Customer {
   phone?: string
   /** Nasiya daftari. */
   ledger?: LedgerEntry[]
+  /** Daftardan qo'lda o'chirilgan kassa nasiyalari (qayta qo'shilmasin). */
+  ignoredSales?: string[]
 }
 
 export interface CartLine {
