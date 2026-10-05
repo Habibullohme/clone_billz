@@ -1,92 +1,111 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { getSettings, saveSettings } from '../data/store'
-import { Modal } from './ui'
+import { useBackClose } from '../lib/nav'
 
-/** Kassadan boshqa bo'limlarga o'tish uchun PIN. Birinchi marta — PIN yaratiladi. */
+const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'back', '0', 'ok'] as const
+
+/**
+ * Kassadan boshqa bo'limlarga o'tish uchun PIN. Birinchi marta — PIN yaratiladi.
+ * Parol maydoni ishlatilmaydi — brauzer "parolni saqlaysizmi?" deb so'ramaydi.
+ */
 export function PinGate({ onOk, onCancel }: { onOk: () => void; onCancel: () => void }) {
   const [pin, setPin] = useState<string | null>(null)
   const [value, setValue] = useState('')
-  const [repeat, setRepeat] = useState('')
+  const [first, setFirst] = useState<string | null>(null)
   const [error, setError] = useState('')
-  const ref = useRef<HTMLInputElement>(null)
+  const [shake, setShake] = useState(0)
+  useBackClose(onCancel)
 
   useEffect(() => {
     getSettings().then((s) => setPin(s.ownerPin))
   }, [])
-  useEffect(() => ref.current?.focus(), [pin])
 
-  if (pin === null) return null
   const creating = pin === ''
+  const length = creating ? Math.max(4, value.length) : (pin?.length ?? 4)
 
-  const submit = async () => {
-    if (creating) {
-      if (!/^\d{4,6}$/.test(value)) return setError('PIN 4–6 ta raqamdan iborat bo\'lsin')
-      if (value !== repeat) return setError('PIN kodlar bir xil emas')
-      const s = await getSettings()
-      await saveSettings({ ...s, ownerPin: value })
-      onOk()
-    } else if (value === pin) {
-      onOk()
-    } else {
-      setError('PIN noto\'g\'ri')
-      setValue('')
-    }
+  const fail = (msg: string) => {
+    setError(msg)
+    setValue('')
+    setShake((n) => n + 1)
+    navigator.vibrate?.(120)
   }
 
+  const submit = async (v: string) => {
+    if (!creating) return v === pin ? onOk() : fail("PIN noto'g'ri")
+    if (v.length < 4) return fail('Kamida 4 ta raqam')
+    if (first === null) {
+      setFirst(v)
+      setValue('')
+      setError('')
+      return
+    }
+    if (v !== first) {
+      setFirst(null)
+      return fail('PIN kodlar bir xil emas — qaytadan')
+    }
+    const s = await getSettings()
+    await saveSettings({ ...s, ownerPin: v })
+    onOk()
+  }
+
+  const press = (k: (typeof KEYS)[number]) => {
+    if (k === 'back') return setValue((v) => v.slice(0, -1))
+    if (k === 'ok') return submit(value)
+    if (value.length >= 6) return
+    const v = value + k
+    setValue(v)
+    setError('')
+    // To'liq terilishi bilan o'zi tekshiriladi.
+    if (!creating && pin && v.length === pin.length) setTimeout(() => submit(v), 120)
+  }
+
+  // Klaviaturadan ham terish mumkin.
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (/^\d$/.test(e.key)) press(e.key as (typeof KEYS)[number])
+      else if (e.key === 'Backspace') press('back')
+      else if (e.key === 'Enter') press('ok')
+      else if (e.key === 'Escape') onCancel()
+      else return
+      e.preventDefault()
+      e.stopPropagation()
+    }
+    window.addEventListener('keydown', h, true)
+    return () => window.removeEventListener('keydown', h, true)
+  })
+
+  if (pin === null) return null
+
   return (
-    <Modal title={creating ? 'PIN kod yarating' : 'PIN kodni kiriting'} onClose={onCancel} center>
-      <p className="muted small">
-        {creating
-          ? "Sotuvlar, tovarlar va sozlamalarga faqat siz kirishingiz uchun. Sotuvchi faqat kassani ko'radi."
-          : 'Kassadan chiqish uchun egasining PIN kodi kerak.'}
-      </p>
-      <form
-        className="pin-form"
-        onSubmit={(e) => {
-          e.preventDefault()
-          submit()
-        }}
-      >
-        <input
-          ref={ref}
-          id="pin"
-          className="input pin"
-          type="password"
-          inputMode="numeric"
-          autoComplete="off"
-          maxLength={6}
-          placeholder="••••"
-          value={value}
-          onChange={(e) => {
-            const v = e.target.value.replace(/\D/g, '')
-            setValue(v)
-            setError('')
-            // PIN to'liq terilishi bilan o'zi ochiladi.
-            if (!creating && v.length === pin.length) {
-              if (v === pin) onOk()
-              else {
-                setError('PIN noto\'g\'ri')
-                setValue('')
-              }
-            }
-          }}
-        />
-        {creating && (
-          <input
-            id="pin-repeat"
-            className="input pin"
-            type="password"
-            inputMode="numeric"
-            autoComplete="off"
-            maxLength={6}
-            placeholder="takrorlang"
-            value={repeat}
-            onChange={(e) => setRepeat(e.target.value.replace(/\D/g, ''))}
-          />
-        )}
-        {error && <div className="error small">{error}</div>}
-        {creating && <button className="btn primary" type="submit">Saqlash va kirish</button>}
-      </form>
-    </Modal>
+    <div className="modal-bg center pin-bg" onMouseDown={onCancel}>
+      <div className="pin-card" role="dialog" aria-label="PIN kod" onMouseDown={(e) => e.stopPropagation()}>
+        <button className="icon pin-x" onClick={onCancel} aria-label="Yopish">✕</button>
+        <div className="pin-lock" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="26" height="26"><path d="M7 10V7a5 5 0 0 1 10 0v3M5.5 10h13v10h-13z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" /></svg>
+        </div>
+        <h2>{creating ? (first === null ? 'PIN kod yarating' : 'PIN kodni takrorlang') : 'PIN kodni kiriting'}</h2>
+        <p className="muted small">
+          {creating ? '4–6 ta raqam. Sotuvchi faqat kassani ko\'radi.' : "Boshqaruv bo'limlari uchun egasining PIN kodi"}
+        </p>
+        <div key={shake} className={`pin-dots${error ? ' bad' : ''}${shake ? ' shake' : ''}`} aria-live="polite">
+          {Array.from({ length }, (_, i) => <span key={i} className={i < value.length ? 'on' : ''} />)}
+        </div>
+        <div className="pin-msg">{error}</div>
+        <div className="pin-pad">
+          {KEYS.map((k) => (
+            <button
+              key={k}
+              type="button"
+              className={`pin-key${k === 'ok' ? ' ok' : ''}${k === 'back' ? ' back' : ''}`}
+              onClick={() => press(k)}
+              disabled={k === 'ok' && value.length < 4}
+              aria-label={k === 'back' ? "O'chirish" : k === 'ok' ? 'Tasdiqlash' : k}
+            >
+              {k === 'back' ? '⌫' : k === 'ok' ? '✓' : k}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
   )
 }

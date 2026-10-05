@@ -3,7 +3,7 @@ import type { Sale } from '../types'
 import { getSales, getSettings, type Settings } from '../data/store'
 import { formatSum } from '../lib/money'
 import { Receipt } from '../components/Receipt'
-import { Segmented } from '../components/ui'
+import { BackClose, Segmented } from '../components/ui'
 import { hueStyle } from '../lib/colors'
 
 type Period = 'today' | 'yesterday' | 'week' | 'month'
@@ -136,6 +136,7 @@ export function SalesPage() {
 
       {open && settings && (
         <div className="modal-bg" onMouseDown={() => setOpen(null)}>
+          <BackClose onClose={() => setOpen(null)} />
           <div className="modal receipt-modal" onMouseDown={(e) => e.stopPropagation()}>
             <div className="print-area"><Receipt sale={open} settings={settings} /></div>
             <div className="modal-actions">

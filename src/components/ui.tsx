@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type React from 'react'
 import { formatSum, parseSum } from '../lib/money'
+import { useBackClose } from '../lib/nav'
 
 export function Toggle({ id, checked, onChange }: { id: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -33,6 +34,7 @@ export function Segmented<T extends string | number>({
 export function Modal({
   title, onClose, children, wide, center,
 }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean; center?: boolean }) {
+  useBackClose(onClose)
   return (
     <div className={`modal-bg${center ? ' center' : ''}`} onMouseDown={onClose}>
       <div
@@ -175,4 +177,10 @@ export function Select<T extends string>({
       )}
     </div>
   )
+}
+
+/** Ichiga qo'yilgan oyna ochiq turganda orqaga tugmasi uni yopadi. */
+export function BackClose({ onClose }: { onClose: () => void }) {
+  useBackClose(onClose)
+  return null
 }

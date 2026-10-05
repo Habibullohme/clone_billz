@@ -11,7 +11,7 @@ import { CartRow } from '../components/CartRow'
 import { CustomerInput } from '../components/CustomerInput'
 import { PaymentModal } from '../components/PaymentModal'
 import { Receipt } from '../components/Receipt'
-import { MoneyInput } from '../components/ui'
+import { BackClose, MoneyInput } from '../components/ui'
 
 const isTyping = (t: EventTarget | null) =>
   t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement
@@ -46,15 +46,27 @@ export function PosPage() {
     setTimeout(() => setToast((t) => (t?.text === text ? null : t)), 2200)
   }
 
+  const linesRef = useRef(lines)
+  linesRef.current = lines
+
   const add = useCallback(
     (p: Product) => {
-      const inCart = lines.find((l) => l.productId === p.id)?.pairs ?? 0
-      if (settings && !settings.allowNegativeStock && inCart + p.packSize > p.stock) {
-        if (settings.scanSound) beep(false)
-        showToast(`${p.name}: omborda faqat ${Math.max(0, p.stock)} juft bor`, true)
+      const inCart = linesRef.current.find((l) => l.productId === p.id)?.pairs ?? 0
+      // Bitta shtrix-kod — bitta pachka: omborda boridan ortiq qo'shilmaydi.
+      if (inCart + p.packSize > p.stock) {
+        if (settings?.scanSound) beep(false)
+        showToast(
+          inCart > 0
+            ? `${p.name} savatda bor — bitta shtrix-kod bitta pachka`
+            : p.stock <= 0
+              ? `${p.name} sotilgan — omborda yo'q`
+              : `${p.name}: omborda faqat ${p.stock} juft bor`,
+          true,
+        )
         return false
       }
-      setLines((ls) => addProduct(ls, p))
+      // Ikki skaner juda tez kelsa ham — holat yangilanayotganda yana tekshiramiz.
+      setLines((ls) => ((ls.find((l) => l.productId === p.id)?.pairs ?? 0) + p.packSize > p.stock ? ls : addProduct(ls, p)))
       setFlashId(p.id)
       setTimeout(() => setFlashId((f) => (f === p.id ? null : f)), 700)
       return true
@@ -355,6 +367,7 @@ export function PosPage() {
 
       {done && (
         <div className="modal-bg">
+          <BackClose onClose={() => setDone(null)} />
           <div className="modal receipt-modal">
             <div className="done-head">
               <b>Sotuv saqlandi</b>

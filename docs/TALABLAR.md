@@ -249,3 +249,15 @@ Billz'dan farqi: xabarlarda pachka × juft ko'rinadi va foyda hisoblanadi; filia
 - Shablon muharriri: har maydonning joyi (x, y, eni, bo'yi, mm) — sichqoncha bilan suriladi, burchakdagi
   nuqtadan tortib kattalashtiriladi, strelkalar bilan 0.5 mm aniq suriladi. Matn: shrift (pt), qalin, tekislash.
   Shtrix-kod o'z qutisini to'liq egallaydi, raqamlar alohida (cho'zilmaydi). "Asl joylashuv" — avtomatik tartib.
+
+## 19. 1-kunlik ishlatishdan keyin
+
+- Bitta shtrix-kod = bitta pachka: qayta skaner qilinsa qo'shilmaydi ("savatda bor"), + tugmasi va juft soni
+  ombordagidan oshmaydi. "Qoldiqsiz sotish" sozlamasi olib tashlandi.
+- Sahifa yangilansa o'sha bo'limda qoladi (#products); PIN shu oyna (sessiya) davomida eslab qolinadi.
+- Orqaga tugmasi (telefon va noutbuk): ochiq oyna (tahrir, chek, menyu, PIN, brend ichi) — yopiladi;
+  bo'limdan — kassaga; kassadan — "Saytdan chiqasizmi?" tasdig'i.
+- PIN oynasi: nuqtalar + raqam tugmalari (telefon uchun), klaviaturadan ham teriladi; parol maydoni emas —
+  brauzer "parolni saqlaysizmi" demaydi (sozlamalardagi PIN maydonlari ham).
+- Login sahifasi: do'kon logotipi / birinchi harfi va nomi (shu qurilmada eslab qolinadi), yangi dizayn.
+- Netlify pastki burchakdagi panel — faqat Netlify'ga kirgan egasiga ko'rinadi; Netlify sozlamasidan o'chiriladi.

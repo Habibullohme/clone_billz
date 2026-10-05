@@ -29,7 +29,9 @@ export function CartRow({ line, product, discountedTotal, highlight, allowPriceE
     setPriceDraft(null)
   }
 
-  const setPairs = (pairs: number) => onChange({ ...line, pairs: Math.max(1, pairs) })
+  // Ombordagidan ko'p sotib bo'lmaydi (bitta shtrix-kod — bitta pachka).
+  const max = Math.max(1, product.stock)
+  const setPairs = (pairs: number) => onChange({ ...line, pairs: Math.min(max, Math.max(1, pairs)) })
   const meta = [product.brand, product.size, product.color].filter(Boolean).join(' · ')
 
   return (
@@ -48,6 +50,7 @@ export function CartRow({ line, product, discountedTotal, highlight, allowPriceE
               className="pairs"
               type="number"
               min={1}
+              max={max}
               autoFocus
               defaultValue={line.pairs}
               onBlur={(e) => {
@@ -62,7 +65,7 @@ export function CartRow({ line, product, discountedTotal, highlight, allowPriceE
             </button>
           )}
         </div>
-        <button className="qbtn" onClick={() => setPairs(line.pairs + pack)} aria-label="Bir pachka ko'p">+</button>
+        <button className="qbtn" onClick={() => setPairs(line.pairs + pack)} disabled={line.pairs + pack > max} aria-label="Bir pachka ko'p">+</button>
       </div>
 
       <div className="price">

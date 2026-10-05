@@ -7,6 +7,7 @@ import { autoLayout, fieldNames, placedFields, textHeight, type LabelField, type
 import { formatSum } from '../lib/money'
 import { hueStyle } from '../lib/colors'
 import { LabelView } from '../components/LabelView'
+import { useBackClose } from '../lib/nav'
 import { Modal, Segmented, Select, Toggle } from '../components/ui'
 
 type CountMode = 'batch' | 'stock' | 'one'
@@ -442,6 +443,7 @@ function ProductPicker({
 function LabelLightbox({
   t, items, index, onIndex, onClose,
 }: { t: LabelTemplate; items: Product[]; index: number; onIndex: (i: number) => void; onClose: () => void }) {
+  useBackClose(onClose)
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()

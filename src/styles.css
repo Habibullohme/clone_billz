@@ -907,3 +907,72 @@ input:not([type=checkbox]):not([type=range]):not([type=file]), textarea {
 @media (max-width: 860px) {
   .tpl-work { padding: 10px; }
 }
+
+/* ---------- PIN oynasi ---------- */
+.pin-bg { backdrop-filter: blur(6px); }
+.pin-card {
+  position: relative; width: 100%; max-width: 340px; margin: auto; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 24px; padding: 28px 24px 22px; text-align: center;
+  box-shadow: 0 24px 60px rgb(0 0 0 / 0.25);
+}
+.pin-card h2 { margin: 6px 0 0; font-size: 19px; }
+.pin-card p { margin: 0; }
+.pin-x { position: absolute; top: 12px; right: 12px; }
+.pin-lock {
+  width: 56px; height: 56px; border-radius: 18px; display: grid; place-items: center; color: var(--accent-fg);
+  background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 55%, var(--blue)));
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.pin-dots { display: flex; gap: 14px; margin: 18px 0 4px; }
+.pin-dots span {
+  width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--muted); transition: background 0.12s, border-color 0.12s, transform 0.12s;
+}
+.pin-dots span.on { background: var(--accent); border-color: var(--accent); transform: scale(1.1); }
+.pin-dots.bad span { border-color: var(--bad); }
+.pin-dots.shake { animation: pin-shake 0.35s; }
+@keyframes pin-shake { 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
+.pin-msg { min-height: 20px; color: var(--bad); font-size: 13px; font-weight: 600; }
+.pin-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; width: 100%; margin-top: 4px; }
+.pin-key {
+  height: 58px; border-radius: 16px; border: 1px solid var(--line); background: var(--sunken); color: var(--fg);
+  font: 600 22px var(--font-display); cursor: pointer; transition: background 0.1s, transform 0.08s;
+  -webkit-tap-highlight-color: transparent;
+}
+.pin-key:hover { border-color: var(--accent); }
+.pin-key:active { transform: scale(0.95); background: var(--accent-soft); }
+.pin-key.back { background: transparent; border-color: transparent; font-size: 20px; color: var(--muted); }
+.pin-key.ok { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.pin-key.ok:disabled { opacity: 0.35; cursor: default; }
+@media (max-width: 480px) {
+  .pin-card { max-width: none; border-radius: 22px; padding: 26px 18px 18px; }
+  .pin-key { height: 62px; }
+}
+/* Sozlamalardagi PIN maydoni: matn maydoni, nuqta bilan ko'rinadi (brauzer parol deb saqlamaydi). */
+.input.pin { -webkit-text-security: disc; }
+
+/* ---------- Kirish sahifasi ---------- */
+.login { position: relative; overflow: hidden; }
+.login-glow {
+  position: absolute; inset: -20%; pointer-events: none;
+  background:
+    radial-gradient(40% 35% at 20% 15%, color-mix(in srgb, var(--accent) 28%, transparent), transparent 70%),
+    radial-gradient(35% 30% at 85% 85%, color-mix(in srgb, var(--blue) 22%, transparent), transparent 70%);
+}
+.login-card { position: relative; max-width: 400px; gap: 16px; padding: 32px 28px 24px; border-radius: 24px; box-shadow: 0 24px 60px rgb(0 0 0 / 0.12); }
+.login-card .shop-mark.big, .login-card .shop-logo.big, .login .shop-mark.big, .login .shop-logo.big {
+  width: 72px; height: 72px; border-radius: 20px; font-size: 30px; margin: 0 auto;
+}
+.shop-logo.big { object-fit: contain; }
+.login-head { display: flex; flex-direction: column; gap: 4px; }
+.login-head h1 { font-family: var(--font-display); font-size: 24px; letter-spacing: -0.01em; }
+.login-card .btn.big { height: 50px; font-size: 16px; }
+.pw-wrap { position: relative; display: flex; }
+.pw-wrap .input { flex: 1; padding-right: 96px; }
+.pw-eye {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%); border: 0; background: none;
+  color: var(--accent); font: 600 13px var(--font-ui); padding: 6px 8px; cursor: pointer; border-radius: 8px;
+}
+.login-error { background: var(--bad-soft); color: var(--bad); border-radius: 12px; padding: 10px 12px; font-size: 14px; font-weight: 600; }
+@media (max-width: 480px) {
+  .login-card { padding: 28px 20px 20px; }
+}

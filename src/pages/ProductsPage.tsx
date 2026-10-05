@@ -8,7 +8,7 @@ import {
 import { formatSum, parseSum } from '../lib/money'
 import { hueStyle } from '../lib/colors'
 import { downloadTemplate, parseRows, readExcel, type ParsedRow } from '../lib/excel'
-import { IconEdit, IconTrash, Modal, MoneyInput, Segmented, Select } from '../components/ui'
+import { BackClose, IconEdit, IconTrash, Modal, MoneyInput, Segmented, Select } from '../components/ui'
 
 type View = 'brands' | 'imports'
 type Filter = 'all' | 'instock' | 'sold'
@@ -132,6 +132,7 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
     <div className="page">
       <div className="page-head">
         <div className="head-title">
+          {brand !== null && <BackClose onClose={() => { setBrand(null); setQ(''); setFilter('all'); setSelected(new Set()) }} />}
           {brand !== null && (
             <button className="icon back" onClick={() => { setBrand(null); setQ(''); setFilter('all'); setSelected(new Set()) }} aria-label="Barcha brendlar">←</button>
           )}

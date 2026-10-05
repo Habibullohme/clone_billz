@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useBackClose } from '../lib/nav'
 import { formatSum, parseSum } from '../lib/money'
 import { balancePayment } from '../lib/cart'
 import type { Payment } from '../types'
@@ -48,6 +49,8 @@ export function PaymentModal({ total, usdRate: initialRate, customerName, onCust
   /** Boshqa maydonlar to'ldirilgandan keyin qolgan summa. */
   const rest = (except: 'card' | 'debt') =>
     Math.max(0, total - Math.round(usdAmount * usdRate) - (except === 'card' ? num(debt) : num(card)))
+
+  useBackClose(onCancel)
 
   return (
     <div className="modal-bg" onMouseDown={onCancel}>

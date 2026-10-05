@@ -8,6 +8,10 @@ import { PinGate } from './components/PinGate'
 import { getSettings, initStore, onSyncError, refresh, saveSettings, type Settings } from './data/store'
 import { cloudEnabled, getSession, isStaff, signOut, supabase } from './data/cloud'
 import { LoginPage } from './pages/LoginPage'
+import { cachedBrand, rememberBrand } from './lib/brand'
+import { ShopMark } from './components/ShopMark'
+import { afterNav, dropEntry, setBaseBack } from './lib/nav'
+import { BackClose, Modal } from './components/ui'
 import { applyTheme, type Theme } from './lib/theme'
 import { IconBox, IconCashbox, IconGear, IconSales, IconTag, IconTheme } from './components/icons'
 
@@ -71,7 +75,7 @@ export function App() {
   return (
     <div className="login">
       <div className="login-card">
-        <div className="shop-mark big">D</div>
+        <ShopMark brand={cachedBrand()} big />
         {boot === 'loading' && <p className="muted">Yuklanmoqda…</p>}
         {boot === 'offline' && (
           <>
@@ -92,8 +96,48 @@ export function App() {
   )
 }
 
+const OWNER_KEY = 'dk.owner'
+const isOwnerTab = (t: string): t is OwnerTab => ownerTabs.some(([id]) => id === t)
+
+function ownerUnlocked() {
+  try {
+    return sessionStorage.getItem(OWNER_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+function setOwnerUnlocked(on: boolean) {
+  try {
+    if (on) sessionStorage.setItem(OWNER_KEY, '1')
+    else sessionStorage.removeItem(OWNER_KEY)
+  } catch {
+    // Maxfiy oyna — yangilaganda PIN qayta so'raladi.
+  }
+}
+
+/** Manzildagi bo'lim (#products) — sahifa yangilansa ham shu bo'limda qoladi. */
+function initialTab(): Tab {
+  const h = location.hash.slice(1)
+  return isOwnerTab(h) && ownerUnlocked() ? h : 'pos'
+}
+
+/** Tarix: [ildiz] → [kassa] → [bo'lim]. Ildizga qaytilsa — "Chiqasizmi?" so'raladi. */
+function initHistory(tab: Tab) {
+  const url = location.pathname + location.search
+  const v = (history.state as { v?: string } | null)?.v
+  if (!v || v === 'root') {
+    history.replaceState({ v: 'root' }, '', url)
+    history.pushState({ v: 'app' }, '', url)
+    if (tab !== 'pos') history.pushState({ v: 'tab' }, '', `${url}#${tab}`)
+  } else {
+    // Sahifa yangilandi: tarix saqlangan, faqat joriy qadamni to'g'rilaymiz.
+    history.replaceState({ v: tab === 'pos' ? 'app' : 'tab' }, '', tab === 'pos' ? url : `${url}#${tab}`)
+  }
+}
+
 function Shop() {
-  const [tab, setTab] = useState<Tab>('pos')
+  const [tab, setTabState] = useState<Tab>(initialTab)
+  const [exitAsk, setExitAsk] = useState(false)
   const [menu, setMenu] = useState(false)
   const [asking, setAsking] = useState<OwnerTab | null>(null)
   const [labelsBatch, setLabelsBatch] = useState<string | null>(null)
@@ -101,6 +145,50 @@ function Shop() {
   const [syncError, setSyncError] = useState('')
 
   useEffect(() => onSyncError(setSyncError), [])
+
+  useEffect(() => {
+    initHistory(tab)
+    setBaseBack(() => {
+      const v = (history.state as { v?: string } | null)?.v
+      if (v === 'root') {
+        // Kassadan orqaga: avval so'raymiz.
+        history.pushState({ v: 'app' }, '', location.pathname + location.search)
+        setExitAsk(true)
+        return
+      }
+      const h = location.hash.slice(1)
+      if (isOwnerTab(h) && ownerUnlocked()) setTabState(h)
+      else {
+        setOwnerUnlocked(false)
+        setTabState('pos')
+      }
+    })
+    return () => setBaseBack(null)
+  }, [])
+
+  /** Bo'lim almashtirish. Bo'limlar orasida — bitta qadam (orqaga → kassa). */
+  const setTab = (t: Tab) => {
+    setTabState(t)
+    afterNav(() => {
+      const url = location.pathname + location.search
+      const v = (history.state as { v?: string } | null)?.v
+      if (t === 'pos') {
+        setOwnerUnlocked(false)
+        if (v === 'tab') dropEntry()
+        else history.replaceState({ v: 'app' }, '', url)
+      } else if (v === 'tab') history.replaceState({ v: 'tab' }, '', `${url}#${t}`)
+      else history.pushState({ v: 'tab' }, '', `${url}#${t}`)
+    })
+  }
+
+  const leave = () => {
+    setExitAsk(false)
+    // Oyna yopilib bo'lgach: kassa va ildiz qadamlarini o'tib, saytdan chiqamiz.
+    afterNav(() => {
+      setBaseBack(null)
+      history.go(-2)
+    })
+  }
 
   // Boshqa qurilmada qilingan o'zgarishlar: oynaga qaytganda bazadan yangilanadi.
   useEffect(() => {
@@ -113,6 +201,7 @@ function Shop() {
   useEffect(() => {
     refresh().catch(() => {}).then(getSettings).then((s) => {
       setSettings(s)
+      rememberBrand({ name: s.shopName, logo: s.shopLogo })
       applyTheme(s.theme)
     })
   }, [tab])
@@ -136,7 +225,7 @@ function Shop() {
 
   const shop = (
     <div className="shop">
-      {settings?.shopLogo ? <img className="shop-logo" src={settings.shopLogo} alt="" /> : <div className="shop-mark">{(settings?.shopName || 'D')[0]}</div>}
+      <ShopMark brand={{ name: settings?.shopName || cachedBrand().name, logo: settings ? settings.shopLogo : cachedBrand().logo }} />
       <div className="shop-text">
         <b>{settings?.shopName || "Do'kon"}</b>
         <span>{tab === 'pos' ? 'Kassa' : 'Boshqaruv'}</span>
@@ -207,6 +296,7 @@ function Shop() {
       {menu && (
         <div className="drawer-bg" onMouseDown={() => setMenu(false)}>
           <aside className="drawer" onMouseDown={(e) => e.stopPropagation()}>
+            <BackClose onClose={() => setMenu(false)} />
             <div className="drawer-head">
               {shop}
               <button className="icon" onClick={() => setMenu(false)} aria-label="Yopish">✕</button>
@@ -227,10 +317,21 @@ function Shop() {
         </div>
       )}
 
+      {exitAsk && (
+        <Modal title="Saytdan chiqasizmi?" onClose={() => setExitAsk(false)} center>
+          <p className="muted">Kassa yopiladi. Savatdagi tovarlar saqlanmaydi.</p>
+          <div className="modal-actions">
+            <button className="btn ghost grow" onClick={() => setExitAsk(false)} autoFocus>Qolish</button>
+            <button className="btn danger grow" onClick={leave}>Chiqish</button>
+          </div>
+        </Modal>
+      )}
+
       {asking && (
         <PinGate
           onCancel={() => setAsking(null)}
           onOk={() => {
+            setOwnerUnlocked(true)
             setTab(asking)
             setAsking(null)
           }}
