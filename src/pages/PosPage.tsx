@@ -97,9 +97,11 @@ export function PosPage() {
 
   useScanner(onScan, !paying)
 
-  // Space — qidiruv, F2 — to'lov.
+  // Space — qidiruv, Enter (yoki F2) — to'lov.
   useEffect(() => {
+    let lastChar = 0
     const h = (e: KeyboardEvent) => {
+      if (e.key.length === 1) lastChar = e.timeStamp
       if (done) {
         // Chek oynasi: Space — chop etish, Enter — yangi sotuv.
         if (e.code === 'Space') {
@@ -116,7 +118,9 @@ export function PosPage() {
         e.preventDefault()
         searchRef.current?.focus()
       }
-      if (e.key === 'F2' && lines.length) {
+      // Enter: faqat hech qayerda yozilmayotganda va skaner yozuvidan keyin emas (skaner ham oxirida Enter bosadi).
+      const enter = e.key === 'Enter' && !isTyping(e.target) && e.timeStamp - lastChar > 150
+      if ((enter || e.key === 'F2') && lines.length) {
         e.preventDefault()
         setPaying(true)
       }
@@ -358,7 +362,7 @@ export function PosPage() {
             <b>{formatSum(total)}</b>
           </div>
           <button className="btn primary pay" disabled={!lines.length} onClick={() => setPaying(true)}>
-            To'lash <kbd>F2</kbd>
+            To'lash <kbd>Enter</kbd>
           </button>
           <button className="btn ghost" disabled={!lines.length} onClick={hold}>Kechiktirish</button>
         </div>

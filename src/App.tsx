@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { PosPage } from './pages/PosPage'
 import { SalesPage } from './pages/SalesPage'
 import { ProductsPage } from './pages/ProductsPage'
@@ -10,7 +10,7 @@ import { cloudEnabled, getSession, isRevoked, isStaff, signOut, signOutHere, sup
 import { LoginPage } from './pages/LoginPage'
 import { applyFavicon, cachedBrand, rememberBrand } from './lib/brand'
 import { ShopMark } from './components/ShopMark'
-import { afterNav, dropEntry, setBaseBack } from './lib/nav'
+import { afterNav, closeTopLayer, dropEntry, hasLayers, setBaseBack } from './lib/nav'
 import { BackClose, Modal } from './components/ui'
 import { applyTheme, type Theme } from './lib/theme'
 import { IconBox, IconCashbox, IconGear, IconSales, IconTag, IconTheme } from './components/icons'
@@ -169,6 +169,35 @@ function Shop() {
       }
     })
     return () => setBaseBack(null)
+  }, [])
+
+  // Esc: boshqaruv bo'limlaridan kassaga. Oyna ochiq bo'lsa — avval oyna yopiladi (u o'zi ushlaydi).
+  const tabRef = useRef(tab)
+  tabRef.current = tab
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      const a = document.activeElement as HTMLElement | null
+      if (a?.closest('.sel.open')) return
+      if (hasLayers()) {
+        // Kursor oyna ichida bo'lsa — oynaning o'zi yopadi; tashqarida bo'lsa — biz yopamiz.
+        if (!a?.closest('.modal, .pin-card, .lightbox, .drawer')) {
+          e.preventDefault()
+          closeTopLayer()
+        }
+        return
+      }
+      if (tabRef.current === 'pos') return
+      if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable)) {
+        // Yozayotgan bo'lsa — avval maydondan chiqadi, keyingi Esc kassaga.
+        a.blur()
+        return
+      }
+      e.preventDefault()
+      setTab('pos')
+    }
+    window.addEventListener('keydown', h, true)
+    return () => window.removeEventListener('keydown', h, true)
   }, [])
 
   /** Bo'lim almashtirish. Bo'limlar orasida — bitta qadam (orqaga → kassa). */

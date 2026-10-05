@@ -80,3 +80,13 @@ export function useBackClose(onClose: () => void) {
   ref.current = onClose
   useEffect(() => pushLayer(() => ref.current()), [])
 }
+
+/** Hozir ochiq oyna (modal, menyu, PIN…) bormi. */
+export function hasLayers() {
+  return layers.length > 0
+}
+
+/** Eng ustdagi oynani yopish (Esc) — xuddi orqaga tugmasi kabi. */
+export function closeTopLayer() {
+  if (layers.length) history.back()
+}

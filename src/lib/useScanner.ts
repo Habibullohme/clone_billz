@@ -32,7 +32,8 @@ export function useScanner(onScan: (code: string) => void, enabled = true) {
       const code = detector.feed(e.key, e.timeStamp || performance.now(), !editable)
       if (code === null) return
       e.preventDefault()
-      e.stopPropagation()
+      // Skaner Enter'i boshqa tugma ishlovchilariga (masalan, Enter — to'lov) yetib bormasin.
+      e.stopImmediatePropagation()
       if (editable) stripTail(active, code)
       cb.current(code)
     }
