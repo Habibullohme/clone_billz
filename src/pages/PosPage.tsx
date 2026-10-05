@@ -27,6 +27,7 @@ export function PosPage() {
   const [query, setQuery] = useState('')
   const [activeHit, setActiveHit] = useState(0)
   const [flashId, setFlashId] = useState<string | null>(null)
+  const [shakeId, setShakeId] = useState<string | null>(null)
   const [toast, setToast] = useState<{ text: string; bad?: boolean } | null>(null)
   const [paying, setPaying] = useState(false)
   const [done, setDone] = useState<Sale | null>(null)
@@ -55,9 +56,15 @@ export function PosPage() {
       // Bitta shtrix-kod — bitta pachka: omborda boridan ortiq qo'shilmaydi.
       if (inCart + p.packSize > p.stock) {
         if (settings?.scanSound) beep(false)
+        if (inCart > 0) {
+          // Savatdagi o'sha qator silkinadi — qaysi tovar ekani darhol ko'rinadi.
+          setShakeId(null)
+          requestAnimationFrame(() => setShakeId(p.id))
+          setTimeout(() => setShakeId((x) => (x === p.id ? null : x)), 600)
+        }
         showToast(
           inCart > 0
-            ? `${p.name} savatda bor — bitta shtrix-kod bitta pachka`
+            ? `${p.name} savatda bor`
             : p.stock <= 0
               ? `${p.name} sotilgan — omborda yo'q`
               : `${p.name}: omborda faqat ${p.stock} juft bor`,
@@ -273,6 +280,7 @@ export function PosPage() {
                   product={p}
                   discountedTotal={distributed ? distributed[i] : null}
                   highlight={flashId === l.productId}
+                  shake={shakeId === l.productId}
                   allowPriceEdit={settings.allowPriceEdit}
                   onChange={(nl) => setLines((ls) => ls.map((x) => (x.productId === nl.productId ? nl : x)))}
                   onRemove={() => setLines((ls) => ls.filter((x) => x.productId !== l.productId))}

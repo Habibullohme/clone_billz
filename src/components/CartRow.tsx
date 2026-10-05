@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CartLine, Product } from '../types'
 import { formatSum, parseSum } from '../lib/money'
 import { packsLabel } from '../lib/cart'
@@ -9,13 +9,20 @@ interface Props {
   /** Yakuniy summa kiritilgan bo'lsa, shu qatorga tushgan summa. */
   discountedTotal: number | null
   highlight: boolean
+  /** Qayta skaner qilinganda silkinadi. */
+  shake?: boolean
   allowPriceEdit: boolean
   onChange: (line: CartLine) => void
   onRemove: () => void
 }
 
-export function CartRow({ line, product, discountedTotal, highlight, allowPriceEdit, onChange, onRemove }: Props) {
+export function CartRow({ line, product, discountedTotal, highlight, shake, allowPriceEdit, onChange, onRemove }: Props) {
   const [priceDraft, setPriceDraft] = useState<string | null>(null)
+  const ref = useRef<HTMLDivElement>(null)
+  // Silkinayotgan qator ko'rinmay qolgan bo'lsa — unga suriladi.
+  useEffect(() => {
+    if (shake) ref.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [shake])
   const [pairsEdit, setPairsEdit] = useState(false)
   const total = line.pairs * line.price
   const changed = line.price !== product.salePrice
@@ -35,7 +42,7 @@ export function CartRow({ line, product, discountedTotal, highlight, allowPriceE
   const meta = [product.brand, product.size, product.color].filter(Boolean).join(' · ')
 
   return (
-    <div className={`row${highlight ? ' flash' : ''}`}>
+    <div ref={ref} className={`row${highlight ? ' flash' : ''}${shake ? ' shake' : ''}`}>
       <div className="row-name">
         <div className="title">{product.name}</div>
         <div className="muted small">{meta}</div>

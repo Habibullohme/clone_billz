@@ -119,6 +119,7 @@ export function SettingsPage() {
                   options={[['auto', 'Avto'], ['light', "Yorug'"], ['dark', "Qorong'i"]]}
                 />
               </Row>
+              {cloudEnabled && <AccountRow />}
             </>
           )}
 
@@ -378,8 +379,11 @@ function AccountRow() {
     supabase?.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? ''))
   }, [])
   return (
-    <Row id="set-logout" title="Hisob" hint={email ? `Kirgan: ${email}` : undefined}>
-      <button id="set-logout" className="btn ghost danger-text" onClick={() => signOut()}>Chiqish</button>
+    <Row id="set-logout" title="Hisobdan chiqish" hint={email ? `Kirgan: ${email}. Qayta kirish uchun email va parol kerak bo'ladi.` : undefined}>
+      <button id="set-logout" className="btn ghost danger-text logout-btn" onClick={() => signOut()}>
+        <svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><path d="M8 4H4.5v12H8M12 6.5 15.5 10 12 13.5M15.5 10H8" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        Chiqish
+      </button>
     </Row>
   )
 }
