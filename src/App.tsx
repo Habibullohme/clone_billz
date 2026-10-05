@@ -6,7 +6,7 @@ import { LabelsPage } from './pages/LabelsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { PinGate } from './components/PinGate'
 import { getSettings, initStore, onSyncError, refresh, saveSettings, type Settings } from './data/store'
-import { cloudEnabled, getSession, isStaff, signOut, supabase, touchDevice } from './data/cloud'
+import { cloudEnabled, getSession, isRevoked, isStaff, signOut, signOutHere, supabase, touchDevice, watchRevoke } from './data/cloud'
 import { LoginPage } from './pages/LoginPage'
 import { applyFavicon, cachedBrand, rememberBrand } from './lib/brand'
 import { ShopMark } from './components/ShopMark'
@@ -206,9 +206,19 @@ function Shop() {
     const t = setInterval(() => {
       if (cloudEnabled) touchDevice().then((ok) => { if (!ok) signOut() }).catch(() => {})
     }, 5 * 60_000)
+    // Boshqa qurilmadan "Chiqarish" bosilsa: darhol (Realtime) yoki ko'pi bilan 15 soniyada chiqib ketadi.
+    const kick = () => {
+      signOutHere().catch(() => signOut())
+    }
+    const stopWatch = cloudEnabled ? watchRevoke(kick) : () => {}
+    const poll = setInterval(() => {
+      if (cloudEnabled && document.visibilityState === 'visible') isRevoked().then((r) => r && kick()).catch(() => {})
+    }, 15_000)
     return () => {
       window.removeEventListener('focus', onFocus)
       clearInterval(t)
+      clearInterval(poll)
+      stopWatch()
     }
   }, [])
 

@@ -241,3 +241,25 @@ export async function signOutHere() {
   await supabase?.from('devices').delete().eq('id', deviceId())
   await supabase?.auth.signOut()
 }
+
+/** Shu qurilma chiqarilganmi (tez tekshiruv — bitta qator). */
+export async function isRevoked(): Promise<boolean> {
+  const { data, error } = await supabase!.from('devices').select('revoked').eq('id', deviceId()).maybeSingle()
+  return !error && Boolean(data?.revoked)
+}
+
+/**
+ * Boshqa qurilmadan "Chiqarish" bosilsa — darhol bilib olish (Supabase Realtime).
+ * Realtime yoqilmagan bo'lsa ham ishlaydi: chaqiruvchi qo'shimcha ravishda tez-tez tekshiradi.
+ */
+export function watchRevoke(onRevoked: () => void): () => void {
+  const ch = supabase!
+    .channel('device-' + deviceId())
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'devices', filter: `id=eq.${deviceId()}` }, (p) => {
+      if ((p.new as { revoked?: boolean }).revoked) onRevoked()
+    })
+    .subscribe()
+  return () => {
+    supabase!.removeChannel(ch)
+  }
+}

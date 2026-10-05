@@ -11,3 +11,9 @@ create table if not exists devices (
 alter table devices enable row level security;
 drop policy if exists staff_all on devices;
 create policy staff_all on devices for all to authenticated using (is_staff()) with check (is_staff());
+
+-- "Chiqarish" bosilganda qurilma darhol chiqib ketishi uchun (Realtime):
+do $$ begin
+  alter publication supabase_realtime add table devices;
+exception when duplicate_object then null;
+end $$;

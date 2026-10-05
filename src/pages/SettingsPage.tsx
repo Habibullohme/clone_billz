@@ -416,6 +416,13 @@ function DevicesSection() {
   useEffect(() => {
     load()
   }, [])
+  // Chiqarilayotgan qurilma bor bo'lsa — ro'yxat o'zi yangilanib turadi (u chiqib ketgach yo'qoladi).
+  const pending = list?.some((d) => d.revoked && d.id !== me)
+  useEffect(() => {
+    if (!pending) return
+    const t = setInterval(load, 4000)
+    return () => clearInterval(t)
+  }, [pending])
 
   if (list === undefined) return <p className="muted note">Yuklanmoqda…</p>
   if (list === null) {
@@ -441,7 +448,7 @@ function DevicesSection() {
                 {d.id === me && <span className="device-badge">Bu qurilma</span>}
               </b>
               <span className="muted small">
-                {d.email} · {d.revoked ? 'chiqarilmoqda…' : d.id === me ? 'hozir faol' : ago(d.last_seen)}
+                {d.email} · {d.revoked ? 'chiqarilmoqda… (qurilma ochiq bo\'lsa, bir necha soniyada; yopiq bo\'lsa — ochilganda)' : d.id === me ? 'hozir faol' : ago(d.last_seen)}
               </span>
             </div>
             {d.id !== me && !d.revoked && (
