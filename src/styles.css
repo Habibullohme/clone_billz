@@ -422,10 +422,18 @@ kbd {
   .print-area, .print-area * { visibility: visible; }
   .print-area { position: absolute; left: 0; top: 0; }
   .receipt { padding: 0; border-radius: 0; width: var(--rw, 58mm); max-width: none; }
-  .label-sheet { display: block; }
-  .label-sheet .lbl { border: 0; border-radius: 0; page-break-after: always; break-after: page; }
   @page { margin: 2mm; }
+
+  /* Etiketka: sahifada faqat etiketkalar, har biri printer qog'ozini to'liq egallaydi. */
+  body.print-labels > :not(.label-sheet) { display: none !important; }
+  body.print-labels .label-sheet { display: block; visibility: visible; }
+  body.print-labels .label-sheet * { visibility: visible; }
+  .lbl-page { width: 100vw; height: 100vh; overflow: hidden; break-after: page; page-break-after: always; }
+  .lbl-page:last-child { break-after: auto; page-break-after: auto; }
+  .lbl-page svg { display: block; width: 100%; height: 100%; }
+  .lbl-page .lbl { border: 0; border-radius: 0; }
 }
+@media print { body.print-labels { margin: 0; } }
 
 /* ---------- Kassa sarlavhasi va menyu ---------- */
 .shop { display: flex; align-items: center; gap: 10px; min-width: 0; }

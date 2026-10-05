@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { ImportBatch, Product } from '../types'
 import { getBatches, getProducts, getSettings, saveSettings, searchProducts, uid, type Settings } from '../data/store'
 import { fieldNames, type LabelFieldKey, type LabelTemplate } from '../lib/labels'
@@ -76,8 +77,12 @@ export function LabelsPage({ batchId }: { batchId: string | null }) {
 
   const print = (one: boolean) => {
     setPrintOnlyOne(one)
-    // Chop qilinadigan varaqlar chizilib bo'lgach.
-    setTimeout(() => window.print(), 50)
+    // Chop qilinadigan varaqlar chizilib bo'lgach. Chop paytida sahifada faqat etiketkalar qoladi.
+    setTimeout(() => {
+      document.body.classList.add('print-labels')
+      window.addEventListener('afterprint', () => document.body.classList.remove('print-labels'), { once: true })
+      window.print()
+    }, 50)
   }
 
   return (
@@ -185,12 +190,15 @@ export function LabelsPage({ batchId }: { batchId: string | null }) {
         </div>
       </div>
 
-      <style>{`@media print { @page { size: ${template.width}mm ${template.height}mm; margin: 0; } }`}</style>
-      <div className="label-sheet print-area">
-        {(printOnlyOne ? items.slice(0, 1).map((id) => [id, 1] as const) : items.map((id) => [id, qty[id]] as const)).flatMap(([id, n]) =>
-          Array.from({ length: n }, (_, i) => <LabelView key={`${id}-${i}`} t={template} p={byId.get(id)!} />),
-        )}
-      </div>
+      {createPortal(
+        <div className="label-sheet">
+          <style>{'@media print { @page { margin: 0; } }'}</style>
+          {(printOnlyOne ? items.slice(0, 1).map((id) => [id, 1] as const) : items.map((id) => [id, qty[id]] as const)).flatMap(([id, n]) =>
+            Array.from({ length: n }, (_, i) => <FitLabel key={`${id}-${i}`} t={template} p={byId.get(id)!} />),
+          )}
+        </div>,
+        document.body,
+      )}
 
       {viewing !== null && items[viewing] && (
         <LabelLightbox
@@ -464,6 +472,26 @@ function LabelLightbox({
       {index < items.length - 1 && (
         <button className="lb-nav next" aria-label="Keyingi" onMouseDown={(e) => { e.stopPropagation(); onIndex(index + 1) }}>›</button>
       )}
+    </div>
+  )
+}
+
+const PX_PER_MM = 96 / 25.4
+
+/**
+ * Chop uchun: etiketka printerdagi qog'oz o'lchamiga cho'ziladi (Billz kabi).
+ * Qog'oz o'lchami printer sozlamasidan olinadi; shablon nisbati saqlanadi.
+ */
+function FitLabel({ t, p }: { t: LabelTemplate; p: Product }) {
+  const w = t.width * PX_PER_MM
+  const h = t.height * PX_PER_MM
+  return (
+    <div className="lbl-page">
+      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid meet">
+        <foreignObject width={w} height={h}>
+          <LabelView t={t} p={p} />
+        </foreignObject>
+      </svg>
     </div>
   )
 }
