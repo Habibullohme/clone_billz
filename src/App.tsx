@@ -202,7 +202,14 @@ function Shop() {
       if (cloudEnabled) touchDevice().then((ok) => { if (!ok) signOut() }).catch(() => {})
     }
     window.addEventListener('focus', onFocus)
-    return () => window.removeEventListener('focus', onFocus)
+    // Qurilmalar ro'yxatidagi "oxirgi faollik" yangilanib tursin (har 5 daqiqada).
+    const t = setInterval(() => {
+      if (cloudEnabled) touchDevice().then((ok) => { if (!ok) signOut() }).catch(() => {})
+    }, 5 * 60_000)
+    return () => {
+      window.removeEventListener('focus', onFocus)
+      clearInterval(t)
+    }
   }, [])
 
   // Kassaga qaytganda sozlamalar (logo, nom) yangilanadi.

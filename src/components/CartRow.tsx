@@ -48,11 +48,11 @@ export function CartRow({ line, product, discountedTotal, highlight, shake, allo
   return (
     <div ref={ref} className={`row${highlight ? ' flash' : ''}${shake ? ' shake' : ''}`}>
       <div className="row-name">
-        <div className="title">
-          {b && <span className="brand-pill" style={hueStyle(b)}>{b}</span>}
-          <span>{title}</span>
+        {b && <span className="brand-pill" style={hueStyle(b)}>{b}</span>}
+        <div className="row-text">
+          <div className="title">{title}</div>
+          <div className="muted small">{meta}</div>
         </div>
-        <div className="muted small">{meta}</div>
       </div>
 
       <div className="qty">
