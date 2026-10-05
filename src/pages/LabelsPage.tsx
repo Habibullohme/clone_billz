@@ -126,10 +126,25 @@ export function LabelsPage({ batchId }: { batchId: string | null }) {
 
       <div className="labels-layout">
         <div className="labels-side">
-          <button className={`batch custom${custom ? ' on' : ''}`} onClick={() => setPicking(true)}>
-            <b>Qo'lda tanlash</b>
-            <span className="muted small">{custom ? `${ids.length} ta tovar tanlangan · o'zgartirish` : 'Istalgan tovarlarni belgilab chiqarish'}</span>
-          </button>
+          <div className="custom-wrap">
+            <button className={`batch custom${custom ? ' on' : ''}`} onClick={() => setPicking(true)}>
+              <b>Qo'lda tanlash</b>
+              <span className="muted small">{custom ? `${ids.length} ta tovar tanlangan · o'zgartirish` : 'Istalgan tovarlarni belgilab chiqarish'}</span>
+            </button>
+            {custom && ids.length > 0 && (
+              <button
+                className="custom-clear"
+                title="Tanlovni tozalash"
+                onClick={() => {
+                  setIds([])
+                  setQty({})
+                  setCustom(false)
+                }}
+              >
+                Tozalash
+              </button>
+            )}
+          </div>
           <div className="label">Kirimlar</div>
           {batches.length === 0 && <p className="muted small">Hali kirim yo'q.</p>}
           {batches.slice(0, 12).map((b) => (
@@ -432,6 +447,9 @@ function ProductPicker({
       </div>
       <div className="modal-actions">
         <span className="muted small grow">{picked.size} ta tanlandi</span>
+        {picked.size > 0 && (
+          <button className="btn ghost danger-text" onClick={() => setPicked(new Set())}>Tozalash</button>
+        )}
         <button className="btn ghost" onClick={onClose}>Bekor</button>
         <button className="btn primary" disabled={!picked.size} onClick={() => onDone([...picked])}>Qo'shish</button>
       </div>

@@ -1026,3 +1026,12 @@ input:not([type=checkbox]):not([type=range]):not([type=file]), textarea {
   .row .row-name { grid-template-columns: 76px minmax(0, 1fr); gap: 8px; }
   .brand-pill { font-size: 11px; padding: 0 6px; }
 }
+
+/* Etiketkalar: qo'lda tanlovni tozalash */
+.custom-wrap { position: relative; }
+.custom-wrap .batch { width: 100%; }
+.custom-clear {
+  position: absolute; top: 10px; right: 10px; border: 1px solid color-mix(in srgb, var(--bad) 35%, var(--line));
+  background: var(--surface); color: var(--bad); font: 600 12.5px var(--font-ui); padding: 4px 10px; border-radius: 8px; cursor: pointer;
+}
+.custom-clear:hover { background: var(--bad); color: #fff; }
