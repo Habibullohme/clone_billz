@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type React from 'react'
 import { createPortal } from 'react-dom'
 import type { ImportBatch, Product } from '../types'
 import { getBatches, getProducts, getSettings, saveSettings, searchProducts, uid, type Settings } from '../data/store'
-import { fieldNames, type LabelFieldKey, type LabelTemplate } from '../lib/labels'
+import { autoLayout, fieldNames, placedFields, textHeight, type LabelField, type LabelFieldKey, type LabelTemplate, type PlacedField } from '../lib/labels'
 import { formatSum } from '../lib/money'
 import { hueStyle } from '../lib/colors'
 import { LabelView } from '../components/LabelView'
@@ -262,18 +263,12 @@ function TemplateEditor({
   const [t, setT] = useState<LabelTemplate>(initial)
   const [sel, setSel] = useState(0)
   const set = (patch: Partial<LabelTemplate>) => setT((x) => ({ ...x, ...patch }))
-  const setField = (i: number, patch: Partial<LabelTemplate['fields'][number]>) =>
-    set({ fields: t.fields.map((f, j) => (j === i ? { ...f, ...patch } : f)) })
-  const move = (i: number, d: number) => {
-    const j = i + d
-    if (j < 0 || j >= t.fields.length) return
-    const f = [...t.fields]
-    ;[f[i], f[j]] = [f[j], f[i]]
-    set({ fields: f })
-    setSel(j)
-  }
+  const fields = placedFields(t)
+  const setField = (i: number, patch: Partial<LabelField>) =>
+    set({ fields: fields.map((f, j) => (j === i ? { ...f, ...patch } : f)) })
   const unused = allFields.filter((k) => !t.fields.some((f) => f.key === k))
-  const field = t.fields[sel]
+  const field = fields[sel]
+  const demo = sample ?? sampleProduct
 
   return (
     <Modal title="Etiketka shabloni" onClose={onClose} wide>
@@ -303,17 +298,15 @@ function TemplateEditor({
 
       <div className="tpl-body">
         <div className="tpl-fields">
-          {t.fields.map((f, i) => (
-            <div key={i} className={`tpl-field${sel === i ? ' on' : ''}`} onClick={() => setSel(i)}>
+          {fields.map((f, i) => (
+            <div key={f.key} className={`tpl-field${sel === i ? ' on' : ''}`} onClick={() => setSel(i)}>
               <span className="grow">{fieldNames[f.key]}</span>
-              <button className="icon" aria-label="Yuqoriga" onClick={(e) => { e.stopPropagation(); move(i, -1) }}>↑</button>
-              <button className="icon" aria-label="Pastga" onClick={(e) => { e.stopPropagation(); move(i, 1) }}>↓</button>
               <button
                 className="icon danger"
                 aria-label="Olib tashlash"
                 onClick={(e) => {
                   e.stopPropagation()
-                  set({ fields: t.fields.filter((_, j) => j !== i) })
+                  set({ fields: fields.filter((_, j) => j !== i) })
                   setSel(0)
                 }}
               >
@@ -328,49 +321,52 @@ function TemplateEditor({
               placeholder="+ Maydon qo'shish"
               onChange={(v) => {
                 const key = v as LabelFieldKey
-                set({ fields: [...t.fields, { key, size: key === 'barcode' ? 12 : 9, bold: false, align: 'center' }] })
-                setSel(t.fields.length)
+                const h = key === 'barcode' ? Math.min(12, t.height / 2) : textHeight(9)
+                set({ fields: [...fields, { key, size: key === 'barcode' ? h : 9, bold: false, align: 'center', x: 1.5, y: Math.max(0, (t.height - h) / 2), w: t.width - 3, h }] })
+                setSel(fields.length)
               }}
               options={unused.map((k) => ({ value: k, label: fieldNames[k] }))}
             />
           )}
-
-          {field && (
-            <div className="tpl-props">
-              <div className="label">{fieldNames[field.key]}</div>
-              <label className="field">
-                <span>{field.key === 'barcode' ? 'Balandligi, mm' : 'Shrift, pt'}</span>
-                <input
-                  id="tpl-size"
-                  type="range"
-                  min={field.key === 'barcode' ? 6 : 5}
-                  max={field.key === 'barcode' ? 30 : 24}
-                  value={field.size}
-                  onChange={(e) => setField(sel, { size: Number(e.target.value) })}
-                />
-              </label>
-              {field.key === 'barcode' ? (
-                <div className="set-row">
-                  <span>Raqamlarni ko'rsatish</span>
-                  <Toggle id="tpl-bctext" checked={t.barcodeText} onChange={(v) => set({ barcodeText: v })} />
-                </div>
-              ) : (
-                <div className="tpl-style">
-                  <Segmented<string>
-                    value={field.align}
-                    onChange={(v) => setField(sel, { align: v as LabelTemplate['fields'][number]['align'] })}
-                    options={[['left', 'Chap'], ['center', 'O\'rta'], ['right', 'O\'ng']]}
-                  />
-                  <button className={`chip${field.bold ? ' on' : ''}`} onClick={() => setField(sel, { bold: !field.bold })}><b>Qalin</b></button>
-                </div>
-              )}
-            </div>
-          )}
+          <p className="muted small">Maydonni sichqoncha bilan suring, burchagidagi nuqtadan tortib kattalashtiring. Strelka tugmalari — aniq surish.</p>
         </div>
 
-        <div className="tpl-preview">
-          {sample ? <LabelView t={t} p={sample} /> : <span className="muted">Namuna uchun tovar yo'q</span>}
-          <span className="muted small">Haqiqiy o'lchamda: {t.width}×{t.height} mm</span>
+        <div className="tpl-work">
+          <div className="tpl-toolbar">
+            {field && field.key !== 'barcode' && (
+              <>
+                <div className="tpl-fs">
+                  <Select<string>
+                    id="tpl-size"
+                    value={String(field.size)}
+                    onChange={(v) => setField(sel, { size: Number(v) })}
+                    options={fontSizes.map((n) => ({ value: String(n), label: `${n} pt` }))}
+                  />
+                </div>
+                <button className={`tbtn${field.bold ? ' on' : ''}`} aria-label="Qalin" title="Qalin" onClick={() => setField(sel, { bold: !field.bold })}><b>B</b></button>
+                <Segmented<string>
+                  value={field.align}
+                  onChange={(v) => setField(sel, { align: v as LabelField['align'] })}
+                  options={[['left', 'Chap'], ['center', 'O\'rta'], ['right', 'O\'ng']]}
+                />
+              </>
+            )}
+            {field?.key === 'barcode' && (
+              <label className="tpl-check">
+                <Toggle id="tpl-bctext" checked={t.barcodeText} onChange={(v) => set({ barcodeText: v })} />
+                <span>Raqamlar</span>
+              </label>
+            )}
+            {field && (
+              <button className="tbtn" title="Eniga o'rtaga" onClick={() => setField(sel, { x: Math.round(((t.width - field.w) / 2) * 10) / 10 })}>↔ O'rtaga</button>
+            )}
+            <span className="grow" />
+            <button className="btn ghost small" onClick={() => set({ fields: autoLayout({ ...t, fields: t.fields.map(({ x: _x, y: _y, w: _w, h: _h, ...f }) => f) }) })}>
+              Asl joylashuv
+            </button>
+          </div>
+          <LabelCanvas t={t} fields={fields} sample={demo} sel={sel} onSel={setSel} onChange={(f) => set({ fields: f })} />
+          <span className="muted small">Haqiqiy o'lcham: {t.width}×{t.height} mm</span>
         </div>
       </div>
 
@@ -492,6 +488,90 @@ function FitLabel({ t, p }: { t: LabelTemplate; p: Product }) {
           <LabelView t={t} p={p} />
         </foreignObject>
       </svg>
+    </div>
+  )
+}
+
+const fontSizes = [5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32]
+
+const sampleProduct: Product = {
+  id: 'demo', brand: 'Brend', name: 'Model A1', size: '40-44', color: 'qora', barcode: '2100000000012',
+  packSize: 5, costPrice: 0, salePrice: 120_000, stock: 5, createdAt: '', batchId: null,
+}
+
+/** Shablon chizish maydoni: maydonlarni surish va kattalashtirish (Billz kabi). */
+function LabelCanvas({
+  t, fields, sample, sel, onSel, onChange,
+}: {
+  t: LabelTemplate
+  fields: PlacedField[]
+  sample: Product
+  sel: number
+  onSel: (i: number) => void
+  onChange: (f: PlacedField[]) => void
+}) {
+  // Ekranda 1 mm necha piksel bo'lsin.
+  const k = Math.min(560 / t.width, 330 / t.height, 14, (window.innerWidth - 72) / t.width)
+  const drag = useRef<{ i: number; mode: 'move' | 'resize'; sx: number; sy: number; f: PlacedField } | null>(null)
+  const r = (n: number) => Math.round(n * 2) / 2
+  const clamp = (n: number, lo: number, hi: number) => Math.min(Math.max(n, lo), Math.max(lo, hi))
+
+  const update = (i: number, box: Pick<PlacedField, 'x' | 'y' | 'w' | 'h'>) =>
+    onChange(fields.map((f, j) => {
+      if (j !== i) return f
+      // Shtrix-kodning "size" i — balandligi.
+      return { ...f, ...box, ...(f.key === 'barcode' && { size: box.h }) }
+    }))
+
+  const down = (e: React.PointerEvent, i: number, mode: 'move' | 'resize') => {
+    e.preventDefault()
+    e.stopPropagation()
+    onSel(i)
+    ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
+    drag.current = { i, mode, sx: e.clientX, sy: e.clientY, f: fields[i] }
+  }
+  const move = (e: React.PointerEvent) => {
+    const d = drag.current
+    if (!d) return
+    const dx = (e.clientX - d.sx) / k
+    const dy = (e.clientY - d.sy) / k
+    const { x, y, w, h } = d.f
+    if (d.mode === 'move') update(d.i, { x: clamp(r(x + dx), 0, t.width - w), y: clamp(r(y + dy), 0, t.height - h), w, h })
+    else update(d.i, { x, y, w: clamp(r(w + dx), 3, t.width - x), h: clamp(r(h + dy), 1.5, t.height - y) })
+  }
+  const up = () => {
+    drag.current = null
+  }
+
+  return (
+    <div
+      className="tpl-canvas"
+      tabIndex={0}
+      style={{ width: t.width * k, height: t.height * k }}
+      onKeyDown={(e) => {
+        const f = fields[sel]
+        const step = { ArrowLeft: [-0.5, 0], ArrowRight: [0.5, 0], ArrowUp: [0, -0.5], ArrowDown: [0, 0.5] }[e.key]
+        if (!f || !step) return
+        e.preventDefault()
+        update(sel, { x: clamp(f.x + step[0], 0, t.width - f.w), y: clamp(f.y + step[1], 0, t.height - f.h), w: f.w, h: f.h })
+      }}
+    >
+      <div className="tpl-zoom" style={{ zoom: k / (96 / 25.4) }}>
+        <LabelView t={{ ...t, fields }} p={sample} />
+      </div>
+      {fields.map((f, i) => (
+        <div
+          key={f.key}
+          className={`tpl-box${sel === i ? ' on' : ''}`}
+          style={{ left: f.x * k, top: f.y * k, width: f.w * k, height: f.h * k }}
+          onPointerDown={(e) => down(e, i, 'move')}
+          onPointerMove={move}
+          onPointerUp={up}
+          title={fieldNames[f.key]}
+        >
+          {sel === i && <span className="tpl-handle" onPointerDown={(e) => down(e, i, 'resize')} onPointerMove={move} onPointerUp={up} />}
+        </div>
+      ))}
     </div>
   )
 }

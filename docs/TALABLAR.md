@@ -240,3 +240,12 @@ Billz'dan farqi: xabarlarda pachka × juft ko'rinadi va foyda hisoblanadi; filia
 - Internet yo'q bo'lsa: sotuv saqlanmaydi va bu aniq aytiladi; boshqa o'zgarishlarda ogohlantirish chiqadi.
 - Mavzu (yorug'/qorong'i) har qurilmaning o'zida; qolgan sozlamalar umumiy.
 - `.env` siz yig'ilsa (VITE_SUPABASE_URL bo'sh) — eski sinov rejimi: brauzer xotirasida, namunaviy tovarlar bilan.
+
+## 18. Etiketka chop etish va muharrir (Billz kabi)
+
+- Chop: sayt sahifa o'lchamini yubormaydi — qog'oz o'lchami printer drayveridan olinadi (Xprinter XP-365B:
+  USER 60×40, Portrait). Etiketka shu qog'ozga nisbatini saqlab cho'ziladi; har etiketka — alohida sahifa.
+  Chrome'da: Paper size = USER, Layout = Portrait, Margins = None, Scale = Default.
+- Shablon muharriri: har maydonning joyi (x, y, eni, bo'yi, mm) — sichqoncha bilan suriladi, burchakdagi
+  nuqtadan tortib kattalashtiriladi, strelkalar bilan 0.5 mm aniq suriladi. Matn: shrift (pt), qalin, tekislash.
+  Shtrix-kod o'z qutisini to'liq egallaydi, raqamlar alohida (cho'zilmaydi). "Asl joylashuv" — avtomatik tartib.

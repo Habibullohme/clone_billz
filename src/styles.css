@@ -333,20 +333,25 @@ kbd {
 .label-rows { display: flex; flex-direction: column; gap: 8px; }
 .label-row { display: flex; align-items: center; gap: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 10px 12px; flex-wrap: wrap; }
 .lbl {
-  background: #fff; color: #000; padding: 1.5mm 2mm; box-sizing: border-box; flex: none; overflow: hidden;
-  display: flex; flex-direction: column; justify-content: space-between; gap: 0.5mm;
+  position: relative; background: #fff; color: #000; box-sizing: border-box; flex: none; overflow: hidden;
   font-family: var(--font-ui); border-radius: 1.5mm; box-shadow: 0 0 0 1px #d4d4d4;
 }
-.lbl-text { line-height: 1.1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.lbl-bc { display: flex; justify-content: center; min-height: 0; }
-.lbl-bc svg { width: 100%; height: 100%; }
+.lbl-text, .lbl-bc { position: absolute; box-sizing: border-box; }
+.lbl-text { display: flex; align-items: center; line-height: 1.1; overflow: hidden; white-space: nowrap; }
+.lbl-text.center { justify-content: center; }
+.lbl-text.right { justify-content: flex-end; }
+.lbl-text span { overflow: hidden; text-overflow: ellipsis; }
+.lbl-bc { display: flex; flex-direction: column; }
+.lbl-bars { flex: 1 1 auto; min-height: 0; }
+.lbl-bars svg { display: block; width: 100%; height: 100%; }
+.lbl-digits { flex: none; display: flex; align-items: flex-end; justify-content: center; font-family: 'JetBrains Mono', monospace; line-height: 1; letter-spacing: 0.04em; }
 .lbl-thumb { width: 120px; height: 84px; display: grid; place-items: center; overflow: hidden; flex: none; }
 .lbl-thumb .lbl { zoom: 0.5; }
 .qty-input { display: flex; align-items: center; gap: 6px; }
 .tpl-bar { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
 .tpl-bar .field:first-child { min-width: 240px; }
 .tpl-top { display: grid; grid-template-columns: 2fr 1fr 1fr 1.3fr; gap: 10px; }
-.tpl-body { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 16px; }
+.tpl-body { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 16px; }
 .tpl-fields { display: flex; flex-direction: column; gap: 6px; }
 .tpl-field { display: flex; align-items: center; gap: 2px; padding: 6px 6px 6px 12px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
 .tpl-field.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
@@ -870,4 +875,35 @@ input:not([type=checkbox]):not([type=range]):not([type=file]), textarea {
 .sync-error {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   margin: 8px 16px 0; padding: 8px 12px; border-radius: 12px; background: var(--bad-soft); color: var(--bad); font-weight: 600; font-size: 14px;
+}
+
+/* ---------- Etiketka muharriri (surish / kattalashtirish) ---------- */
+.tpl-work {
+  display: flex; flex-direction: column; align-items: center; gap: 12px; min-width: 0;
+  background: var(--sunken); border-radius: var(--r); padding: 12px 16px 16px;
+}
+.tpl-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; min-height: 40px; }
+.tpl-fs { width: 104px; }
+.tbtn {
+  height: 38px; min-width: 38px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--fg); font: inherit; font-size: 14px; cursor: pointer;
+}
+.tbtn:hover { border-color: var(--accent); }
+.tbtn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.tpl-check { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.tpl-canvas {
+  position: relative; flex: none; margin: 8px auto; outline: none; touch-action: none;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.12); border-radius: 6px;
+}
+.tpl-zoom { position: absolute; inset: 0; }
+.tpl-zoom .lbl { box-shadow: none; }
+.tpl-box { position: absolute; cursor: move; border: 1px dashed transparent; border-radius: 2px; }
+.tpl-box:hover { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.tpl-box.on { border: 1.5px solid var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.tpl-handle {
+  position: absolute; right: -7px; bottom: -7px; width: 13px; height: 13px; border-radius: 50%;
+  background: #fff; border: 2px solid var(--accent); cursor: nwse-resize;
+}
+@media (max-width: 860px) {
+  .tpl-work { padding: 10px; }
 }

@@ -9,7 +9,40 @@ export interface LabelField {
   size: number
   bold: boolean
   align: 'left' | 'center' | 'right'
+  /** Joylashuv, mm (etiketkaning chap-yuqori burchagidan). Yo'q bo'lsa — avtomatik. */
+  x?: number
+  y?: number
+  w?: number
+  h?: number
 }
+
+export type PlacedField = LabelField & Required<Pick<LabelField, 'x' | 'y' | 'w' | 'h'>>
+
+const PT_TO_MM = 25.4 / 72
+
+/** Matn qatorining balandligi, mm. */
+export const textHeight = (pt: number) => pt * PT_TO_MM * 1.25
+
+/** Avtomatik joylashuv: maydonlar ustma-ust, oralari teng. */
+export function autoLayout(t: LabelTemplate): PlacedField[] {
+  const pad = 1.5
+  const heights = t.fields.map((f) => (f.key === 'barcode' ? f.size : textHeight(f.size)))
+  const free = t.height - 2 * pad - heights.reduce((s, h) => s + h, 0)
+  const gap = Math.max(0, free / (t.fields.length + 1))
+  let y = pad + gap
+  return t.fields.map((f, i) => {
+    const placed = { ...f, x: pad, y: round(y), w: round(t.width - 2 * pad), h: round(heights[i]) }
+    y += heights[i] + gap
+    return placed
+  })
+}
+
+/** Maydonlarning joyi: saqlangani, bo'lmasa avtomatik. */
+export function placedFields(t: LabelTemplate): PlacedField[] {
+  return t.fields.every((f) => f.w && f.h) ? (t.fields as PlacedField[]) : autoLayout(t)
+}
+
+const round = (n: number) => Math.round(n * 10) / 10
 
 export interface LabelTemplate {
   id: string
