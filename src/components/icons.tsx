@@ -14,6 +14,8 @@ export const IconGear = () => (
     <path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
   </svg>
 )
+/** Nasiya daftari. */
+export const IconDebt = () => <S d="M5 3h9.5v14H5zM5 3v14M8 7h4M8 10.5h4M8 14h2.5" />
 export const IconCashbox = () => <S d="M3 8h14v8H3zM5.5 8V4h9v4M7 12h6" />
 export const IconTheme = () => (
   <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">

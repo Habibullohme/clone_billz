@@ -270,3 +270,14 @@ Billz'dan farqi: xabarlarda pachka × juft ko'rinadi va foyda hisoblanadi; filia
   Bazada `devices` jadvali (supabase/devices.sql).
 - Etiketka: ustma-ust turgan nom/razmer/rang bitta matn bo'lib oqadi, so'zlar bo'linmaydi, sig'masa
   shrift o'zi kichrayadi ("richmen barsofka / qoshma qora"); "..." bilan kesilmaydi.
+
+## 21. Nasiyalar, to'lov oynasi, Enter ketma-ketligi, telefon skaneri
+
+- Nasiyalar bo'limi: qarzdorlar ro'yxati (qoldiq bo'yicha), jami nasiya / qarzdorlar / shu oy qaytarilgan.
+  Har mijozning daftari: "Nasiya oldi" (kassadan — chek raqami bilan, avtomatik) va "Pul to'ladi" yozuvlari,
+  sana (eski daftar uchun o'tgan sana), izoh; yozuvni o'chirish; ism/telefonni tahrirlash; telefonga qo'ng'iroq.
+  Ma'lumot mijoz yozuvida (customers jadvali) saqlanadi — yangi SQL kerak emas.
+- To'lov oynasi: "Hammasi naqd / kartaga / nasiyaga" katta tugmalari; nasiyada ism VA telefon shart.
+- Kassa klaviaturasi: skaner → Enter → mijoz ismi → Enter → yakuniy summa → Enter → to'lov → Enter → yakunlash
+  → Enter → yangi sotuv. F2 — to'g'ridan-to'g'ri to'lov. Boshqaruv bo'limlarida Kassa tugmasida "Esc" belgisi.
+- Telefonda kassa: "Skaner" tugmasi — kamera bilan ketma-ket skaner (Chrome'ning o'z skaneri, bo'lmasa kutubxona).

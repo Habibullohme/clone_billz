@@ -13,11 +13,13 @@ import { ShopMark } from './components/ShopMark'
 import { afterNav, closeTopLayer, dropEntry, hasLayers, setBaseBack } from './lib/nav'
 import { BackClose, Modal } from './components/ui'
 import { applyTheme, type Theme } from './lib/theme'
-import { IconBox, IconCashbox, IconGear, IconSales, IconTag, IconTheme } from './components/icons'
+import { IconBox, IconCashbox, IconDebt, IconGear, IconSales, IconTag, IconTheme } from './components/icons'
+import { DebtsPage } from './pages/DebtsPage'
 
 const ownerTabs = [
   ['sales', 'Sotuvlar', 'Tushum, foyda, brendlar', IconSales],
   ['products', 'Tovarlar', 'Ro\'yxat, Excel import', IconBox],
+  ['debts', 'Nasiyalar', 'Kim qancha qarz, to\'lovlar', IconDebt],
   ['labels', 'Etiketkalar', 'Shtrix-kod chiqarish', IconTag],
   ['settings', 'Sozlamalar', 'Do\'kon, chek, PIN', IconGear],
 ] as const
@@ -322,6 +324,7 @@ function Shop() {
             <button className="btn primary to-pos" onClick={() => setTab('pos')}>
               <IconCashbox />
               <span>Kassa</span>
+              <kbd className="esc-kbd">Esc</kbd>
             </button>
           </div>
         </header>
@@ -345,6 +348,7 @@ function Shop() {
             }}
           />
         )}
+        {tab === 'debts' && <DebtsPage />}
         {tab === 'labels' && <LabelsPage batchId={labelsBatch} />}
         {tab === 'settings' && <SettingsPage />}
       </main>

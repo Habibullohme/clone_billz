@@ -9,6 +9,7 @@ import { formatSum, parseSum, shortSum } from '../lib/money'
 import { beep, useScanner } from '../lib/useScanner'
 import { CartRow } from '../components/CartRow'
 import { CustomerInput } from '../components/CustomerInput'
+import { CameraScanner } from '../components/CameraScanner'
 import { PaymentModal } from '../components/PaymentModal'
 import { Receipt } from '../components/Receipt'
 import { BackClose, MoneyInput } from '../components/ui'
@@ -21,6 +22,8 @@ export function PosPage() {
   const [settings, setSettings] = useState<Settings | null>(null)
   const [lines, setLines] = useState<CartLine[]>([])
   const [customer, setCustomer] = useState('')
+  const [phone, setPhone] = useState('')
+  const [camera, setCamera] = useState(false)
   const [note, setNote] = useState('')
   const [showNote, setShowNote] = useState(false)
   const [finalDraft, setFinalDraft] = useState('')
@@ -97,7 +100,7 @@ export function PosPage() {
 
   useScanner(onScan, !paying)
 
-  // Space — qidiruv, Enter (yoki F2) — to'lov.
+  // Space — qidiruv. Enter: mijoz → yakuniy summa → to'lov (F2 — darhol to'lov).
   useEffect(() => {
     let lastChar = 0
     const h = (e: KeyboardEvent) => {
@@ -120,7 +123,11 @@ export function PosPage() {
       }
       // Enter: faqat hech qayerda yozilmayotganda va skaner yozuvidan keyin emas (skaner ham oxirida Enter bosadi).
       const enter = e.key === 'Enter' && !isTyping(e.target) && e.timeStamp - lastChar > 150
-      if ((enter || e.key === 'F2') && lines.length) {
+      if (enter && lines.length) {
+        e.preventDefault()
+        document.getElementById('pos-customer')?.focus()
+      }
+      if (e.key === 'F2' && lines.length) {
         e.preventDefault()
         setPaying(true)
       }
@@ -154,6 +161,7 @@ export function PosPage() {
   const reset = () => {
     setLines([])
     setCustomer('')
+    setPhone('')
     setNote('')
     setShowNote(false)
     setFinalDraft('')
@@ -173,7 +181,7 @@ export function PosPage() {
     let sale: Sale
     try {
       sale = await saveSale({
-        customerName: customer.trim(), note: note.trim(), lines: saleLines,
+        customerName: customer.trim(), customerPhone: phone.trim() || undefined, note: note.trim(), lines: saleLines,
         subtotal: sub, discount, total, profit, payment, change,
       })
     } catch (e) {
@@ -266,6 +274,10 @@ export function PosPage() {
             </ul>
           )}
         </div>
+        <button className="cam-btn" onClick={() => setCamera(true)} aria-label="Kamera bilan skaner">
+          <IconCamera />
+          <span>Skaner</span>
+        </button>
         {lines.length > 0 && <ClearCart onClear={reset} />}
         </div>
 
@@ -274,6 +286,9 @@ export function PosPage() {
             <div className="scan-ready"><span className="scan-dot" /> Skaner tayyor</div>
             <b>Tovarni skaner qiling</b>
             <span className="muted">Har skanerda bir pachka qo'shiladi. Qidirish uchun Space bosing.</span>
+            <button className="btn primary big cam-cta" onClick={() => setCamera(true)}>
+              <IconCamera /> Kamera bilan skaner qilish
+            </button>
           </div>
         ) : (
           <div className="rows">
@@ -316,17 +331,31 @@ export function PosPage() {
         )}
 
         <div className="block">
-          <div className="label">Mijoz</div>
-          <CustomerInput value={customer} onChange={setCustomer} />
+          <div className="label">Mijoz {lines.length > 0 && <kbd className="hint">Enter</kbd>}</div>
+          <CustomerInput
+            id="pos-customer"
+            value={customer}
+            onChange={setCustomer}
+            onPick={(c) => setPhone(c.phone ?? '')}
+            onEnter={() => document.getElementById('pos-final')?.focus()}
+          />
         </div>
 
         <div className="block">
-          <div className="label">Yakuniy summa</div>
+          <div className="label">Yakuniy summa {lines.length > 0 && <kbd className="hint">Enter → to'lash</kbd>}</div>
           <MoneyInput
+            id="pos-final"
             placeholder={sub ? formatSum(sub) : 'chegirma uchun'}
             value={finalDraft}
             onChange={setFinalDraft}
             disabled={!lines.length}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter' || !lines.length) return
+              e.preventDefault()
+              if (finalDraft && finalTotal === null) return
+              ;(e.target as HTMLInputElement).blur()
+              setPaying(true)
+            }}
           />
           {finalDraft && finalTotal === null && <div className="error small">Jamidan katta bo'lmasin</div>}
           {quickTotals.length > 0 && (
@@ -374,10 +403,14 @@ export function PosPage() {
           usdRate={settings.usdRate}
           customerName={customer}
           onCustomerChange={setCustomer}
+          customerPhone={phone}
+          onPhoneChange={setPhone}
           onCancel={() => setPaying(false)}
           onConfirm={pay}
         />
       )}
+
+      {camera && <CameraScanner onScan={onScan} onClose={() => setCamera(false)} />}
 
       {done && (
         <div className="modal-bg">
@@ -422,3 +455,9 @@ function ClearCart({ onClear }: { onClear: () => void }) {
     </button>
   )
 }
+
+const IconCamera = () => (
+  <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+    <path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M7.5 8.5v7M10 8.5v7M12.5 8.5v7M15.5 8.5v7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+  </svg>
+)

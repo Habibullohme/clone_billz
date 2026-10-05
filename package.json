@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",
+    "barcode-detector": "^3.2.2",
     "jsbarcode": "^3.12.3",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",

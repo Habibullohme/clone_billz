@@ -5,10 +5,16 @@ import { getCustomers, matchCustomers } from '../data/store'
 interface Props {
   value: string
   onChange: (name: string) => void
+  /** Ro'yxatdan tanlanganda (telefonini ham olish uchun). */
+  onPick?: (c: Customer) => void
+  /** Taklif tanlanmay Enter bosilsa. */
+  onEnter?: () => void
+  id?: string
+  autoFocus?: boolean
 }
 
 /** Faqat ism yoziladi. Avval yozilgan ismlar avtomatik taklif qilinadi. */
-export function CustomerInput({ value, onChange }: Props) {
+export function CustomerInput({ value, onChange, onPick, onEnter, id, autoFocus }: Props) {
   const [all, setAll] = useState<Customer[]>([])
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(0)
@@ -21,15 +27,19 @@ export function CustomerInput({ value, onChange }: Props) {
 
   const pick = (c: Customer) => {
     onChange(c.name)
+    onPick?.(c)
     setOpen(false)
   }
 
   return (
     <div className="ac">
       <input
+        id={id}
         className="input"
         placeholder="Mijoz ismi, masalan: Alisher aka Qarshi"
         value={value}
+        autoFocus={autoFocus}
+        autoComplete="off"
         onChange={(e) => {
           onChange(e.target.value)
           setOpen(true)
@@ -38,18 +48,20 @@ export function CustomerInput({ value, onChange }: Props) {
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 120)}
         onKeyDown={(e) => {
-          if (!open || matches.length === 0) return
-          if (e.key === 'ArrowDown') {
+          const list = open ? matches : []
+          if (e.key === 'ArrowDown' && list.length) {
             e.preventDefault()
-            setActive((a) => Math.min(a + 1, matches.length - 1))
-          } else if (e.key === 'ArrowUp') {
+            setActive((a) => Math.min(a + 1, list.length - 1))
+          } else if (e.key === 'ArrowUp' && list.length) {
             e.preventDefault()
             setActive((a) => Math.max(a - 1, 0))
-          } else if (e.key === 'Enter' || e.key === 'Tab') {
-            if (matches[active]) {
-              e.preventDefault()
-              pick(matches[active])
-            }
+          } else if ((e.key === 'Enter' || e.key === 'Tab') && list[active]) {
+            e.preventDefault()
+            pick(list[active])
+          } else if (e.key === 'Enter' && onEnter) {
+            e.preventDefault()
+            setOpen(false)
+            onEnter()
           }
         }}
       />
@@ -64,7 +76,8 @@ export function CustomerInput({ value, onChange }: Props) {
                 pick(c)
               }}
             >
-              {c.name}
+              <span>{c.name}</span>
+              {c.phone && <span className="muted small">{c.phone}</span>}
             </li>
           ))}
         </ul>

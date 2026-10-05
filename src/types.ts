@@ -38,10 +38,27 @@ export interface ImportBatch {
   saleTotal: number
 }
 
+/** Nasiya daftaridagi bitta yozuv: nasiya berildi yoki pul qaytarildi. */
+export interface LedgerEntry {
+  id: string
+  kind: 'debt' | 'payment'
+  amount: number
+  note: string
+  /** Kassadan kelgan nasiya — qaysi sotuv. */
+  saleId?: string
+  saleNumber?: number
+  /** Qachon (eski daftar yozuvlari uchun o'tgan sana bo'lishi mumkin). */
+  date: string
+  createdAt: string
+}
+
 export interface Customer {
   id: string
   name: string
   lastSeen: string
+  phone?: string
+  /** Nasiya daftari. */
+  ledger?: LedgerEntry[]
 }
 
 export interface CartLine {
@@ -80,6 +97,7 @@ export interface Sale {
   number: number
   createdAt: string
   customerName: string
+  customerPhone?: string
   note: string
   lines: SaleLine[]
   subtotal: number

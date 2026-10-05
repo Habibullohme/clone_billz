@@ -2,7 +2,7 @@
  * Ma'lumotlar qatlami. Baza (Supabase) ulangan bo'lsa — hammasi bazada, xotirada esa
  * tez o'qish uchun nusxasi turadi. Ulanmagan bo'lsa — brauzer xotirasida (sinov rejimi).
  */
-import type { Customer, HeldCart, ImportBatch, Product, ProductInput, Sale } from '../types'
+import type { Customer, HeldCart, ImportBatch, LedgerEntry, Product, ProductInput, Sale } from '../types'
 import { brandCode, makeBarcode } from '../lib/codes'
 import { demoInputs } from './demo'
 import type { Theme } from '../lib/theme'
@@ -510,17 +510,72 @@ export async function getCustomers(): Promise<Customer[]> {
   return read<Customer[]>(K.customers, [])
 }
 
+const cleanName = (name: string) => name.trim().replace(/\s+/g, ' ')
+const sameName = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
+
+/** Mijozni topadi yoki yaratadi (ro'yxatga yozilmaydi — chaqiruvchi yozadi). */
+function upsertCustomer(list: Customer[], name: string, phone?: string): Customer {
+  const clean = cleanName(name)
+  let c = list.find((x) => sameName(x.name, clean))
+  if (!c) {
+    c = { id: uid(), name: clean, lastSeen: new Date().toISOString() }
+    list.push(c)
+  }
+  c.lastSeen = new Date().toISOString()
+  if (phone?.trim()) c.phone = phone.trim()
+  return c
+}
+
 /** Mijoz ismini eslab qoladi (yangi bo'lsa qo'shadi, bor bo'lsa oxirgi xaridni yangilaydi). */
-export async function rememberCustomer(name: string): Promise<void> {
-  const clean = name.trim().replace(/\s+/g, ' ')
-  if (!clean) return
+export async function rememberCustomer(name: string, phone?: string): Promise<void> {
+  if (!cleanName(name)) return
   const list = await getCustomers()
-  const now = new Date().toISOString()
-  const existing = list.find((c) => c.name.toLowerCase() === clean.toLowerCase())
-  if (existing) existing.lastSeen = now
-  else list.push({ id: uid(), name: clean, lastSeen: now })
+  upsertCustomer(list, name, phone)
   write(K.customers, list)
   await flush()
+}
+
+/** Nasiya qoldig'i: berilgan nasiyalar − qaytarilgan pullar. */
+export function balanceOf(c: Customer): number {
+  return (c.ledger ?? []).reduce((s, e) => s + (e.kind === 'debt' ? e.amount : -e.amount), 0)
+}
+
+/** Daftarga yozuv qo'shadi (mijoz bo'lmasa — yaratiladi). */
+export async function addLedgerEntry(
+  name: string,
+  phone: string | undefined,
+  entry: Omit<LedgerEntry, 'id' | 'createdAt'>,
+): Promise<Customer> {
+  const list = await getCustomers()
+  const c = upsertCustomer(list, name, phone)
+  c.ledger = [...(c.ledger ?? []), { ...entry, id: uid(), createdAt: new Date().toISOString() }]
+  write(K.customers, list)
+  await flush()
+  return c
+}
+
+export async function deleteLedgerEntry(customerId: string, entryId: string): Promise<void> {
+  const list = await getCustomers()
+  const c = list.find((x) => x.id === customerId)
+  if (!c) return
+  c.ledger = (c.ledger ?? []).filter((e) => e.id !== entryId)
+  write(K.customers, list)
+  await flush()
+}
+
+/** Mijozning ismi va telefonini o'zgartirish. Ism boshqa mijozniki bilan bir xil bo'lsa — xato matni. */
+export async function updateCustomer(id: string, name: string, phone: string): Promise<string | null> {
+  const list = await getCustomers()
+  const c = list.find((x) => x.id === id)
+  if (!c) return null
+  const clean = cleanName(name)
+  if (!clean) return 'Ism kerak'
+  if (list.some((x) => x.id !== id && sameName(x.name, clean))) return `"${clean}" ismli mijoz allaqachon bor`
+  c.name = clean
+  c.phone = phone.trim()
+  write(K.customers, list)
+  await flush()
+  return null
 }
 
 export function matchCustomers(list: Customer[], query: string, limit = 6): Customer[] {
@@ -557,7 +612,12 @@ export async function saveSale(sale: Omit<Sale, 'id' | 'number' | 'createdAt'>):
   const save = mode === 'cloud' ? put : write
   save(K.sales, [full, ...(await getSales())])
   save(K.products, products)
-  await rememberCustomer(sale.customerName)
+  // Nasiyaga sotilgan bo'lsa — mijozning daftariga yoziladi.
+  if (sale.payment.debt > 0 && sale.customerName.trim()) {
+    await addLedgerEntry(sale.customerName, sale.customerPhone, {
+      kind: 'debt', amount: sale.payment.debt, note: '', saleId: id, saleNumber: number, date: createdAt,
+    })
+  } else await rememberCustomer(sale.customerName, sale.customerPhone)
   return full
 }
 
