@@ -158,3 +158,86 @@ export async function applySale(id: string, data: unknown): Promise<number> {
   if (error) throw error
   return Number(n)
 }
+
+// ---------- Qurilmalar ----------
+
+export interface Device {
+  id: string
+  email: string
+  name: string
+  created_at: string
+  last_seen: string
+  revoked: boolean
+}
+
+/** Shu brauzerning doimiy belgisi. */
+export function deviceId(): string {
+  try {
+    let id = localStorage.getItem('dk.device')
+    if (!id) {
+      id = crypto.randomUUID()
+      localStorage.setItem('dk.device', id)
+    }
+    return id
+  } catch {
+    return 'nostorage'
+  }
+}
+
+/** "Windows · Chrome", "Android · Chrome", "iPhone · Safari". */
+export function deviceName(ua = navigator.userAgent): string {
+  const os = /Android/i.test(ua) ? 'Android'
+    : /iPhone/i.test(ua) ? 'iPhone'
+    : /iPad/i.test(ua) ? 'iPad'
+    : /Windows/i.test(ua) ? 'Windows'
+    : /Mac OS X|Macintosh/i.test(ua) ? 'Mac'
+    : /Linux/i.test(ua) ? 'Linux' : 'Qurilma'
+  const browser = /YaBrowser/i.test(ua) ? 'Yandex'
+    : /Edg\//i.test(ua) ? 'Edge'
+    : /OPR\/|Opera/i.test(ua) ? 'Opera'
+    : /Firefox|FxiOS/i.test(ua) ? 'Firefox'
+    : /Chrome|CriOS/i.test(ua) ? 'Chrome'
+    : /Safari/i.test(ua) ? 'Safari' : 'Brauzer'
+  return `${os} · ${browser}`
+}
+
+/**
+ * Qurilmani ro'yxatga yozadi (oxirgi faollik). Agar boshqa qurilmadan "chiqarilgan" bo'lsa — false
+ * (shunda hisobdan chiqiladi). Jadval hali yaratilmagan bo'lsa — jim o'tib ketadi.
+ */
+export async function touchDevice(): Promise<boolean> {
+  const db = supabase!
+  const id = deviceId()
+  const { data, error } = await db.from('devices').select('revoked').eq('id', id).maybeSingle()
+  if (error) return true
+  if (data?.revoked) {
+    await db.from('devices').delete().eq('id', id)
+    return false
+  }
+  const email = (await db.auth.getUser()).data.user?.email ?? ''
+  await db.from('devices').upsert({ id, email, name: deviceName(), last_seen: new Date().toISOString() })
+  return true
+}
+
+export async function listDevices(): Promise<Device[] | null> {
+  const { data, error } = await supabase!.from('devices').select('*').order('last_seen', { ascending: false })
+  return error ? null : (data as Device[])
+}
+
+/** Boshqa qurilmani chiqarish: u keyingi ochilishida (yoki oynaga qaytganda) hisobdan chiqadi. */
+export async function revokeDevice(id: string) {
+  await check(supabase!.from('devices').update({ revoked: true }).eq('id', id))
+}
+
+/** Shu qurilmadan boshqa hamma joydan chiqish (kirish kalitlari ham bekor qilinadi). */
+export async function signOutOthers() {
+  const id = deviceId()
+  await check(supabase!.from('devices').update({ revoked: true }).neq('id', id))
+  await supabase!.auth.signOut({ scope: 'others' })
+}
+
+/** Shu qurilmadan chiqish — ro'yxatdan ham o'chadi. */
+export async function signOutHere() {
+  await supabase?.from('devices').delete().eq('id', deviceId())
+  await supabase?.auth.signOut()
+}

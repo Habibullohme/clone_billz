@@ -261,3 +261,12 @@ Billz'dan farqi: xabarlarda pachka × juft ko'rinadi va foyda hisoblanadi; filia
   brauzer "parolni saqlaysizmi" demaydi (sozlamalardagi PIN maydonlari ham).
 - Login sahifasi: do'kon logotipi / birinchi harfi va nomi (shu qurilmada eslab qolinadi), yangi dizayn.
 - Netlify pastki burchakdagi panel — faqat Netlify'ga kirgan egasiga ko'rinadi; Netlify sozlamasidan o'chiriladi.
+
+## 20. Favicon, qurilmalar, etiketkada matn oqimi
+
+- Brauzer yorlig'idagi belgi (favicon) va sarlavha — do'kon logotipi yoki nomining birinchi harfi.
+- Sozlamalar → Qurilmalar: kirilgan qurilmalar (nomi, email, oxirgi faollik), "Bu qurilma" belgisi,
+  "Chiqarish" (qurilma keyingi ochilishida chiqib ketadi), "Boshqa barcha qurilmalardan chiqish".
+  Bazada `devices` jadvali (supabase/devices.sql).
+- Etiketka: ustma-ust turgan nom/razmer/rang bitta matn bo'lib oqadi, so'zlar bo'linmaydi, sig'masa
+  shrift o'zi kichrayadi ("richmen barsofka / qoshma qora"); "..." bilan kesilmaydi.

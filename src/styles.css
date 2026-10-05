@@ -337,10 +337,8 @@ kbd {
   font-family: var(--font-ui); border-radius: 1.5mm; box-shadow: 0 0 0 1px #d4d4d4;
 }
 .lbl-text, .lbl-bc { position: absolute; box-sizing: border-box; }
-.lbl-text { display: flex; align-items: center; line-height: 1.1; overflow: hidden; white-space: nowrap; }
-.lbl-text.center { justify-content: center; }
-.lbl-text.right { justify-content: flex-end; }
-.lbl-text span { overflow: hidden; text-overflow: ellipsis; }
+.lbl-text { display: flex; flex-direction: column; justify-content: center; line-height: 1.12; overflow: hidden; }
+.lbl-text p { margin: 0; max-width: 100%; white-space: normal; overflow-wrap: normal; word-break: keep-all; hyphens: none; }
 .lbl-bc { display: flex; flex-direction: column; }
 .lbl-bars { flex: 1 1 auto; min-height: 0; }
 .lbl-bars svg { display: block; width: 100%; height: 100%; }
@@ -364,7 +362,9 @@ kbd {
   gap: 10px; padding: 24px; min-height: 260px; overflow: auto;
 }
 .tpl-preview .lbl { transform: scale(1.4); margin: 30px; }
-.label-sheet { display: none; }
+/* Chop varag'i ekrandan tashqarida chiziladi (yashirin emas) — matn o'lchamlari to'g'ri hisoblanadi. */
+.label-sheet { position: fixed; left: -100000px; top: 0; width: 60mm; visibility: hidden; pointer-events: none; }
+.label-sheet .lbl-page { width: 60mm; height: 40mm; }
 
 /* Sozlamalar */
 .saved { color: var(--ok); font-weight: 600; font-size: 14px; opacity: 0; transition: opacity 0.2s; }
@@ -431,9 +431,9 @@ kbd {
 
   /* Etiketka: sahifada faqat etiketkalar, har biri printer qog'ozini to'liq egallaydi. */
   body.print-labels > :not(.label-sheet) { display: none !important; }
-  body.print-labels .label-sheet { display: block; visibility: visible; }
+  body.print-labels .label-sheet { display: block; visibility: visible; position: static; width: auto; }
   body.print-labels .label-sheet * { visibility: visible; }
-  .lbl-page { width: 100vw; height: 100vh; overflow: hidden; break-after: page; page-break-after: always; }
+  .label-sheet .lbl-page, .lbl-page { width: 100vw; height: 100vh; overflow: hidden; break-after: page; page-break-after: always; }
   .lbl-page:last-child { break-after: auto; page-break-after: auto; }
   .lbl-page svg { display: block; width: 100%; height: 100%; }
   .lbl-page .lbl { border: 0; border-radius: 0; }
@@ -986,3 +986,13 @@ input:not([type=checkbox]):not([type=range]):not([type=file]), textarea {
 * { -webkit-tap-highlight-color: transparent; }
 :focus:not(:focus-visible) { outline: none; }
 .logout-btn { display: inline-flex; align-items: center; gap: 6px; }
+
+/* ---------- Qurilmalar ---------- */
+.devices { display: flex; flex-direction: column; gap: 10px; padding-bottom: 8px; }
+.device { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; }
+.device.me { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.device-icon { width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; flex: none; background: var(--sunken); color: var(--accent); }
+.device-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.device-text b { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.device-text .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.device-badge { font-size: 11px; font-weight: 700; color: var(--accent); background: var(--accent-soft); padding: 2px 8px; border-radius: 99px; }

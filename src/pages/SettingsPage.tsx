@@ -5,7 +5,7 @@ import { Segmented, Toggle } from '../components/ui'
 import { applyTheme, type Theme } from '../lib/theme'
 import { Receipt } from '../components/Receipt'
 import type { Sale } from '../types'
-import { cloudEnabled, signOut, supabase } from '../data/cloud'
+import { cloudEnabled, deviceId, listDevices, revokeDevice, signOutHere, signOutOthers, supabase, type Device } from '../data/cloud'
 
 const sections = [
   ['shop', "Do'kon"],
@@ -14,6 +14,7 @@ const sections = [
   ['receipt', 'Chek'],
   ['stock', 'Ombor'],
   ['security', 'PIN kod'],
+  ...(cloudEnabled ? [['devices', 'Qurilmalar'] as const] : []),
   ['data', "Ma'lumotlar"],
 ] as const
 type Section = (typeof sections)[number][0]
@@ -205,6 +206,8 @@ export function SettingsPage() {
             </>
           )}
 
+          {section === 'devices' && <DevicesSection />}
+
           {section === 'security' && <PinSection s={s} onSave={(pin) => update('ownerPin', pin)} />}
 
           {section === 'data' && (
@@ -380,10 +383,101 @@ function AccountRow() {
   }, [])
   return (
     <Row id="set-logout" title="Hisobdan chiqish" hint={email ? `Kirgan: ${email}. Qayta kirish uchun email va parol kerak bo'ladi.` : undefined}>
-      <button id="set-logout" className="btn ghost danger-text logout-btn" onClick={() => signOut()}>
+      <button id="set-logout" className="btn ghost danger-text logout-btn" onClick={() => signOutHere()}>
         <svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><path d="M8 4H4.5v12H8M12 6.5 15.5 10 12 13.5M15.5 10H8" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
         Chiqish
       </button>
     </Row>
+  )
+}
+
+const IconPhone = () => (
+  <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.5" fill="none" stroke="currentColor" strokeWidth="1.7" /><path d="M11 18.5h2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></svg>
+)
+const IconLaptop = () => (
+  <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><rect x="4.5" y="5" width="15" height="10.5" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.7" /><path d="M2.5 18.5h19" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></svg>
+)
+
+function ago(iso: string): string {
+  const min = Math.round((Date.now() - new Date(iso).getTime()) / 60000)
+  if (min < 2) return 'hozir faol'
+  if (min < 60) return `${min} daqiqa oldin`
+  const h = Math.round(min / 60)
+  if (h < 24) return `${h} soat oldin`
+  return new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
+/** Qaysi qurilmalardan kirilgan: kassa kompyuteri, telefon… Keraksizini chiqarib yuborish mumkin. */
+function DevicesSection() {
+  const [list, setList] = useState<Device[] | null | undefined>(undefined)
+  const [busy, setBusy] = useState('')
+  const me = deviceId()
+  const load = () => listDevices().then(setList)
+  useEffect(() => {
+    load()
+  }, [])
+
+  if (list === undefined) return <p className="muted note">Yuklanmoqda…</p>
+  if (list === null) {
+    return (
+      <p className="muted small note">
+        Qurilmalar ro'yxati hali yoqilmagan: Supabase → SQL Editor'da <b>devices.sql</b> ni bir marta ishga tushiring.
+      </p>
+    )
+  }
+  const sorted = [...list].sort((a, b) => Number(b.id === me) - Number(a.id === me))
+  const others = sorted.filter((d) => d.id !== me && !d.revoked)
+  return (
+    <div className="devices">
+      <p className="muted small note">Hisobingizga kirilgan qurilmalar. Tanimagan yoki keraksiz qurilmani chiqarib yuboring.</p>
+      {sorted.map((d) => {
+        const mobile = /Android|iPhone|iPad/.test(d.name)
+        return (
+          <div key={d.id} className={`device${d.id === me ? ' me' : ''}`}>
+            <span className="device-icon">{mobile ? <IconPhone /> : <IconLaptop />}</span>
+            <div className="device-text">
+              <b>
+                {d.name}
+                {d.id === me && <span className="device-badge">Bu qurilma</span>}
+              </b>
+              <span className="muted small">
+                {d.email} · {d.revoked ? 'chiqarilmoqda…' : d.id === me ? 'hozir faol' : ago(d.last_seen)}
+              </span>
+            </div>
+            {d.id !== me && !d.revoked && (
+              <button
+                className="btn ghost danger-text small"
+                disabled={busy === d.id}
+                onClick={async () => {
+                  setBusy(d.id)
+                  await revokeDevice(d.id).catch(() => {})
+                  setBusy('')
+                  load()
+                }}
+              >
+                Chiqarish
+              </button>
+            )}
+          </div>
+        )
+      })}
+      {others.length > 1 && (
+        <div className="set-row">
+          <span className="muted small">Faqat shu qurilmada qolish</span>
+          <button
+            className="btn ghost danger-text"
+            disabled={busy === 'all'}
+            onClick={async () => {
+              setBusy('all')
+              await signOutOthers().catch(() => {})
+              setBusy('')
+              load()
+            }}
+          >
+            Boshqa barcha qurilmalardan chiqish
+          </button>
+        </div>
+      )}
+    </div>
   )
 }

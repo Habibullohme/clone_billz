@@ -6,9 +6,9 @@ import { LabelsPage } from './pages/LabelsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { PinGate } from './components/PinGate'
 import { getSettings, initStore, onSyncError, refresh, saveSettings, type Settings } from './data/store'
-import { cloudEnabled, getSession, isStaff, signOut, supabase } from './data/cloud'
+import { cloudEnabled, getSession, isStaff, signOut, supabase, touchDevice } from './data/cloud'
 import { LoginPage } from './pages/LoginPage'
-import { cachedBrand, rememberBrand } from './lib/brand'
+import { applyFavicon, cachedBrand, rememberBrand } from './lib/brand'
 import { ShopMark } from './components/ShopMark'
 import { afterNav, dropEntry, setBaseBack } from './lib/nav'
 import { BackClose, Modal } from './components/ui'
@@ -52,6 +52,11 @@ export function App() {
       if (cloudEnabled) {
         if (!(await getSession())) return setBoot('login')
         if (!(await isStaff())) return setBoot('denied')
+        // Boshqa qurilmadan "chiqarilgan" bo'lsa — kirish oynasi.
+        if (!(await touchDevice())) {
+          await signOut()
+          return setBoot('login')
+        }
       }
       await initStore()
       setBoot('ready')
@@ -192,7 +197,10 @@ function Shop() {
 
   // Boshqa qurilmada qilingan o'zgarishlar: oynaga qaytganda bazadan yangilanadi.
   useEffect(() => {
-    const onFocus = () => refresh().catch(() => {})
+    const onFocus = () => {
+      refresh().catch(() => {})
+      if (cloudEnabled) touchDevice().then((ok) => { if (!ok) signOut() }).catch(() => {})
+    }
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
   }, [])
@@ -202,6 +210,8 @@ function Shop() {
     refresh().catch(() => {}).then(getSettings).then((s) => {
       setSettings(s)
       rememberBrand({ name: s.shopName, logo: s.shopLogo })
+      applyFavicon({ name: s.shopName, logo: s.shopLogo })
+      document.title = `${s.shopName} — kassa`
       applyTheme(s.theme)
     })
   }, [tab])
