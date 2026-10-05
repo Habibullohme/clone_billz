@@ -211,6 +211,7 @@ export function PosPage() {
   return (
     <div className="pos">
       <section className="pos-main">
+        <div className="search-bar">
         <div className="search">
           <svg className="search-ic" viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="6" fill="none" stroke="currentColor" strokeWidth="2" /><path d="M14 14l4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
           <input
@@ -261,6 +262,8 @@ export function PosPage() {
             </ul>
           )}
         </div>
+        {lines.length > 0 && <ClearCart onClear={reset} />}
+        </div>
 
         {lines.length === 0 ? (
           <div className="empty">
@@ -287,7 +290,6 @@ export function PosPage() {
                 />
               )
             })}
-            <button className="link small clear" onClick={reset}>Savatni tozalash</button>
           </div>
         )}
       </section>
@@ -394,5 +396,25 @@ export function PosPage() {
 
       {toast && <div className={`toast${toast.bad ? ' bad' : ''}`}>{toast.text}</div>}
     </div>
+  )
+}
+
+/** Savatni tozalash: tasodifan bosilmasligi uchun ikki bosqichli ("Rostdanmi?"). */
+function ClearCart({ onClear }: { onClear: () => void }) {
+  const [ask, setAsk] = useState(false)
+  useEffect(() => {
+    if (!ask) return
+    const t = setTimeout(() => setAsk(false), 3000)
+    return () => clearTimeout(t)
+  }, [ask])
+  return (
+    <button
+      className={`clear-btn${ask ? ' ask' : ''}`}
+      onClick={() => (ask ? (setAsk(false), onClear()) : setAsk(true))}
+      title="Savatni tozalash"
+    >
+      <svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><path d="M4 6h12M8 6V4h4v2M6 6l.8 10h6.4L14 6" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      <span>{ask ? 'Rostdanmi?' : 'Tozalash'}</span>
+    </button>
   )
 }

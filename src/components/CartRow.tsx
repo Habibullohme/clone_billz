@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { CartLine, Product } from '../types'
 import { formatSum, parseSum } from '../lib/money'
 import { packsLabel } from '../lib/cart'
+import { hueStyle } from '../lib/colors'
 
 interface Props {
   line: CartLine
@@ -39,12 +40,18 @@ export function CartRow({ line, product, discountedTotal, highlight, shake, allo
   // Ombordagidan ko'p sotib bo'lmaydi (bitta shtrix-kod — bitta pachka).
   const max = Math.max(1, product.stock)
   const setPairs = (pairs: number) => onChange({ ...line, pairs: Math.min(max, Math.max(1, pairs)) })
-  const meta = [product.brand, product.size, product.color].filter(Boolean).join(' · ')
+  const meta = [product.size, product.color].filter(Boolean).join(' · ')
+  // Nom brend bilan boshlansa — brend belgida turgani uchun takrorlamaymiz.
+  const b = product.brand.trim()
+  const title = b && product.name.toLowerCase().startsWith(b.toLowerCase() + ' ') ? product.name.slice(b.length + 1) : product.name
 
   return (
     <div ref={ref} className={`row${highlight ? ' flash' : ''}${shake ? ' shake' : ''}`}>
       <div className="row-name">
-        <div className="title">{product.name}</div>
+        <div className="title">
+          {b && <span className="brand-pill" style={hueStyle(b)}>{b}</span>}
+          <span>{title}</span>
+        </div>
         <div className="muted small">{meta}</div>
       </div>
 
