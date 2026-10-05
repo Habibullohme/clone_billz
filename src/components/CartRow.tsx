@@ -26,7 +26,9 @@ export function CartRow({ line, product, discountedTotal, highlight, shake, allo
   }, [shake])
   const [pairsEdit, setPairsEdit] = useState(false)
   const total = line.pairs * line.price
-  const changed = line.price !== product.salePrice
+  // Narx tushirilgandagina eski narx ko'rinadi (ustidan chizilgan) — mijozga "arzonroq olyapman" deb ko'rinadi.
+  // Qimmatroq sotilsa — hech narsa ko'rsatilmaydi.
+  const cheaper = line.price < product.salePrice
   const pack = product.packSize
   const discounted = discountedTotal !== null && discountedTotal !== total
 
@@ -85,7 +87,7 @@ export function CartRow({ line, product, discountedTotal, highlight, shake, allo
       <div className="price">
         {allowPriceEdit ? (
           <input
-            className={`input price-in${changed ? ' changed' : ''}`}
+            className={`input price-in${cheaper ? ' cheaper' : ''}`}
             value={priceDraft ?? formatSum(line.price)}
             aria-label="Bir juft narxi"
             onFocus={(e) => {
@@ -105,9 +107,9 @@ export function CartRow({ line, product, discountedTotal, highlight, shake, allo
         ) : (
           <b className="price-static">{formatSum(line.price)}</b>
         )}
-        {changed && (
-          <button className="link small" onClick={() => onChange({ ...line, price: product.salePrice })}>
-            asl: {formatSum(product.salePrice)}
+        {cheaper && (
+          <button className="old-price" title="Asl narxga qaytarish" onClick={() => onChange({ ...line, price: product.salePrice })}>
+            {formatSum(product.salePrice)}
           </button>
         )}
       </div>

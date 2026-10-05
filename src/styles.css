@@ -186,7 +186,12 @@ kbd {
 }
 .price { display: flex; flex-direction: column; gap: 2px; }
 .price-in { text-align: right; font-weight: 600; padding: 8px 10px; }
-.price-in.changed { color: var(--warn); border-color: var(--warn); }
+.price-in.cheaper { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 50%, var(--line)); }
+.old-price {
+  align-self: flex-end; border: 0; background: none; padding: 0 2px; cursor: pointer;
+  font: 600 13px var(--font-ui); color: var(--muted);
+  text-decoration: line-through; text-decoration-color: var(--bad); text-decoration-thickness: 2px;
+}
 .price-static { text-align: right; }
 .price .link { align-self: flex-end; font-size: 12px; }
 .sum { text-align: right; display: flex; flex-direction: column; line-height: 1.25; }
