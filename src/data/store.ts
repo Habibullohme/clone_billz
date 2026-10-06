@@ -573,7 +573,7 @@ export async function syncSaleDebts(): Promise<number> {
   const known = new Set(list.flatMap((c) => [...(c.ledger ?? []).map((e) => e.saleId), ...(c.ignoredSales ?? [])]))
   let added = 0
   for (const sale of [...(await getSales())].reverse()) {
-    if (!(sale.payment?.debt > 0) || known.has(sale.id)) continue
+    if (!(sale.payment?.debt > 0) || sale.archivedAt || known.has(sale.id)) continue
     const c = upsertCustomer(list, sale.customerName.trim() || `Noma'lum mijoz (chek №${sale.number})`, sale.customerPhone)
     c.lastSeen = sale.createdAt > (c.lastSeen ?? '') ? sale.createdAt : c.lastSeen
     c.ledger = [...(c.ledger ?? []), {
@@ -661,34 +661,57 @@ export async function saveSale(sale: Omit<Sale, 'id' | 'number' | 'createdAt'>):
   return full
 }
 
-/**
- * Sotuvni o'chirish (xato yoki sinov sotuvi): tovarlar omborga qaytadi,
- * nasiyaga bo'lgan bo'lsa — daftardagi yozuvi ham olinadi.
- */
-export async function deleteSale(id: string): Promise<void> {
+/** Hisobotga kiradigan sotuvlar (arxivlanganlarsiz). */
+export const activeSales = (list: Sale[]) => list.filter((s) => !s.archivedAt)
+
+/** Sotuv qoldiqqa ta'sirini qaytaradi: sign=+1 — tovar omborga qaytadi, -1 — yana chiqadi. */
+async function setSaleArchived(id: string, patch: Pick<Sale, 'archivedAt' | 'archivedBy' | 'archiveReason'>, sign: 1 | -1) {
   const sales = await getSales()
   const sale = sales.find((x) => x.id === id)
-  if (!sale) return
+  if (!sale || Boolean(sale.archivedAt) === Boolean(patch.archivedAt)) return
   const products = await getProducts()
   const touched: { id: string; stock: number }[] = []
   for (const l of sale.lines) {
     const p = products.find((x) => x.id === l.productId)
     if (!p) continue
-    p.stock += l.pairs
+    p.stock += sign * l.pairs
     touched.push({ id: p.id, stock: p.stock })
   }
+  const next: Sale = { ...sale, ...patch }
+  if (!patch.archivedAt) {
+    delete next.archivedAt
+    delete next.archivedBy
+    delete next.archiveReason
+  }
+  const list = sales.map((x) => (x.id === id ? next : x))
   if (mode === 'cloud') {
-    await cloud.deleteSaleRow(id, touched)
+    await cloud.updateSaleRow(id, next, touched)
     put(K.products, products)
-    put(K.sales, sales.filter((x) => x.id !== id))
+    put(K.sales, list)
   } else {
     write(K.products, products)
-    write(K.sales, sales.filter((x) => x.id !== id))
+    write(K.sales, list)
   }
+}
+
+/**
+ * Sotuvni arxivlash (xato yoki sinov sotuvi). O'chirilmaydi: chek "Arxiv"da kim, qachon va nega
+ * arxivlagani bilan qoladi. Tovarlar omborga qaytadi, hisobotdan chiqadi, nasiya daftardan olinadi.
+ */
+export async function archiveSale(id: string, reason = ''): Promise<void> {
+  const by = mode === 'cloud' ? await cloud.whoAmI() : ''
+  await setSaleArchived(id, { archivedAt: new Date().toISOString(), archivedBy: by, archiveReason: reason.trim() }, 1)
   const customers = await getCustomers()
   if (customers.some((c) => c.ledger?.some((e) => e.saleId === id))) {
     write(K.customers, customers.map((c) => ({ ...c, ledger: c.ledger?.filter((e) => e.saleId !== id) })))
   }
+  await flush()
+}
+
+/** Arxivdan qaytarish: sotuv yana hisobotga kiradi, tovar qoldig'i yana kamayadi, nasiya qaytadi. */
+export async function restoreSale(id: string): Promise<void> {
+  await setSaleArchived(id, {}, -1)
+  await syncSaleDebts()
   await flush()
 }
 

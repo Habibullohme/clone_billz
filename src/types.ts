@@ -108,6 +108,10 @@ export interface Sale {
   profit: number
   payment: Payment
   change: number
+  /** Arxivlangan (bekor qilingan) sotuv: hisobotga kirmaydi, lekin o'chmaydi — kim, qachon, nega ko'rinadi. */
+  archivedAt?: string
+  archivedBy?: string
+  archiveReason?: string
 }
 
 export interface HeldCart {

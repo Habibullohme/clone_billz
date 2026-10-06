@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ImportBatch, Product, ProductInput, Sale } from '../types'
 import {
   nameConflict,
-  addBrand, deleteBatch, deleteProducts, getBatches, getBrands, getProducts, getSales, importProducts,
+  activeSales, addBrand, deleteBatch, deleteProducts, getBatches, getBrands, getProducts, getSales, importProducts,
   previewCodes, searchProducts, updateProduct,
 } from '../data/store'
 import { formatSum, parseSum } from '../lib/money'
@@ -60,7 +60,7 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
 
   const reload = () => {
     getProducts().then(setProducts)
-    getSales().then(setSales)
+    getSales().then((l) => setSales(activeSales(l)))
     getBatches().then(setBatches)
   }
   useEffect(reload, [])

@@ -37,17 +37,28 @@ describe('eski nasiya sotuvlari', () => {
   })
 })
 
-describe("sotuvni o'chirish", () => {
-  it('qoldiq qaytadi va nasiya daftardan olinadi', async () => {
-    const { deleteSale, getSales, getProducts, getCustomers, balanceOf } = await import('./store')
+describe('sotuvni arxivlash', () => {
+  it("o'chmaydi, qoldiq qaytadi, nasiya olinadi; qaytarsa hammasi tiklanadi", async () => {
+    const { archiveSale, restoreSale, activeSales, getSales, getProducts, getCustomers, balanceOf } = await import('./store')
     const sale = (await getSales()).find((s) => s.payment.debt > 0)!
     const pid = sale.lines[0].productId
-    const before = (await getProducts()).find((p) => p.id === pid)!.stock
-    await deleteSale(sale.id)
-    expect((await getSales()).some((s) => s.id === sale.id)).toBe(false)
-    expect((await getProducts()).find((p) => p.id === pid)!.stock).toBe(before + sale.lines[0].pairs)
-    const a = (await getCustomers()).find((c) => c.name === 'Alisher aka Qarshi')!
-    expect(a.ledger!.some((e) => e.saleId === sale.id)).toBe(false)
-    expect(balanceOf(a)).toBe(-100_000)
+    const stock = async () => (await getProducts()).find((p) => p.id === pid)!.stock
+    const alisher = async () => (await getCustomers()).find((c) => c.name === 'Alisher aka Qarshi')!
+    const before = await stock()
+    const balance = balanceOf(await alisher())
+
+    await archiveSale(sale.id, 'sinov')
+    const archived = (await getSales()).find((s) => s.id === sale.id)!
+    expect(archived.archivedAt).toBeTruthy()
+    expect(archived.archiveReason).toBe('sinov')
+    expect(activeSales(await getSales()).some((s) => s.id === sale.id)).toBe(false)
+    expect(await stock()).toBe(before + sale.lines[0].pairs)
+    expect((await alisher()).ledger!.some((e) => e.saleId === sale.id)).toBe(false)
+    expect(balanceOf(await alisher())).toBe(-100_000)
+
+    await restoreSale(sale.id)
+    expect((await getSales()).find((s) => s.id === sale.id)!.archivedAt).toBeUndefined()
+    expect(await stock()).toBe(before)
+    expect(balanceOf(await alisher())).toBe(balance)
   })
 })

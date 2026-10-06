@@ -1155,3 +1155,10 @@ input:not([type=checkbox]):not([type=range]):not([type=file]), textarea {
   .cam-btn { display: inline-flex; }
   .cam-cta { display: inline-flex; }
 }
+
+/* Sotuvlar: cheklar / arxiv */
+.section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.section-head h2 { margin: 0; }
+.archived-note { margin: 10px 0 0; padding: 8px 12px; border-radius: 10px; background: color-mix(in srgb, var(--bad) 10%, transparent); color: var(--bad); font-size: 13px; }
+.archive-confirm { display: grid; gap: 6px; margin-top: 10px; }
+.archive-confirm p { margin: 0; }

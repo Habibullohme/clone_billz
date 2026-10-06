@@ -272,9 +272,15 @@ export function notifyBot() {
   supabase?.functions.invoke('bot', { body: { action: 'sync' } }).catch(() => {})
 }
 
-/** Sotuvni bazadan o'chirish va tovarlar qoldig'ini qaytarish. */
-export async function deleteSaleRow(id: string, stocks: { id: string; stock: number }[]) {
+/** Sotuv yozuvini yangilash (arxivlash / qaytarish) va tovarlar qoldig'ini to'g'rilash. */
+export async function updateSaleRow(id: string, data: unknown, stocks: { id: string; stock: number }[]) {
   const db = supabase!
   await Promise.all(stocks.map((s) => check(db.from('products').update({ stock: s.stock }).eq('id', s.id))))
-  await check(db.from('sales').delete().eq('id', id))
+  await check(db.from('sales').update({ data }).eq('id', id))
+}
+
+/** Kim bajardi: hisob emaili va qurilma. */
+export async function whoAmI(): Promise<string> {
+  const email = (await supabase?.auth.getUser())?.data.user?.email
+  return [email, deviceName()].filter(Boolean).join(' · ')
 }
