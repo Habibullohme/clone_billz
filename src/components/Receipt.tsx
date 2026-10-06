@@ -1,3 +1,4 @@
+import { splitPhones } from '../lib/phones'
 import type React from 'react'
 import type { Sale } from '../types'
 import type { Settings } from '../data/store'
@@ -16,7 +17,7 @@ export function Receipt({ sale, settings }: { sale: Sale; settings: Settings }) 
         {settings.receiptShowLogo && settings.shopLogo && <img className="r-logo" src={settings.shopLogo} alt="" />}
         <b className="r-shop">{settings.shopName}</b>
         {settings.shopAddress && <div>{settings.shopAddress}</div>}
-        {settings.shopPhone && <div>{settings.shopPhone}</div>}
+        {splitPhones(settings.shopPhone).map((ph) => <div key={ph}>{ph}</div>)}
       </div>
       <div className="r-line" />
       <div className="r-kv"><span>Chek №</span><span>{String(sale.number).padStart(6, '0')}</span></div>

@@ -1173,6 +1173,10 @@ input:not([type=checkbox]):not([type=range]):not([type=file]), textarea {
 .receipts-head { display: flex; align-items: center; justify-content: space-between; }
 .receipts-head h2 { margin: 0; }
 .receipts-list { overflow: auto; min-height: 120px; display: flex; flex-direction: column; gap: 4px; margin: 0 -6px; padding: 0 6px; }
-.receipt-item { display: grid; grid-template-columns: 52px 1fr auto auto; gap: 10px; align-items: baseline; text-align: left; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: inherit; font: inherit; cursor: pointer; }
+.receipt-item { display: grid; grid-template-columns: 60px 1fr auto; gap: 10px; align-items: baseline; text-align: left; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: inherit; font: inherit; cursor: pointer; }
 .receipt-item:hover { border-color: var(--accent); }
 .receipt-item .ri-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.phone-list { display: grid; gap: 6px; }
+.phone-row { display: flex; gap: 6px; align-items: center; }
+.phone-row .input { flex: 1; min-width: 0; }
+.phone-list > .link { justify-self: start; }

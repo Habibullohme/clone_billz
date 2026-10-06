@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { addBrand, defaultSettings, getBrands, getProducts, getSettings, removeBrand, renameBrand, saveSettings, type Settings } from '../data/store'
 import { formatSum } from '../lib/money'
+import { joinPhones, splitPhones } from '../lib/phones'
 import { Segmented, Toggle } from '../components/ui'
 import { applyTheme, type Theme } from '../lib/theme'
 import { Receipt } from '../components/Receipt'
@@ -27,6 +28,41 @@ function Row({ id, title, hint, children }: { id: string; title: string; hint?: 
         {hint && <span className="muted small">{hint}</span>}
       </label>
       <div className="set-control">{children}</div>
+    </div>
+  )
+}
+
+/** Bir nechta telefon: har biri alohida maydon, "+ raqam qo'shish". */
+function PhoneList({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [list, setList] = useState(() => {
+    const l = splitPhones(value)
+    return l.length ? l : ['']
+  })
+  const set = (next: string[]) => {
+    setList(next)
+    onChange(joinPhones(next))
+  }
+  return (
+    <div className="phone-list">
+      {list.map((ph, i) => (
+        <div key={i} className="phone-row">
+          <input
+            id={i === 0 ? 'set-shopPhone' : undefined}
+            className="input"
+            type="tel"
+            inputMode="tel"
+            value={ph}
+            placeholder="+998 90 123 45 67"
+            onChange={(e) => set(list.map((x, j) => (j === i ? e.target.value.replace(/[,;]/g, '') : x)))}
+          />
+          {list.length > 1 && (
+            <button className="btn ghost small" title="Olib tashlash" onClick={() => set(list.filter((_, j) => j !== i))}>✕</button>
+          )}
+        </div>
+      ))}
+      {list.length < 5 && (
+        <button className="link small left" onClick={() => setList([...list, ''])}>+ raqam qo'shish</button>
+      )}
     </div>
   )
 }
@@ -63,7 +99,7 @@ export function SettingsPage() {
     timer.current = window.setTimeout(() => setSaved(false), 1500)
   }
 
-  const text = (key: 'shopName' | 'shopPhone' | 'shopAddress' | 'receiptFooter', ph = '') => (
+  const text = (key: 'shopName' | 'shopAddress' | 'receiptFooter', ph = '') => (
     <input id={`set-${key}`} className="input" value={s[key]} placeholder={ph} onChange={(e) => update(key, e.target.value)} />
   )
   const toggle = (key: 'receiptShowLogo' | 'receiptShowCustomer' | 'receiptShowPacks' | 'allowPriceEdit' | 'scanSound') => (
@@ -109,7 +145,9 @@ export function SettingsPage() {
               </Row>
               <Row id="set-shopName" title="Do'kon nomi" hint="Kassa tepasida va chekda chiqadi">{text('shopName')}</Row>
               <Row id="set-shopAddress" title="Manzil" hint="Masalan: Abu Saxiy, 3-qator, 112-do'kon">{text('shopAddress')}</Row>
-              <Row id="set-shopPhone" title="Telefon">{text('shopPhone', '+998 90 123 45 67')}</Row>
+              <Row id="set-shopPhone" title="Telefon" hint="Bir nechta bo'lsa — hammasi chekda va kanal postlarida chiqadi">
+                <PhoneList value={s.shopPhone} onChange={(v) => update('shopPhone', v)} />
+              </Row>
               <Row id="set-theme" title="Mavzu" hint="Avto — kompyuter yoki telefon sozlamasiga qarab">
                 <Segmented<Theme>
                   value={s.theme}

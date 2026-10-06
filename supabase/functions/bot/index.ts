@@ -65,6 +65,9 @@ export interface Draft {
 
 export interface Shop { shopName?: string; shopPhone?: string; shopAddress?: string }
 
+/** "+998 90 111 11 11, +998 91 222 22 22" → har biri alohida (vergul, nuqtali vergul yoki yangi qator bilan). */
+export const splitPhones = (s?: string | null) => (s ?? '').split(/[,;\n]+/).map((x) => x.trim()).filter(Boolean)
+
 /** Kanal posti matni. Kelish narxi hech qachon yozilmaydi. */
 export function postCaption(d: Draft, code: string, shop: Shop, packs = 1, left = packs, showPrice = true): string {
   const lines: (string | null)[] = [
@@ -77,7 +80,7 @@ export function postCaption(d: Draft, code: string, shop: Shop, packs = 1, left 
     packs > 1 ? `🔢 Mavjud: ${left} pachka` : null,
     `🔖 Kod: <b>${code}</b>`,
     shop.shopPhone || shop.shopAddress ? '' : null,
-    shop.shopPhone ? `📞 ${esc(shop.shopPhone)}` : null,
+    ...splitPhones(shop.shopPhone).map((t) => `📞 ${esc(t)}`),
     shop.shopAddress ? `📍 ${esc(shop.shopAddress)}` : null,
   ]
   return lines.filter((x) => x !== null).join('\n').trim()
@@ -217,6 +220,7 @@ async function showSettings(chat: number) {
     [b('📏 Razmerlar', 'set:sizes'), b('🎨 Ranglar', 'set:colors'), b('📦 Pachka', 'set:packs')],
     [b(c.showPrice ? '💰 Narxni yashirish' : "💰 Narxni ko'rsatish", 'set:price')],
     [b('📞 Telefon', 'set:phone'), b('📍 Manzil', 'set:address')],
+    [b('🔄 Kanaldagi postlarni yangilash', 'set:refresh')],
   ]))
 }
 
@@ -224,7 +228,7 @@ const SET_PROMPTS: Record<string, string> = {
   sizes: "📏 Razmerlarni vergul bilan yozing.\nMasalan: <code>39-43, 40-44, 41-45, 44-45-46</code>",
   colors: "🎨 Ranglarni vergul bilan yozing.\nMasalan: <code>qora, oq, jigarrang, zamish</code>",
   packs: '📦 Pachkadagi juft sonlarini vergul bilan yozing (3 tagacha).\nMasalan: <code>5, 6, 3</code>',
-  phone: "📞 Kanalga yoziladigan telefonni yozing.\n<code>-</code> — ko'rsatmaslik, <code>sayt</code> — saytdagini olish.",
+  phone: "📞 Kanalga yoziladigan telefon(lar)ni yozing. Bir nechta bo'lsa — vergul bilan.\nMasalan: <code>+998 90 111 11 11, +998 91 222 22 22</code>\n<code>-</code> — ko'rsatmaslik, <code>sayt</code> — saytdagini olish.",
   address: "📍 Kanalga yoziladigan manzilni yozing.\n<code>-</code> — ko'rsatmaslik, <code>sayt</code> — saytdagini olish.",
 }
 
@@ -397,9 +401,7 @@ async function commit(chat: number, s: Session): Promise<string> {
   await db('brands', { method: 'POST', body: JSON.stringify({ id: bk, data: d.brand }) }, 'resolution=ignore-duplicates')
 
   // Kanalga: har rasm — alohida post.
-  const site = (await db<{ data: Shop }[]>('settings?id=eq.main&select=data'))[0]?.data ?? {}
-  const cfg = await getCfg()
-  const shop: Shop = { shopPhone: cfg.phone ?? site.shopPhone, shopAddress: cfg.address ?? site.shopAddress }
+  const { shop, cfg } = await currentShop()
   const channel = Number(env('CHANNEL_ID'))
   let posted = 0
   for (const g of groups) {
@@ -482,6 +484,69 @@ export async function syncSold(): Promise<{ archived: number; updated: number }>
   return { archived, updated }
 }
 
+/** Hozirgi telefon/manzil (bot sozlamasi, bo'lmasa saytdagi). */
+async function currentShop(): Promise<{ shop: Shop; cfg: BotCfg }> {
+  const site = (await db<{ data: Shop }[]>('settings?id=eq.main&select=data'))[0]?.data ?? {}
+  const cfg = await getCfg()
+  return { shop: { shopPhone: cfg.phone ?? site.shopPhone, shopAddress: cfg.address ?? site.shopAddress }, cfg }
+}
+
+/**
+ * Kanaldagi ochiq postlar matnini hozirgi sozlamaga moslash (telefon, manzil, narx, tovar nomi/narxi).
+ * Telegram cheklovi sababli sekin (sekundiga ~1 ta) va bir martada ko'pi bilan `limit` ta.
+ */
+export async function refreshPosts(limit = 90, pause = 1100): Promise<{ edited: number; same: number; left: number }> {
+  const posts = await db<Post[]>('channel_posts?archived_at=is.null&select=id,product_ids,chat_id,message_id,caption,packs,left_packs&order=id&limit=1000')
+  const { shop, cfg } = await currentShop()
+  const ids = [...new Set(posts.map((p) => p.product_ids[0]))]
+  const rows = new Map<string, { id: string; brand: string; name: string; size: string; color: string; pack_size: number; sale_price: number }>()
+  for (const part of chunk(ids, 150)) {
+    const r = await db<{ id: string; brand: string; name: string; size: string; color: string; pack_size: number; sale_price: number }[]>(
+      `products?select=id,brand,name,size,color,pack_size,sale_price&id=in.(${part.map((x) => `"${x}"`).join(',')})`,
+    )
+    r.forEach((x) => rows.set(x.id, x))
+  }
+  let edited = 0, same = 0, left = 0
+  for (const p of posts) {
+    const pr = rows.get(p.product_ids[0])
+    if (!pr) continue
+    const code = p.caption.match(/🔖 Kod: <b>(.*?)<\/b>/)?.[1] ?? codeOf(pr.name) ?? ''
+    const own = codeOf(pr.name)
+    const model = own ? pr.name.slice(0, -own.length).trim() : pr.name
+    const d: Draft = { brand: pr.brand, model, size: pr.size, color: pr.color, packSize: pr.pack_size, cost: 0, price: Number(pr.sale_price) }
+    const caption = postCaption(d, code, shop, p.packs, p.left_packs, cfg.showPrice)
+    if (caption === p.caption) {
+      same++
+      continue
+    }
+    if (edited >= limit) {
+      left++
+      continue
+    }
+    const edit = () => tg('editMessageCaption', { chat_id: p.chat_id, message_id: p.message_id, caption, parse_mode: 'HTML' })
+    try {
+      await edit().catch(async (e: Error) => {
+        // "Too Many Requests: retry after N" — kutib, bir marta qayta urinadi.
+        const wait = Number(e.message.match(/retry after (\d+)/)?.[1])
+        if (!wait) throw e
+        await new Promise((r) => setTimeout(r, (wait + 1) * 1000))
+        await edit()
+      })
+    } catch (e) {
+      // Post kanalda yo'q yoki matn bir xil — bazadagini baribir yangilaymiz.
+      if (!/not modified|not found/i.test(String(e))) {
+        console.error(e)
+        left++
+        continue
+      }
+    }
+    await db(`channel_posts?id=eq.${p.id}`, { method: 'PATCH', body: JSON.stringify({ caption }) })
+    edited++
+    if (pause) await new Promise((r) => setTimeout(r, pause))
+  }
+  return { edited, same, left }
+}
+
 async function lastSale(productIds: string[]): Promise<SoldInfo | null> {
   for (const id of productIds) {
     const filter = encodeURIComponent(JSON.stringify({ lines: [{ productId: id }] }))
@@ -533,6 +598,14 @@ async function onUpdate(u: Update) {
         const c = await getCfg()
         await saveCfg({ ...c, showPrice: !c.showPrice })
         return showSettings(chat)
+      }
+      if (key === 'refresh') {
+        await say(chat, '🔄 Kanaldagi postlar yangilanmoqda…')
+        const r = await refreshPosts()
+        return say(chat, [
+          `✅ Yangilandi: ${r.edited} ta post${r.same ? ` (${r.same} tasi o'zgarmagan)` : ''}`,
+          r.left ? `⏳ Yana ${r.left} ta qoldi — tugmani yana bir bor bosing.` : null,
+        ].filter(Boolean).join('\n'))
       }
       if (!SET_PROMPTS[key]) return
       await setSession(chat, { step: 'setting', setting: key })

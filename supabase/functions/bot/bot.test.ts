@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { brandCode, codeOf, defaultCfg, handle, learnPackSize, makeBarcode, parseSum, postCaption, soldCaption, tashkentStamp } from './index'
+import { brandCode, codeOf, defaultCfg, handle, learnPackSize, makeBarcode, parseSum, postCaption, refreshPosts, splitPhones, soldCaption, tashkentStamp } from './index'
 import * as site from '../../../src/lib/codes'
 
 // ---------- Soxta Supabase (PostgREST) va Telegram ----------
@@ -185,6 +185,41 @@ describe('sozlamalar', () => {
     expect(post).toContain('+998 90 111 22 33')
     expect(post).not.toContain('170 000')
     expect(tables.products).toHaveLength(2)
+  })
+})
+
+describe('bir nechta telefon va postlarni yangilash', () => {
+  it("telefonlar alohida qatorda; sozlama o'zgarsa eski postlar yangilanadi", async () => {
+    expect(splitPhones('+998 90 1, +998 91 2;\n+998 93 3')).toEqual(['+998 90 1', '+998 91 2', '+998 93 3'])
+    tables.settings[0].data.shopPhone = '+998 90 000 00 00, +998 91 000 00 00'
+    await handle(text("📦 Yuk qo'shish"))
+    await handle(photo('p1'))
+    await handle(photo('p2'))
+    await handle(press('photos_done'))
+    await handle(press('brand:Velton'))
+    await handle(text('klassik'))
+    await handle(press('size:39-43'))
+    await handle(press('color:qora'))
+    await handle(press('packSize:6'))
+    await handle(text('150000'))
+    await handle(text('170000'))
+    await handle(press('ok'))
+    const first = sent.find((x) => x.method === 'sendPhoto')!.body.caption as string
+    expect(first).toContain('📞 +998 90 000 00 00\n📞 +998 91 000 00 00')
+
+    expect(await refreshPosts(90, 0)).toEqual({ edited: 0, same: 2, left: 0 })
+    await handle(press('set:phone'))
+    await handle(text('+998 99 777 77 77, +998 88 666 66 66'))
+    await handle(press('set:price'))
+    sent = []
+    expect(await refreshPosts(1, 0)).toEqual({ edited: 1, same: 0, left: 1 })
+    expect(await refreshPosts(90, 0)).toEqual({ edited: 1, same: 1, left: 0 })
+    const edits = sent.filter((x) => x.method === 'editMessageCaption')
+    expect(edits).toHaveLength(2)
+    expect(edits[0].body.caption).toContain('📞 +998 99 777 77 77\n📞 +998 88 666 66 66')
+    expect(edits[0].body.caption).not.toContain('170 000')
+    expect(edits[0].body.caption).toContain('klassik')
+    expect(edits[0].body.caption).toMatch(/Kod: <b>A\d+<\/b>/)
   })
 })
 

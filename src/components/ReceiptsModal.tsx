@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Sale } from '../types'
 import { activeSales, getSales, type Settings } from '../data/store'
-import { formatSum } from '../lib/money'
 import { Receipt } from './Receipt'
 import { BackClose, Segmented } from './ui'
 
@@ -19,7 +18,7 @@ function inDay(iso: string, day: Day): boolean {
 
 /**
  * Kassadagi "Cheklar": mijozga eski chekni ko'rsatish yoki qayta chiqarish uchun.
- * Faqat cheklar — tushum, foyda, arxivlash yo'q (ular Sotuvlar bo'limida, PIN bilan).
+ * Ro'yxatda summa yo'q (chek ochilganda ko'rinadi). Tushum, foyda, arxivlash yo'q (ular Sotuvlar bo'limida, PIN bilan).
  */
 export function ReceiptsModal({ settings, onClose }: { settings: Settings; onClose: () => void }) {
   const [sales, setSales] = useState<Sale[]>([])
@@ -75,7 +74,6 @@ export function ReceiptsModal({ settings, onClose }: { settings: Settings; onClo
                 <span className="muted">№{s.number}</span>
                 <span className="ri-name">{s.customerName || <span className="muted">Mijozsiz</span>}</span>
                 <span className="muted small">{when(s.createdAt)}</span>
-                <b className="num">{formatSum(s.total)}</b>
               </button>
             ))
           )}
