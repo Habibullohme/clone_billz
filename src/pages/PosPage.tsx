@@ -12,6 +12,7 @@ import { CustomerInput } from '../components/CustomerInput'
 import { CameraScanner } from '../components/CameraScanner'
 import { PaymentModal } from '../components/PaymentModal'
 import { Receipt } from '../components/Receipt'
+import { ReceiptsModal } from '../components/ReceiptsModal'
 import { BackClose, MoneyInput } from '../components/ui'
 
 const isTyping = (t: EventTarget | null) =>
@@ -34,6 +35,7 @@ export function PosPage() {
   const [toast, setToast] = useState<{ text: string; bad?: boolean } | null>(null)
   const [paying, setPaying] = useState(false)
   const [done, setDone] = useState<Sale | null>(null)
+  const [receipts, setReceipts] = useState(false)
   const [held, setHeld] = useState<HeldCart[]>([])
   const searchRef = useRef<HTMLInputElement>(null)
 
@@ -98,7 +100,7 @@ export function PosPage() {
     [add, settings],
   )
 
-  useScanner(onScan, !paying)
+  useScanner(onScan, !paying && !receipts)
 
   // Space — qidiruv. Enter: mijoz → yakuniy summa → to'lov (F2 — darhol to'lov).
   useEffect(() => {
@@ -116,7 +118,7 @@ export function PosPage() {
         }
         return
       }
-      if (paying) return
+      if (paying || receipts) return
       if (e.code === 'Space' && !isTyping(e.target)) {
         e.preventDefault()
         searchRef.current?.focus()
@@ -134,7 +136,7 @@ export function PosPage() {
     }
     window.addEventListener('keydown', h, true)
     return () => window.removeEventListener('keydown', h, true)
-  }, [lines.length, paying, done])
+  }, [lines.length, paying, done, receipts])
 
   const hits = searchProducts(products, query)
   const sub = subtotal(lines)
@@ -380,6 +382,10 @@ export function PosPage() {
         )}
 
         <div className="totals">
+          <button className="receipts-btn" onClick={() => setReceipts(true)}>
+            <svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><path d="M5 2.5h10v15l-2.5-1.5-2.5 1.5-2.5-1.5L5 17.5zM8 7h4M8 10h4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" /></svg>
+            Cheklar
+          </button>
           {discount > 0 && (
             <>
               <div className="muted"><span>Jami</span><span>{formatSum(sub)}</span></div>
@@ -409,6 +415,8 @@ export function PosPage() {
           onConfirm={pay}
         />
       )}
+
+      {receipts && <ReceiptsModal settings={settings} onClose={() => setReceipts(false)} />}
 
       {camera && <CameraScanner onScan={onScan} onClose={() => setCamera(false)} />}
 

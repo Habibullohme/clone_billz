@@ -1162,3 +1162,17 @@ input:not([type=checkbox]):not([type=range]):not([type=file]), textarea {
 .archived-note { margin: 10px 0 0; padding: 8px 12px; border-radius: 10px; background: color-mix(in srgb, var(--bad) 10%, transparent); color: var(--bad); font-size: 13px; }
 .archive-confirm { display: grid; gap: 6px; margin-top: 10px; }
 .archive-confirm p { margin: 0; }
+
+/* Toq sonli tugmalarda oxirgisi butun qatorni egallaydi (yarim bo'lib qolmasin). */
+.receipt-modal .modal-actions .btn:last-child:nth-child(odd) { grid-column: 1 / -1; }
+
+/* Kassa: Cheklar */
+.receipts-btn { align-self: flex-end; display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; padding: 4px 2px; color: var(--muted); font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; }
+.receipts-btn:hover { color: var(--accent); }
+.receipts-modal { width: min(480px, 100%); max-height: calc(100% - 16px); display: flex; flex-direction: column; gap: 10px; }
+.receipts-head { display: flex; align-items: center; justify-content: space-between; }
+.receipts-head h2 { margin: 0; }
+.receipts-list { overflow: auto; min-height: 120px; display: flex; flex-direction: column; gap: 4px; margin: 0 -6px; padding: 0 6px; }
+.receipt-item { display: grid; grid-template-columns: 52px 1fr auto auto; gap: 10px; align-items: baseline; text-align: left; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: inherit; font: inherit; cursor: pointer; }
+.receipt-item:hover { border-color: var(--accent); }
+.receipt-item .ri-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
