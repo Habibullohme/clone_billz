@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Sale } from '../types'
-import { getSales, getSettings, type Settings } from '../data/store'
+import { deleteSale, getSales, getSettings, type Settings } from '../data/store'
 import { formatSum } from '../lib/money'
 import { Receipt } from '../components/Receipt'
 import { BackClose, Segmented } from '../components/ui'
@@ -26,7 +26,13 @@ function inPeriod(iso: string, period: Period): boolean {
 export function SalesPage() {
   const [sales, setSales] = useState<Sale[]>([])
   const [settings, setSettings] = useState<Settings | null>(null)
-  const [open, setOpen] = useState<Sale | null>(null)
+  const [open, setOpenRaw] = useState<Sale | null>(null)
+  const [confirmDel, setConfirmDel] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const setOpen = (s: Sale | null) => {
+    setOpenRaw(s)
+    setConfirmDel(false)
+  }
   const [period, setPeriod] = useState<Period>('today')
 
   useEffect(() => {
@@ -140,9 +146,33 @@ export function SalesPage() {
           <div className="modal receipt-modal" onMouseDown={(e) => e.stopPropagation()}>
             <div className="print-area"><Receipt sale={open} settings={settings} /></div>
             <div className="modal-actions">
+              {confirmDel ? (
+                <button
+                  className="btn danger"
+                  disabled={deleting}
+                  onClick={async () => {
+                    setDeleting(true)
+                    try {
+                      await deleteSale(open.id)
+                      setSales(await getSales())
+                      setOpen(null)
+                    } finally {
+                      setDeleting(false)
+                      setConfirmDel(false)
+                    }
+                  }}
+                >
+                  {deleting ? "O'chirilmoqda…" : "Ha, o'chirish"}
+                </button>
+              ) : (
+                <button className="btn ghost danger-text" onClick={() => setConfirmDel(true)} title="Tovarlar omborga qaytadi, nasiya daftardan olinadi">
+                  Sotuvni o'chirish
+                </button>
+              )}
               <button className="btn ghost" onClick={() => window.print()}>Chek chiqarish</button>
               <button className="btn primary grow" onClick={() => setOpen(null)}>Yopish</button>
             </div>
+            {confirmDel && <p className="muted small">Chek №{open.number} o'chiriladi: tovarlar omborga qaytadi, hisobotdan chiqadi{open.payment.debt > 0 ? ', nasiya daftardan olinadi' : ''}.</p>}
           </div>
         </div>
       )}

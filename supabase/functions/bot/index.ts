@@ -66,14 +66,14 @@ export interface Draft {
 export interface Shop { shopName?: string; shopPhone?: string; shopAddress?: string }
 
 /** Kanal posti matni. Kelish narxi hech qachon yozilmaydi. */
-export function postCaption(d: Draft, code: string, shop: Shop, packs = 1, left = packs): string {
+export function postCaption(d: Draft, code: string, shop: Shop, packs = 1, left = packs, showPrice = true): string {
   const lines: (string | null)[] = [
     `👟 <b>${esc(d.brand)} ${esc(d.model)}</b>`,
     '',
     d.size ? `📏 Razmer: ${esc(d.size)}` : null,
     d.color ? `🎨 Rang: ${esc(d.color)}` : null,
     `📦 Pachkada: ${d.packSize} juft`,
-    `💰 Narxi: <b>${formatSum(d.price)} so'm</b> (1 juft)`,
+    showPrice ? `💰 Narxi: <b>${formatSum(d.price)} so'm</b> (1 juft)` : null,
     packs > 1 ? `🔢 Mavjud: ${left} pachka` : null,
     `🔖 Kod: <b>${code}</b>`,
     shop.shopPhone || shop.shopAddress ? '' : null,
@@ -149,10 +149,107 @@ const b = (text: string, data: string): Btn => ({ text, callback_data: data })
 const say = (chat: number, text: string, extra: Record<string, unknown> = {}) =>
   tg('sendMessage', { chat_id: chat, text, parse_mode: 'HTML', ...extra })
 
+// ---------- Bot sozlamalari (settings jadvalida, id = 'bot') ----------
+
+export interface BotCfg {
+  sizes: string[]
+  colors: string[]
+  packSizes: number[]
+  showPrice: boolean
+  /** null — saytdagi telefon/manzil; '' — ko'rsatilmaydi. */
+  phone: string | null
+  address: string | null
+  /** Pachka sonlari necha marta tanlangani (ko'p ishlatilgani tugmaga chiqadi). */
+  packUsage: Record<string, number>
+}
+
+export const defaultCfg: BotCfg = {
+  sizes: ['39-43', '40-44', '41-45', '44-45-46'],
+  colors: ['qora', 'oq', 'jigarrang', 'kulrang', "ko'k", 'zamish'],
+  packSizes: [5, 6, 3],
+  showPrice: true,
+  phone: null,
+  address: null,
+  packUsage: {},
+}
+
+async function getCfg(): Promise<BotCfg> {
+  const row = (await db<{ data: Partial<BotCfg> }[]>('settings?id=eq.bot&select=data'))[0]?.data
+  return { ...defaultCfg, ...row }
+}
+const saveCfg = (cfg: BotCfg) =>
+  db('settings', { method: 'POST', body: JSON.stringify({ id: 'bot', data: cfg }) }, 'resolution=merge-duplicates')
+
+/**
+ * Pachka sonini eslab qoladi: qo'lda 4 marta kiritilgan son tugmalarga chiqadi,
+ * tugmalar doim 3 ta — eng kam ishlatilgani chiqib ketadi.
+ */
+export function learnPackSize(cfg: BotCfg, n: number): BotCfg {
+  const usage: Record<string, number> = { ...cfg.packUsage, [n]: (cfg.packUsage[n] ?? 0) + 1 }
+  let packSizes = cfg.packSizes
+  if (!packSizes.includes(n) && usage[n] >= 4) {
+    // Yangisi kiradi, qolganlaridan eng kam ishlatilgani chiqadi (teng bo'lsa — oxirgisi).
+    const keep = [...packSizes].sort((a, b) => (usage[b] ?? 0) - (usage[a] ?? 0)).slice(0, 2)
+    packSizes = packSizes.filter((x) => keep.includes(x)).concat(n)
+  }
+  return { ...cfg, packUsage: usage, packSizes }
+}
+
+/** "39-43, 40-44  44-45-46" → ro'yxat. */
+export const parseList = (t: string) => t.split(/[,;\n]+/).map((x) => x.trim()).filter(Boolean).slice(0, 12)
+
+const MENU = { reply_markup: { keyboard: [[{ text: "📦 Yuk qo'shish" }, { text: '⚙️ Sozlamalar' }]], resize_keyboard: true, is_persistent: true } }
+
+async function showSettings(chat: number) {
+  const c = await getCfg()
+  const shop = (await db<{ data: Shop }[]>('settings?id=eq.main&select=data'))[0]?.data ?? {}
+  const show = (v: string | null, site?: string) => (v === null ? `${esc(site || '—')} <i>(saytdan)</i>` : v === '' ? "<i>ko'rsatilmaydi</i>" : esc(v))
+  return say(chat, [
+    '⚙️ <b>Bot sozlamalari</b>',
+    '',
+    `📏 Razmerlar: ${esc(c.sizes.join(', '))}`,
+    `🎨 Ranglar: ${esc(c.colors.join(', '))}`,
+    `📦 Pachkada juft: ${c.packSizes.join(', ')}`,
+    `💰 Kanalda narx: ${c.showPrice ? "ko'rsatiladi" : "ko'rsatilmaydi"}`,
+    `📞 Telefon: ${show(c.phone, shop.shopPhone)}`,
+    `📍 Manzil: ${show(c.address, shop.shopAddress)}`,
+  ].join('\n'), kb([
+    [b('📏 Razmerlar', 'set:sizes'), b('🎨 Ranglar', 'set:colors'), b('📦 Pachka', 'set:packs')],
+    [b(c.showPrice ? '💰 Narxni yashirish' : "💰 Narxni ko'rsatish", 'set:price')],
+    [b('📞 Telefon', 'set:phone'), b('📍 Manzil', 'set:address')],
+  ]))
+}
+
+const SET_PROMPTS: Record<string, string> = {
+  sizes: "📏 Razmerlarni vergul bilan yozing.\nMasalan: <code>39-43, 40-44, 41-45, 44-45-46</code>",
+  colors: "🎨 Ranglarni vergul bilan yozing.\nMasalan: <code>qora, oq, jigarrang, zamish</code>",
+  packs: '📦 Pachkadagi juft sonlarini vergul bilan yozing (3 tagacha).\nMasalan: <code>5, 6, 3</code>',
+  phone: "📞 Kanalga yoziladigan telefonni yozing.\n<code>-</code> — ko'rsatmaslik, <code>sayt</code> — saytdagini olish.",
+  address: "📍 Kanalga yoziladigan manzilni yozing.\n<code>-</code> — ko'rsatmaslik, <code>sayt</code> — saytdagini olish.",
+}
+
+/** Sozlamaga javob matnini saqlaydi. Noto'g'ri bo'lsa — false. */
+async function applySetting(key: string, text: string): Promise<boolean> {
+  const c = await getCfg()
+  const t = text.trim()
+  if (key === 'sizes' || key === 'colors') {
+    const list = parseList(t)
+    if (!list.length) return false
+    await saveCfg({ ...c, [key]: list })
+  } else if (key === 'packs') {
+    const list = parseList(t).map((x) => parseInt(x)).filter((n) => n > 0 && n < 100).slice(0, 3)
+    if (!list.length) return false
+    await saveCfg({ ...c, packSizes: list })
+  } else if (key === 'phone' || key === 'address') {
+    await saveCfg({ ...c, [key]: t.toLowerCase() === 'sayt' ? null : t === '-' ? '' : t })
+  } else return false
+  return true
+}
+
 // ---------- Suhbat holati ----------
 
-type Step = 'photos' | 'packs' | 'brand' | 'brand_new' | 'model' | 'size' | 'color' | 'packSize' | 'cost' | 'price' | 'confirm' | 'saving'
-interface Session extends Partial<Draft> { step: Step; packsPerPhoto?: number; photoCount?: number }
+type Step = 'photos' | 'packs' | 'brand' | 'brand_new' | 'model' | 'size' | 'color' | 'packSize' | 'cost' | 'price' | 'confirm' | 'saving' | 'setting'
+interface Session extends Partial<Draft> { step: Step; packsPerPhoto?: number; photoCount?: number; setting?: string }
 
 const getSession = async (chat: number) =>
   (await db<{ data: Session }[]>(`bot_sessions?chat_id=eq.${chat}&select=data`))[0]?.data ?? null
@@ -188,19 +285,27 @@ async function ask(chat: number, s: Session) {
       return say(chat, '✍️ Yangi brend nomini yozing:')
     case 'model':
       return say(chat, `✍️ <b>${esc(s.brand!)}</b> — <b>model nomi</b>ni yozing (masalan: qo'shma):`, kb([cancel]))
-    case 'size':
-      return say(chat, '📏 <b>Razmer</b> (yoki yozing):', kb([
-        ['39-43', '40-44', '41-45'].map((x) => b(x, `size:${x}`)),
-        ['36-40', '37-41', '45-48'].map((x) => b(x, `size:${x}`)), cancel,
+    case 'size': {
+      const c = await getCfg()
+      return say(chat, '📏 <b>Razmer</b>:', kb([
+        ...chunk(c.sizes.map((x) => b(x, `size:${x.slice(0, 40)}`)), 3),
+        [b("✍️ Qo'lda kiritish", 'manual:size')], cancel,
       ]))
-    case 'color':
-      return say(chat, '🎨 <b>Rang</b> (yoki yozing):', kb([
-        ['qora', 'oq', 'jigarrang'].map((x) => b(x, `color:${x}`)),
-        ['kulrang', "ko'k", 'bej'].map((x) => b(x, `color:${x}`)),
-        [b('— Yozmaslik', 'color:')], cancel,
+    }
+    case 'color': {
+      const c = await getCfg()
+      return say(chat, '🎨 <b>Rang</b>:', kb([
+        ...chunk(c.colors.map((x) => b(x, `color:${x.slice(0, 40)}`)), 3),
+        [b("✍️ Qo'lda kiritish", 'manual:color'), b('— Yozmaslik', 'color:')], cancel,
       ]))
-    case 'packSize':
-      return say(chat, '👟 <b>Pachkada necha juft?</b>', kb([['5', '6', '3', '4', '10'].map((x) => b(x, `packSize:${x}`)), cancel]))
+    }
+    case 'packSize': {
+      const c = await getCfg()
+      return say(chat, '👟 <b>Pachkada necha juft?</b>', kb([
+        c.packSizes.map((x) => b(String(x), `packSize:${x}`)),
+        [b("✍️ Qo'lda kiritish", 'manual:packSize')], cancel,
+      ]))
+    }
     case 'cost':
       return say(chat, '💵 <b>Kelish narxi</b> (1 juft uchun), masalan: 200000\n<i>Kanalga chiqmaydi.</i>', kb([cancel]))
     case 'price':
@@ -292,12 +397,14 @@ async function commit(chat: number, s: Session): Promise<string> {
   await db('brands', { method: 'POST', body: JSON.stringify({ id: bk, data: d.brand }) }, 'resolution=ignore-duplicates')
 
   // Kanalga: har rasm — alohida post.
-  const shop = (await db<{ data: Shop }[]>('settings?id=eq.main&select=data'))[0]?.data ?? {}
+  const site = (await db<{ data: Shop }[]>('settings?id=eq.main&select=data'))[0]?.data ?? {}
+  const cfg = await getCfg()
+  const shop: Shop = { shopPhone: cfg.phone ?? site.shopPhone, shopAddress: cfg.address ?? site.shopAddress }
   const channel = Number(env('CHANNEL_ID'))
   let posted = 0
   for (const g of groups) {
     const code = g.codes.length > 1 ? `${g.codes[0]}–${g.codes[g.codes.length - 1]}` : g.codes[0]
-    const caption = postCaption(d, code, shop, g.ids.length)
+    const caption = postCaption(d, code, shop, g.ids.length, g.ids.length, cfg.showPrice)
     try {
       const m = await tg<{ message_id: number; photo: { file_id: string }[] }>('sendPhoto', { chat_id: channel, photo: g.fileId, caption, parse_mode: 'HTML' })
       await db('channel_posts', { method: 'POST', body: JSON.stringify({
@@ -416,10 +523,29 @@ async function onUpdate(u: Update) {
     const s = await getSession(chat)
     if (data === 'cancel') {
       await endSession(chat)
-      return say(chat, '❌ Bekor qilindi. Yangi kirim uchun rasm yuboring.')
+      return say(chat, "❌ Bekor qilindi. Yangi kirim: 📦 Yuk qo'shish", MENU)
+    }
+    // Sozlamalar
+    if (data.startsWith('set:')) {
+      const key = data.slice(4)
+      if (s && s.step !== 'setting') return say(chat, "⚠️ Avval joriy kirimni tugating yoki /bekor deb yozing.")
+      if (key === 'price') {
+        const c = await getCfg()
+        await saveCfg({ ...c, showPrice: !c.showPrice })
+        return showSettings(chat)
+      }
+      if (!SET_PROMPTS[key]) return
+      await setSession(chat, { step: 'setting', setting: key })
+      return say(chat, SET_PROMPTS[key], kb([[b('❌ Bekor qilish', 'cancel')]]))
     }
     // Eski (tugagan kirimdagi) tugma — jim.
     if (!s) return
+    if (data.startsWith('manual:')) {
+      const key = data.slice(7)
+      if (key !== s.step) return
+      const what: Record<string, string> = { size: 'Razmerni', color: 'Rangni', packSize: 'Pachkadagi juft sonini' }
+      return say(chat, `✍️ ${what[key] ?? 'Qiymatni'} yozing:`)
+    }
     if (data === 'photos_done') {
       if (s.step !== 'photos') return
       const n = (await db<{ id: number }[]>(`bot_photos?chat_id=eq.${chat}&select=id`)).length
@@ -436,7 +562,7 @@ async function onUpdate(u: Update) {
       if (!won.length) return
       await say(chat, '⏳ Saqlanmoqda va kanalga joylanmoqda…')
       try {
-        return say(chat, await commit(chat, s))
+        return say(chat, await commit(chat, s), MENU)
       } catch (e) {
         console.error(e)
         await setSession(chat, s)
@@ -461,6 +587,7 @@ async function onUpdate(u: Update) {
     if (key !== s.step && !(key === 'brand' && s.step === 'brand_new')) return
     const patch = fields[key]?.(val)
     if (!patch) return
+    if (key === 'packSize') await saveCfg(learnPackSize(await getCfg(), Number(val)))
     const step: Step = key === 'packs' ? 'brand' : next({ ...s, step: key as Step })
     const ns = { ...s, ...patch, step }
     await setSession(chat, ns)
@@ -472,14 +599,30 @@ async function onUpdate(u: Update) {
 
   if (text === '/start' || text === '/help') {
     return say(chat, [
-      '👋 <b>Yuk kiritish</b>',
-      '1. Bir xil narxdagi pachkalarning rasmlarini yuboring (har rasm — 1 pachka).',
-      '2. "✅ Rasmlar tayyor" ni bosing.',
-      '3. Savollarga javob bering — tovar saytga tushadi va kanalga chiqadi.',
+      '👋 <b>Assalomu alaykum!</b>',
       '',
-      'Bitta rasm yuborsangiz — nechta pachka ekanini so\'rayman.',
-      '/bekor — joriy kirimni bekor qilish',
-    ].join('\n'))
+      "📦 <b>Yuk qo'shish</b> — rasmlar yuborib, yangi kirim qilish (tovar saytga tushadi va kanalga chiqadi).",
+      "⚙️ <b>Sozlamalar</b> — razmerlar, ranglar, pachka sonlari, kanaldagi narx va telefon.",
+      '',
+      "/bekor — joriy kirimni bekor qilish · /sync — kanalni yangilash",
+    ].join('\n'), MENU)
+  }
+  if (text === "📦 Yuk qo'shish" || text === '/yuk') {
+    const cur = await getSession(chat)
+    if (cur && cur.step !== 'photos' && cur.step !== 'setting') return say(chat, '⚠️ Avval joriy kirimni tugating yoki /bekor deb yozing.')
+    await endSession(chat)
+    await setSession(chat, { step: 'photos' })
+    return say(chat, [
+      "📷 <b>Rasmlarni yuboring</b>",
+      'Bir xil narxdagi pachkalar — har rasm 1 pachka. Bitta rasm yuborsangiz, nechta pachka ekanini so\'rayman.',
+      '',
+      'Hammasini yuborib bo\'lgach — tugmani bosing:',
+    ].join('\n'), kb([[b('✅ Rasmlar tayyor', 'photos_done')], [b('❌ Bekor qilish', 'cancel')]]))
+  }
+  if (text === '⚙️ Sozlamalar' || text === '/sozlamalar') {
+    const cur = await getSession(chat)
+    if (cur?.step === 'setting') await endSession(chat)
+    return showSettings(chat)
   }
   if (text === '/bekor' || text === '/cancel') {
     await endSession(chat)
@@ -493,21 +636,27 @@ async function onUpdate(u: Update) {
   // Rasm: yig'ib boriladi (albom rasmlari bir vaqtda keladi).
   if (m.photo?.length) {
     const s = await getSession(chat)
-    if (s && s.step !== 'photos') return say(chat, '⚠️ Avval joriy kirimni tugating yoki /bekor deb yozing.')
+    if (s && s.step !== 'photos') return say(chat, s.step === 'setting' ? '⚠️ Avval sozlamani yozing yoki ❌ Bekor qiling.' : '⚠️ Avval joriy kirimni tugating yoki /bekor deb yozing.')
     await db('bot_photos', { method: 'POST', body: JSON.stringify({ chat_id: chat, file_id: m.photo.at(-1)!.file_id }) })
     // Faqat birinchi rasmga javob (qolganlari jim qo'shiladi).
     const created = await db<unknown[]>('bot_sessions', {
       method: 'POST', body: JSON.stringify({ chat_id: chat, data: { step: 'photos' } }),
     }, 'resolution=ignore-duplicates,return=representation')
     if (created.length) {
-      return say(chat, '📷 Rasmlar qabul qilinmoqda… Hammasini yuborib bo\'lgach, tugmani bosing:', kb([[b('✅ Rasmlar tayyor', 'photos_done')], [b('❌ Bekor qilish', 'cancel')]]))
+      return say(chat, "📷 Yangi kirim boshlandi, rasmlar qabul qilinmoqda… Hammasini yuborib bo'lgach, tugmani bosing:", kb([[b('✅ Rasmlar tayyor', 'photos_done')], [b('❌ Bekor qilish', 'cancel')]]))
     }
     return
   }
 
   // Matnli javoblar
   const s = await getSession(chat)
-  if (!s) return say(chat, 'Yangi kirim uchun rasm yuboring. Yordam: /help')
+  if (!s) return say(chat, "Yangi kirim: 📦 Yuk qo'shish · Sozlamalar: ⚙️ Sozlamalar", MENU)
+  if (s.step === 'setting') {
+    if (!(await applySetting(s.setting ?? '', text))) return say(chat, '🤔 Tushunmadim, qaytadan yozing.')
+    await endSession(chat)
+    await say(chat, '✅ Saqlandi.', MENU)
+    return showSettings(chat)
+  }
   let patch: Partial<Session> | null = null
   switch (s.step) {
     case 'photos': return say(chat, 'Rasmlarni yuborib bo\'lgach "✅ Rasmlar tayyor" ni bosing.')
@@ -517,7 +666,12 @@ async function onUpdate(u: Update) {
     case 'model': patch = text.length >= 1 ? { model: text.replace(/\s+/g, ' ') } : null; break
     case 'size': patch = { size: text }; break
     case 'color': patch = { color: text === '-' ? '' : text }; break
-    case 'packSize': { const n = parseInt(text); patch = n > 0 && n < 100 ? { packSize: n } : null; break }
+    case 'packSize': {
+      const n = parseInt(text)
+      patch = n > 0 && n < 100 ? { packSize: n } : null
+      if (patch) await saveCfg(learnPackSize(await getCfg(), n))
+      break
+    }
     case 'cost': { const v = parseSum(text); patch = v ? { cost: v } : null; break }
     case 'price': {
       const v = parseSum(text)
@@ -562,6 +716,12 @@ export async function handle(req: Request): Promise<Response> {
     if (url.searchParams.get('setup') !== env('WEBHOOK_SECRET')) return new Response('Kalit noto\'g\'ri', { status: 403 })
     const hook = `${SB()}/functions/v1/bot`
     const r = await tg('setWebhook', { url: hook, secret_token: env('WEBHOOK_SECRET'), allowed_updates: ['message', 'callback_query'] })
+    await tg('setMyCommands', { commands: [
+      { command: 'yuk', description: "📦 Yuk qo'shish" },
+      { command: 'sozlamalar', description: '⚙️ Sozlamalar' },
+      { command: 'bekor', description: '❌ Joriy kirimni bekor qilish' },
+      { command: 'sync', description: '🔄 Kanalni yangilash' },
+    ] }).catch(() => {})
     const me = await tg<{ username: string }>('getMe', {})
     return new Response(`✅ Tayyor! Bot @${me.username} ulandi (${JSON.stringify(r)}). Endi botga /start yozing.`, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
   }

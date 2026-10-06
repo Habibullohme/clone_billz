@@ -661,6 +661,37 @@ export async function saveSale(sale: Omit<Sale, 'id' | 'number' | 'createdAt'>):
   return full
 }
 
+/**
+ * Sotuvni o'chirish (xato yoki sinov sotuvi): tovarlar omborga qaytadi,
+ * nasiyaga bo'lgan bo'lsa — daftardagi yozuvi ham olinadi.
+ */
+export async function deleteSale(id: string): Promise<void> {
+  const sales = await getSales()
+  const sale = sales.find((x) => x.id === id)
+  if (!sale) return
+  const products = await getProducts()
+  const touched: { id: string; stock: number }[] = []
+  for (const l of sale.lines) {
+    const p = products.find((x) => x.id === l.productId)
+    if (!p) continue
+    p.stock += l.pairs
+    touched.push({ id: p.id, stock: p.stock })
+  }
+  if (mode === 'cloud') {
+    await cloud.deleteSaleRow(id, touched)
+    put(K.products, products)
+    put(K.sales, sales.filter((x) => x.id !== id))
+  } else {
+    write(K.products, products)
+    write(K.sales, sales.filter((x) => x.id !== id))
+  }
+  const customers = await getCustomers()
+  if (customers.some((c) => c.ledger?.some((e) => e.saleId === id))) {
+    write(K.customers, customers.map((c) => ({ ...c, ledger: c.ledger?.filter((e) => e.saleId !== id) })))
+  }
+  await flush()
+}
+
 // ---------- Kechiktirilgan savatlar ----------
 
 export async function getHeld(): Promise<HeldCart[]> {

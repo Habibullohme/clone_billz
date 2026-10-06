@@ -36,3 +36,18 @@ describe('eski nasiya sotuvlari', () => {
     expect(await syncSaleDebts()).toBe(0)
   })
 })
+
+describe("sotuvni o'chirish", () => {
+  it('qoldiq qaytadi va nasiya daftardan olinadi', async () => {
+    const { deleteSale, getSales, getProducts, getCustomers, balanceOf } = await import('./store')
+    const sale = (await getSales()).find((s) => s.payment.debt > 0)!
+    const pid = sale.lines[0].productId
+    const before = (await getProducts()).find((p) => p.id === pid)!.stock
+    await deleteSale(sale.id)
+    expect((await getSales()).some((s) => s.id === sale.id)).toBe(false)
+    expect((await getProducts()).find((p) => p.id === pid)!.stock).toBe(before + sale.lines[0].pairs)
+    const a = (await getCustomers()).find((c) => c.name === 'Alisher aka Qarshi')!
+    expect(a.ledger!.some((e) => e.saleId === sale.id)).toBe(false)
+    expect(balanceOf(a)).toBe(-100_000)
+  })
+})

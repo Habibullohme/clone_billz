@@ -271,3 +271,10 @@ export function watchRevoke(onRevoked: () => void): () => void {
 export function notifyBot() {
   supabase?.functions.invoke('bot', { body: { action: 'sync' } }).catch(() => {})
 }
+
+/** Sotuvni bazadan o'chirish va tovarlar qoldig'ini qaytarish. */
+export async function deleteSaleRow(id: string, stocks: { id: string; stock: number }[]) {
+  const db = supabase!
+  await Promise.all(stocks.map((s) => check(db.from('products').update({ stock: s.stock }).eq('id', s.id))))
+  await check(db.from('sales').delete().eq('id', id))
+}

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { brandCode, codeOf, handle, makeBarcode, parseSum, postCaption, soldCaption, tashkentStamp } from './index'
+import { brandCode, codeOf, defaultCfg, handle, learnPackSize, makeBarcode, parseSum, postCaption, soldCaption, tashkentStamp } from './index'
 import * as site from '../../../src/lib/codes'
 
 // ---------- Soxta Supabase (PostgREST) va Telegram ----------
@@ -80,6 +80,7 @@ const tgReq = (update: object) => new Request('https://x.supabase.co/functions/v
 const photo = (fid: string, group = 'g1') => tgReq({ message: { chat: { id: 7 }, from: { id: 7 }, photo: [{ file_id: fid }], media_group_id: group } })
 const text = (t: string) => tgReq({ message: { chat: { id: 7 }, from: { id: 7 }, text: t } })
 const press = (data: string) => tgReq({ callback_query: { id: 'q', from: { id: 7 }, data, message: { chat: { id: 7 }, message_id: 1 } } })
+const lastMarkup = () => [...sent].reverse().find((x) => x.method === 'sendMessage')?.body.reply_markup
 const lastText = () => [...sent].reverse().find((x) => x.method === 'sendMessage')?.body.text as string
 
 beforeEach(() => {
@@ -121,6 +122,69 @@ describe('yordamchilar', () => {
     expect(t).toContain('1 100 000')
     expect(t).toContain('Chek №12')
     expect(t).not.toContain('📞')
+  })
+})
+
+describe('sozlamalar', () => {
+  it("pachka soni: qo'lda 4 marta kiritilgani tugmaga chiqadi, tugmalar 3 ta qoladi", () => {
+    let c = defaultCfg
+    for (let i = 0; i < 3; i++) c = learnPackSize(c, 5)
+    for (let i = 0; i < 3; i++) c = learnPackSize(c, 4)
+    expect(c.packSizes).toEqual([5, 6, 3])
+    c = learnPackSize(c, 4)
+    expect(c.packSizes).toHaveLength(3)
+    expect(c.packSizes).toContain(4)
+    expect(c.packSizes).toContain(5)
+  })
+  it('narx yashirilsa postda narx yo\'q', () => {
+    const c = postCaption({ brand: 'B', model: 'm', size: '', color: '', packSize: 5, cost: 1, price: 220000 }, 'A1', {}, 1, 1, false)
+    expect(c).not.toContain('220 000')
+  })
+  it("/start — menyu; Yuk qo'shish; sozlamalardan razmer, rang, telefon, narx", async () => {
+    await handle(text('/start'))
+    expect(lastMarkup().keyboard[0][0].text).toBe("📦 Yuk qo'shish")
+    expect(tables.bot_sessions ?? []).toHaveLength(0) // /start kirim boshlamaydi
+
+    await handle(text('⚙️ Sozlamalar'))
+    expect(lastText()).toContain('44-45-46')
+    expect(lastText()).toContain('zamish')
+    await handle(press('set:sizes'))
+    await handle(text('39-43, 40-44, 44-45-46'))
+    await handle(press('set:colors'))
+    await handle(text('qora, karesh, zamish'))
+    await handle(press('set:phone'))
+    await handle(text('+998 90 111 22 33'))
+    await handle(press('set:price'))
+    expect(lastText()).toContain("ko'rsatilmaydi")
+    const cfg = tables.settings.find((r) => r.id === 'bot')!.data
+    expect(cfg.sizes).toEqual(['39-43', '40-44', '44-45-46'])
+    expect(cfg.colors).toEqual(['qora', 'karesh', 'zamish'])
+    expect(cfg.phone).toBe('+998 90 111 22 33')
+    expect(cfg.showPrice).toBe(false)
+
+    // Kirim: sozlamadagi tugmalar va qo'lda kiritish
+    await handle(text("📦 Yuk qo'shish"))
+    await handle(photo('p1'))
+    await handle(photo('p2'))
+    await handle(press('photos_done'))
+    await handle(press('brand:Velton'))
+    await handle(text('klassik'))
+    expect(lastMarkup().inline_keyboard.flat().map((x: any) => x.text)).toEqual(['39-43', '40-44', '44-45-46', "✍️ Qo'lda kiritish", '❌ Bekor qilish'])
+    await handle(press('manual:size'))
+    expect(lastText()).toContain('Razmerni yozing')
+    await handle(text('38-42'))
+    expect(lastMarkup().inline_keyboard[0].map((x: any) => x.text)).toEqual(['qora', 'karesh', 'zamish'])
+    await handle(press('color:karesh'))
+    await handle(press('packSize:6'))
+    await handle(text('150000'))
+    await handle(text('170000'))
+    await handle(press('ok'))
+    const post = sent.find((x) => x.method === 'sendPhoto')!.body.caption
+    expect(post).toContain('38-42')
+    expect(post).toContain('karesh')
+    expect(post).toContain('+998 90 111 22 33')
+    expect(post).not.toContain('170 000')
+    expect(tables.products).toHaveLength(2)
   })
 })
 
