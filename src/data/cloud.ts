@@ -19,10 +19,16 @@ export async function getSession(): Promise<Session | null> {
   return (await supabase?.auth.getSession())?.data.session ?? null
 }
 
-export async function signIn(email: string, password: string): Promise<string | null> {
-  const { error } = await supabase!.auth.signInWithPassword({ email: email.trim(), password })
+/** Botda berilgan login ("ali") — sayt domenidagi email: ali@richmen.netlify.app. */
+export const loginToEmail = (login: string, host = location.hostname) => {
+  const v = login.trim().toLowerCase()
+  return v.includes('@') ? v : `${v}@${host}`
+}
+
+export async function signIn(login: string, password: string): Promise<string | null> {
+  const { error } = await supabase!.auth.signInWithPassword({ email: loginToEmail(login), password })
   if (!error) return null
-  if (/invalid login/i.test(error.message)) return "Email yoki parol noto'g'ri"
+  if (/invalid login/i.test(error.message)) return "Login yoki parol noto'g'ri"
   if (/fetch|network/i.test(error.message)) return "Internetga ulanib bo'lmadi"
   return error.message
 }
@@ -283,4 +289,18 @@ export async function updateSaleRow(id: string, data: unknown, stocks: { id: str
 export async function whoAmI(): Promise<string> {
   const email = (await supabase?.auth.getUser())?.data.user?.email
   return [email, deviceName()].filter(Boolean).join(' · ')
+}
+
+/**
+ * Boss panel (Telegram mini app): bot adminlari Telegram orqali parolsiz kiradi.
+ * 'ok' — kirildi, 'login' — login/parol kerak, aks holda xato matni.
+ */
+export async function telegramSignIn(initData: string): Promise<'ok' | 'login' | string> {
+  const { data, error } = await supabase!.functions.invoke('bot', { body: { action: 'tg-auth', initData } })
+  if (error) return "Botga ulanib bo'lmadi"
+  const r = data as { token_hash?: string; login?: boolean; error?: string }
+  if (r.login) return 'login'
+  if (!r.token_hash) return r.error ?? 'Kirib bo\'lmadi'
+  const v = await supabase!.auth.verifyOtp({ token_hash: r.token_hash, type: 'magiclink' })
+  return v.error ? v.error.message : 'ok'
 }

@@ -5,23 +5,8 @@ import { formatSum } from '../lib/money'
 import { Receipt } from '../components/Receipt'
 import { BackClose, Segmented } from '../components/ui'
 import { hueStyle } from '../lib/colors'
-
-type Period = 'today' | 'yesterday' | 'week' | 'month'
-
-function inPeriod(iso: string, period: Period): boolean {
-  const d = new Date(iso)
-  const start = new Date()
-  start.setHours(0, 0, 0, 0)
-  if (period === 'today') return d >= start
-  if (period === 'yesterday') {
-    const y = new Date(start)
-    y.setDate(y.getDate() - 1)
-    return d >= y && d < start
-  }
-  const from = new Date(start)
-  from.setDate(from.getDate() - (period === 'week' ? 6 : 29))
-  return d >= from
-}
+import { inPeriod, type Period } from '../lib/period'
+import { PeriodPicker } from '../components/PeriodPicker'
 
 export function SalesPage() {
   const [sales, setSales] = useState<Sale[]>([])
@@ -84,11 +69,7 @@ export function SalesPage() {
     <div className="page">
       <div className="page-head">
         <h1>Sotuvlar</h1>
-        <Segmented<Period>
-          value={period}
-          onChange={setPeriod}
-          options={[['today', 'Bugun'], ['yesterday', 'Kecha'], ['week', '7 kun'], ['month', '30 kun']]}
-        />
+        <PeriodPicker value={period} onChange={setPeriod} />
       </div>
 
       <div className="kpis">

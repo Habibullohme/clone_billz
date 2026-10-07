@@ -8,6 +8,7 @@ import { demoInputs } from './demo'
 import type { Theme } from '../lib/theme'
 import { defaultTemplates, type LabelTemplate } from '../lib/labels'
 import * as cloud from './cloud'
+import { assignHues, renameHue, setBrandHues } from '../lib/colors'
 
 export interface Settings {
   // Do'kon
@@ -40,6 +41,8 @@ export interface Settings {
   // Etiketka
   labelTemplates: LabelTemplate[]
   labelTemplateId: string
+  /** Brend → rang (0–359). Har brendga alohida, takrorlanmaydi. */
+  brandHues: Record<string, number>
 }
 
 export const defaultSettings: Settings = {
@@ -62,6 +65,7 @@ export const defaultSettings: Settings = {
   lowStockPacks: 2,
   labelTemplates: defaultTemplates,
   labelTemplateId: defaultTemplates[0].id,
+  brandHues: {},
 }
 
 /** Ma'lumot nusxasi (JSON matn ko'rinishida — har o'qishda yangi nusxa qaytadi). */
@@ -183,7 +187,7 @@ async function syncKey(key: string, prev: unknown, next: unknown) {
 
 /** Kirishdan keyin: baza ulangan bo'lsa, hamma ma'lumotni yuklab oladi. */
 export async function initStore(): Promise<void> {
-  if (!cloud.cloudEnabled) return
+  if (!cloud.cloudEnabled) return ensureBrandHues()
   mode = 'cloud'
   await refresh()
   // Nasiyaga qilingan sotuvlar Nasiyalar daftarida bo'lsin (oldingilari ham).
@@ -196,6 +200,18 @@ export async function initStore(): Promise<void> {
     if (Array.isArray(brands) && brands.length) write(K.brands, brands)
     await flush()
   }
+  await ensureBrandHues()
+}
+
+/** Yangi brendlarga (botdan qo'shilganlari ham) rang beradi. */
+export async function ensureBrandHues(): Promise<void> {
+  const s = read<Partial<Settings>>(K.settings, {})
+  const current = s.brandHues ?? {}
+  const next = assignHues(await getBrands(), current)
+  setBrandHues(next)
+  if (next === current) return
+  write(K.settings, { ...s, brandHues: next })
+  await flush()
 }
 
 function localRead(key: string): unknown {
@@ -225,6 +241,9 @@ export async function refresh(): Promise<void> {
   put(K.brandSeq, Object.fromEntries(
     Object.entries(snap.counters).filter(([k]) => k.startsWith('brand:')).map(([k, v]) => [k.slice(6), v]),
   ))
+  setBrandHues((snap.settings?.brandHues as Record<string, number> | undefined) ?? {})
+  // Botdan yangi brend kelgan bo'lsa — unga ham rang.
+  if (memory.has(K.settings)) await ensureBrandHues()
 }
 
 type SeqName = 'product' | 'sale' | 'batch'
@@ -404,7 +423,9 @@ export async function deleteBatch(id: string): Promise<{ removed: number; kept: 
 
 export async function importProducts(inputs: ProductInput[], source: ImportBatch['source'] = 'excel'): Promise<ImportBatch> {
   await ensureSeed()
-  return createBatch(inputs, source)
+  const batch = await createBatch(inputs, source)
+  await ensureBrandHues()
+  return batch
 }
 
 /** Nom oxiridagi kod: "Barsofka B18" → "B18". */
@@ -472,6 +493,7 @@ export async function addBrand(name: string): Promise<void> {
   const saved = read<string[]>(K.brands, [])
   if (!saved.some((b) => b.toLowerCase() === name.trim().toLowerCase())) write(K.brands, [...saved, name.trim()])
   await flush()
+  await ensureBrandHues()
 }
 
 export async function renameBrand(from: string, to: string): Promise<void> {
@@ -479,7 +501,14 @@ export async function renameBrand(from: string, to: string): Promise<void> {
   write(K.brands, read<string[]>(K.brands, []).map((b) => (b === from ? to.trim() : b)))
   const products = await getProducts()
   write(K.products, products.map((p) => (p.brand === from ? { ...p, brand: to.trim() } : p)))
+  const s = read<Partial<Settings>>(K.settings, {})
+  const hues = renameHue(s.brandHues ?? {}, from, to)
+  if (hues !== s.brandHues) {
+    write(K.settings, { ...s, brandHues: hues })
+    setBrandHues(hues)
+  }
   await flush()
+  await ensureBrandHues()
 }
 
 /** Faqat tovari yo'q brendni o'chiradi. */

@@ -3,8 +3,8 @@ import { signIn } from '../data/cloud'
 import { cachedBrand } from '../lib/brand'
 import { ShopMark } from '../components/ShopMark'
 
-/** Kirish: hisoblar Supabase'da qo'lda yaratiladi. Bir marta kirilgach, qurilma eslab qoladi. */
-export function LoginPage({ onDone }: { onDone: () => void }) {
+/** Kirish: login/parolni bot (👥 Loginlar) beradi; eski email hisoblar ham ishlaydi. Bir marta kirilgach, qurilma eslab qoladi. */
+export function LoginPage({ onDone, subtitle = 'Kassa va boshqaruv' }: { onDone: () => void; subtitle?: string }) {
   const brand = cachedBrand()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -30,11 +30,11 @@ export function LoginPage({ onDone }: { onDone: () => void }) {
         <ShopMark brand={brand} big />
         <div className="login-head">
           <h1>{brand.name}</h1>
-          <p className="muted">Kassa va boshqaruv</p>
+          <p className="muted">{subtitle}</p>
         </div>
         <label className="field">
-          <span>Email</span>
-          <input id="login-email" className="input" type="email" autoComplete="username" placeholder="siz@pochta.uz" required value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />
+          <span>Login yoki email</span>
+          <input id="login-email" className="input" type="text" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="username" placeholder="ali yoki siz@pochta.uz" required value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />
         </label>
         <label className="field">
           <span>Parol</span>

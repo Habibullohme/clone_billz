@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { brandCode, codeOf, defaultCfg, handle, learnPackSize, makeBarcode, parseSum, postCaption, refreshPosts, splitPhones, soldCaption, tashkentStamp } from './index'
+import { brandCode, codeOf, defaultCfg, handle, learnPackSize, makeBarcode, parseSum, postCaption, refreshPosts, splitPhones, tgAuth, verifyInitData, soldCaption, tashkentStamp } from './index'
 import * as site from '../../../src/lib/codes'
 
 // ---------- Soxta Supabase (PostgREST) va Telegram ----------
@@ -33,9 +33,39 @@ function match(row: Row, key: string, cond: string): boolean {
   throw new Error('op ' + op)
 }
 
+let users: Row[]
+
+/** Soxta Supabase Auth (admin API). */
+function fakeAuth(path: string, method: string, body: any): Response {
+  const json = (x: unknown, status = 200) => new Response(JSON.stringify(x), { status })
+  if (path === 'admin/users' && method === 'GET') return json({ users })
+  if (path === 'admin/users' && method === 'POST') {
+    if (users.some((u) => u.email === body.email)) return json({ msg: 'A user with this email address has already been registered' }, 422)
+    const u = { id: crypto.randomUUID(), email: body.email, password: body.password, created_at: new Date().toISOString(), last_sign_in_at: null }
+    users.push(u)
+    return json(u)
+  }
+  if (path === 'admin/generate_link') {
+    const u = users.find((x) => x.email === body.email)
+    return u ? json({ id: u.id, hashed_token: 'th_' + u.id }) : json({ msg: 'User not found' }, 404)
+  }
+  const id = path.split('/')[2]
+  const u = users.find((x) => x.id === id)
+  if (!u) return json({ msg: 'User not found' }, 404)
+  if (method === 'GET') return json(u)
+  if (method === 'PUT') { Object.assign(u, body); return json(u) }
+  if (method === 'DELETE') {
+    users = users.filter((x) => x !== u)
+    tables.staff = (tables.staff ?? []).filter((r) => r.user_id !== id)
+    return json({})
+  }
+  throw new Error('auth ' + method + ' ' + path)
+}
+
 async function fakeFetch(input: any, init: any = {}) {
   const url = new URL(String(input))
   const body = init.body ? JSON.parse(init.body) : undefined
+  if (url.pathname.startsWith('/auth/v1/')) return fakeAuth(url.pathname.slice(9), init.method ?? 'GET', body)
   if (url.host === 'api.telegram.org') {
     const method = url.pathname.split('/').pop()!
     sent.push({ method, body })
@@ -58,7 +88,7 @@ async function fakeFetch(input: any, init: any = {}) {
   if (method === 'DELETE') { const keep = t.filter((r) => !sel().includes(r)); tables[path] = keep; return new Response('') }
   if (method === 'PATCH') { const rows = sel(); rows.forEach((r) => Object.assign(r, body)); return new Response(prefer.includes('representation') ? JSON.stringify(rows) : '') }
   // POST
-  const pk = path === 'bot_sessions' ? 'chat_id' : 'id'
+  const pk = path === 'bot_sessions' ? 'chat_id' : path === 'staff' ? 'user_id' : 'id'
   const list = Array.isArray(body) ? body : [body]
   const out: Row[] = []
   for (const r of list) {
@@ -78,7 +108,7 @@ const tgReq = (update: object) => new Request('https://x.supabase.co/functions/v
   method: 'POST', headers: { 'X-Telegram-Bot-Api-Secret-Token': 's3' }, body: JSON.stringify(update),
 })
 const photo = (fid: string, group = 'g1') => tgReq({ message: { chat: { id: 7 }, from: { id: 7 }, photo: [{ file_id: fid }], media_group_id: group } })
-const text = (t: string) => tgReq({ message: { chat: { id: 7 }, from: { id: 7 }, text: t } })
+const text = (t: string, from = 7) => tgReq({ message: { message_id: 55, chat: { id: from }, from: { id: from }, text: t } })
 const press = (data: string) => tgReq({ callback_query: { id: 'q', from: { id: 7 }, data, message: { chat: { id: 7 }, message_id: 1 } } })
 const lastMarkup = () => [...sent].reverse().find((x) => x.method === 'sendMessage')?.body.reply_markup
 const lastText = () => [...sent].reverse().find((x) => x.method === 'sendMessage')?.body.text as string
@@ -87,6 +117,7 @@ beforeEach(() => {
   tables = { brands: [{ id: 'velton', data: 'Velton' }], settings: [{ id: 'main', data: { shopPhone: '+998 90 000 00 00' } }], products: [], sales: [], staff: [] }
   counters = { product: 40, 'brand:velton': 20, batch: 3 }
   sent = []
+  users = []
   vi.stubGlobal('fetch', fakeFetch)
   vi.stubGlobal('Deno', { env: { get: (k: string) => ENV[k] } })
 })
@@ -310,5 +341,105 @@ describe('bot oqimi', () => {
     expect(bad.status).toBe(403)
     const site = await handle(new Request('https://x/functions/v1/bot', { method: 'POST', body: '{}' }))
     expect(site.status).toBe(403)
+  })
+})
+
+// ---------- Loginlar va Boss panel ----------
+
+import { createHmac } from 'node:crypto'
+
+/** Telegram mini app imzosi (Telegram o'zi shunday imzolaydi). */
+function signInit(user: object, token = ENV.BOT_TOKEN, authDate = Math.floor(Date.now() / 1000)) {
+  const p = new URLSearchParams({ auth_date: String(authDate), query_id: 'Q1', user: JSON.stringify(user) })
+  const check = [...p].sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}=${v}`).join('\n')
+  const secret = createHmac('sha256', 'WebAppData').update(token).digest()
+  p.set('hash', createHmac('sha256', secret).update(check).digest('hex'))
+  return p.toString()
+}
+
+describe('loginlar (asosiy admin)', () => {
+  it("yaratish → parol almashtirish → o'chirish", async () => {
+    await handle(text('👥 Loginlar'))
+    expect(lastText()).toContain("Hali login yo'q")
+    await handle(press('lg:new'))
+    await handle(text('Ali'))
+    expect(lastText()).toContain('<code>ali</code> uchun parol')
+    await handle(text('sir12345'))
+    expect(sent.some((x) => x.method === 'deleteMessage' && x.body.message_id === 55)).toBe(true) // parol xabari o'chdi
+    expect(lastText()).toContain('Login yaratildi')
+    expect(lastText()).toContain('https://richmen.netlify.app')
+    expect(users).toHaveLength(1)
+    expect(users[0].email).toBe('ali@richmen.netlify.app')
+    expect(users[0].password).toBe('sir12345')
+    expect(tables.staff.map((r) => r.user_id)).toEqual([users[0].id])
+
+    // takror nom
+    await handle(press('lg:new'))
+    await handle(text('ali'))
+    expect(lastText()).toContain('allaqachon bor')
+    await handle(press('cancel'))
+
+    const id = users[0].id
+    await handle(press(`lg:pw:${id}`))
+    await handle(press('lg:gen'))
+    expect(lastText()).toContain('Parol almashtirildi')
+    expect(users[0].password).toMatch(/^[a-z2-9]{8}$/)
+
+    await handle(press(`lg:del:${id}`))
+    expect(users).toHaveLength(1)
+    await handle(press(`lg:delok:${id}`))
+    expect(users).toHaveLength(0)
+    expect(tables.staff).toHaveLength(0)
+  })
+
+  it("boshqa admin loginlarni boshqara olmaydi; begona foydalanuvchini o'chirib bo'lmaydi", async () => {
+    ENV.ADMIN_IDS = '7,8'
+    try {
+      await handle(text('👥 Loginlar', 8))
+      expect(lastText()).toContain('faqat asosiy admin')
+      // Egasining haqiqiy emaili — bizning login emas.
+      users.push({ id: '11111111-1111-1111-1111-111111111111', email: 'egasi@gmail.com', created_at: '' })
+      await handle(press('lg:delok:11111111-1111-1111-1111-111111111111'))
+      expect(users).toHaveLength(1)
+    } finally {
+      ENV.ADMIN_IDS = '7'
+    }
+  })
+
+  it('menyuda Boss panel (mini app), egasida Loginlar', async () => {
+    await handle(text('/start'))
+    const rows = lastMarkup().keyboard
+    expect(rows[1][0].web_app.url).toBe('https://richmen.netlify.app/?boss')
+    expect(rows[1][1].text).toBe('👥 Loginlar')
+  })
+})
+
+describe('Boss panelga Telegram orqali kirish', () => {
+  it('imzo tekshiriladi', async () => {
+    expect(await verifyInitData(signInit({ id: 7 }))).toBe(7)
+    expect(await verifyInitData(signInit({ id: 7 }, 'boshqa-token'))).toBeNull()
+    expect(await verifyInitData(signInit({ id: 7 }).replace('Q1', 'Q2'))).toBeNull()
+    expect(await verifyInitData(signInit({ id: 7 }, ENV.BOT_TOKEN, 1000))).toBeNull() // eskirgan
+  })
+  it('admin — parolsiz kiradi (bitta hisob), boshqalar — login/parol', async () => {
+    const r1 = await tgAuth(signInit({ id: 7, first_name: 'Boss' }))
+    expect(r1.token_hash).toBeTruthy()
+    const r2 = await tgAuth(signInit({ id: 7 }))
+    expect(r2.token_hash).toBe(r1.token_hash)
+    expect(users.map((u) => u.email)).toEqual(['tg-7@richmen.netlify.app'])
+    expect(tables.staff).toHaveLength(1)
+    expect(await tgAuth(signInit({ id: 99 }))).toEqual({ login: true })
+    expect((await tgAuth('hash=abc')).error).toBeTruthy()
+
+    // Saytdan chaqiruv (HTTP)
+    const res = await handle(new Request('https://x.supabase.co/functions/v1/bot', {
+      method: 'POST', body: JSON.stringify({ action: 'tg-auth', initData: signInit({ id: 99 }) }),
+    }))
+    expect(await res.json()).toEqual({ login: true })
+  })
+  it("Telegram orqali kirganlar Loginlar ro'yxatida ko'rinmaydi", async () => {
+    await tgAuth(signInit({ id: 7 }))
+    await handle(text('👥 Loginlar'))
+    expect(lastText()).toContain("Hali login yo'q")
   })
 })

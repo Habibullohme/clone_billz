@@ -48,3 +48,14 @@ Kompyuterdagi eski bot shu token bilan ishlayotgan bo'lsa — uni to'xtating.
 - Saytda sotilsa: hammasi sotilgan post "Sotilganlar"ga (kun, sana, vaqt, narx, chek) o'tadi va
   asosiy kanaldan o'chadi; bir postda bir necha pachka bo'lsa — "Mavjud: N pachka" kamayadi.
 - Buyruqlar: /bekor — joriy kirimni bekor qilish, /sync — kanalni qo'lda yangilash.
+
+## 📊 Boss panel (Telegram mini app) va 👥 Loginlar
+
+- **Boss panel** — botdagi "📊 Boss panel" tugmasi (yoki chat pastidagi "📊 Boss") saytni `?boss` rejimida ochadi:
+  sotuv/foyda (istalgan kun — `kk.oo.yyyy`), ombor, nasiyalar. Faqat ko'rish uchun, hech narsa o'zgartirilmaydi.
+- Kirish: bot adminlari (ADMIN_IDS) — Telegram orqali parolsiz; boshqalar — botda berilgan login/parol.
+  Keyin har safar do'kon PIN kodi so'raladi.
+- **👥 Loginlar** (faqat ADMIN_IDS dagi birinchi — asosiy admin): login yaratish, parolni almashtirish, o'chirish.
+  Login sayt domenidagi email bo'lib saqlanadi (`ali` → `ali@richmen.netlify.app`, xat yuborilmaydi) va saytga ham kiradi.
+- Sayt manzili boshqa bo'lsa — Supabase → Edge Functions → Secrets ga `SITE_URL` qo'shing (masalan `https://richmen.netlify.app`).
+- Bot kodi yangilangach, `...functions/v1/bot?setup=<WEBHOOK_SECRET>` ni bir marta oching — chat pastida "📊 Boss" tugmasi paydo bo'ladi.
