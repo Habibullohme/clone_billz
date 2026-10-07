@@ -67,6 +67,9 @@ export function NewBatchSheet({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [flash, setFlash] = useState<string | null>(null)
+  /** Telefonda: forma yoki savat ko'rinadi (kompyuterda ikkalasi yonma-yon). */
+  const [mView, setMView] = useState<'form' | 'cart'>('form')
+  const [bump, setBump] = useState(false)
   const nameRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -115,6 +118,8 @@ export function NewBatchSheet({
     setForm((f) => ({ ...f, name: '', cost: '', sale: '', colors: emptyColors() }))
     setError('')
     setFlash(item.id)
+    setBump(true)
+    setTimeout(() => setBump(false), 500)
     setTimeout(() => setFlash(null), 900)
     setTimeout(() => nameRef.current?.focus(), 30)
     return next
@@ -126,6 +131,7 @@ export function NewBatchSheet({
     setNewBrand(!brands.includes(it.brand))
     setForm({ brand: it.brand, name: it.name, size: it.size, packSize: it.packSize, cost: String(it.cost), sale: String(it.sale), colors: it.colors.map((r) => ({ ...r })) })
     setError('')
+    setMView('form')
     setTimeout(() => nameRef.current?.focus(), 30)
   }
   /** Nusxa: o'sha brend/razmer/ranglar, yangi nom va narx uchun. */
@@ -134,6 +140,7 @@ export function NewBatchSheet({
     setEditing(null)
     setNewBrand(!brands.includes(it.brand))
     setForm({ brand: it.brand, name: '', size: it.size, packSize: it.packSize, cost: '', sale: '', colors: it.colors.map((r) => ({ ...r })) })
+    setMView('form')
     setTimeout(() => nameRef.current?.focus(), 30)
   }
   const remove = (id: string) => {
@@ -148,6 +155,13 @@ export function NewBatchSheet({
     const sale = items.reduce((a, it) => a + packsOf(it) * it.packSize * it.sale, 0)
     return { packs, pairs, cost, sale }
   }, [items])
+
+  /** Telefonda savatga o'tish: formada to'liq to'ldirilgan tovar bo'lsa — avval savatga tushadi. */
+  const openCart = () => {
+    if ((touched || editing) && formValid) addToCart()
+    setError('')
+    setMView('cart')
+  }
 
   /** Saqlash: formada to'ldirilgan model qolgan bo'lsa — avval savatga qo'shiladi. */
   const toConfirm = async () => {
@@ -219,7 +233,7 @@ export function NewBatchSheet({
         </header>
 
         {step === 'fill' ? (
-          <div className="sheet-body">
+          <div className={`sheet-body m-${mView}`}>
             <section className="nb-form" onKeyDown={onFormKey}>
               <h3>{editing ? '✎ Tahrirlash' : "Tovar qo'shish"}</h3>
               <div className="form-grid">
@@ -281,13 +295,20 @@ export function NewBatchSheet({
               {error && <div className="error small">{error}</div>}
               <div className="nb-form-actions">
                 {editing && <button className="btn ghost" onClick={() => { setEditing(null); setForm((f) => ({ ...f, name: '', cost: '', sale: '', colors: emptyColors() })) }}>Bekor</button>}
-                <button className="btn primary grow" onClick={addToCart}>
+                <button className="btn primary grow" onClick={() => addToCart()}>
                   {editing ? 'Savatda yangilash' : "➕ Savatga qo'shish"} <kbd>Enter</kbd>
                 </button>
               </div>
+              {/* Telefonda: savat alohida ekranda — shu tugma bilan o'tiladi (qo'shilganda "sakraydi"). */}
+              <button className={`nb-fab${bump ? ' bump' : ''}`} onClick={openCart} aria-label="Savatni ochish">
+                <span className="nb-fab-icon">🛒</span>
+                <span>Savat</span>
+                {totals.packs > 0 && <b className="nb-fab-badge">{totals.packs}</b>}
+              </button>
             </section>
 
             <section className="nb-cart">
+              <button className="link small left nb-back" onClick={() => setMView('form')}>← Tovar qo'shish</button>
               <h3>🛒 Savat {items.length > 0 && <span className="muted">· {items.length} model</span>}</h3>
               {items.length === 0 ? (
                 <div className="nb-empty muted">

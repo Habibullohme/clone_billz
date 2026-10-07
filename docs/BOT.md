@@ -69,3 +69,15 @@ Kompyuterdagi eski bot shu token bilan ishlayotgan bo'lsa — uni to'xtating.
   bitta login faqat bitta Telegramda ochiq bo'ladi; parol kamida 8 belgi (harf + raqam);
   parol almashtirilsa — eski parol bilan ochilgan hamma joydan (sayt, mini app) chiqariladi; hisob turi `app_metadata` da (foydalanuvchi o'zi o'zgartira olmaydi).
 - Bot kodi yangilangach `...functions/v1/bot?setup=<WEBHOOK_SECRET>` ni yana bir marta oching.
+
+## Yangilanish: 🛠 Admin va 📊 Kuzatuvchi
+
+- Hisob turlari: **🛠 Admin** — mini app'da to'liq sayt (kassa, tovarlar, kirim, etiketka) telefon ko'rinishida;
+  **📊 Kuzatuvchi** — faqat statistika (PIN bilan). Kuzatuvchi saytga kirsa ham faqat statistikani ko'radi.
+  Eski turlar: Boss → Kuzatuvchi, Sotuvchi → Admin.
+- Bot egasi (ADMIN_IDS) mini app'da statistikani ko'radi, "🛠 Admin" tugmasi bilan to'liq saytga o'tadi
+  (Telegram'ning ← tugmasi bilan qaytadi).
+- Botga kirish bitta xabarda: 🔐 Kirish → login → parol (yozilganlari darhol o'chadi). Login yo'q bo'lsa — o'sha xabarda aytiladi.
+  3 marta noto'g'ri — 15 daqiqa (keyin 30, 60…) to'xtatiladi.
+- Yuk qo'shish savollari bitta kartochkada (javoblar o'chib, kartochkada yig'iladi);
+  "✍️ Qo'lda kiritish", "❌ Bekor qilish", "✅ Tasdiqlash" — pastki tugmalar; narxlar uchun oxirgi ishlatilganlar tugmada.
