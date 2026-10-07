@@ -41,6 +41,27 @@ const isToday = (iso: string) => new Date(iso).toDateString() === new Date().toD
 const dayTime = (iso: string) =>
   new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 
+/**
+ * Tugma ikki-uch marta bosilsa ham ish faqat bir marta bajariladi (kirim ikki marta yozilmasin).
+ * Ish tugaguncha tugma "Saqlanmoqda…" bo'lib o'chib turadi.
+ */
+function useOnce(): [boolean, (job: () => Promise<unknown>) => Promise<void>] {
+  const lock = useRef(false)
+  const [busy, setBusy] = useState(false)
+  const run = async (job: () => Promise<unknown>) => {
+    if (lock.current) return
+    lock.current = true
+    setBusy(true)
+    try {
+      await job()
+    } finally {
+      lock.current = false
+      setBusy(false)
+    }
+  }
+  return [busy, run]
+}
+
 export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: string) => void }) {
   const [products, setProducts] = useState<Product[]>([])
   const [sales, setSales] = useState<Sale[]>([])
@@ -93,14 +114,16 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
     }
   }
 
-  const confirmImport = async () => {
-    if (!preview) return
-    const ok = preview.items.filter((r) => r.errors.length === 0).map((r) => r.input)
-    const batch = await importProducts(ok, 'excel')
-    setPreview(null)
-    setImported(batch)
-    reload()
-  }
+  const [importing, runImport] = useOnce()
+  const confirmImport = () =>
+    runImport(async () => {
+      if (!preview) return
+      const ok = preview.items.filter((r) => r.errors.length === 0).map((r) => r.input)
+      const batch = await importProducts(ok, 'excel')
+      setPreview(null)
+      setImported(batch)
+      reload()
+    })
 
   const remove = (ids: string[], what: string) =>
     setConfirm({
@@ -352,8 +375,8 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
           )}
           <div className="modal-actions">
             <button className="btn ghost" onClick={() => setPreview(null)}>Bekor</button>
-            <button className="btn primary" disabled={!preview.items.some((r) => !r.errors.length)} onClick={confirmImport}>
-              Qo'shish
+            <button className="btn primary" disabled={importing || !preview.items.some((r) => !r.errors.length)} onClick={confirmImport}>
+              {importing ? "Qo'shilmoqda…" : "Qo'shish"}
             </button>
           </div>
         </Modal>
@@ -422,6 +445,7 @@ function ProductForm({
   onDelete?: () => void
 }) {
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [saving, runSave] = useOnce()
   const [f, setF] = useState({
     ...initial,
     costPrice: initial.costPrice ? String(initial.costPrice) : '',
@@ -490,17 +514,17 @@ function ProductForm({
         <button className="btn ghost" onClick={onClose}>Bekor</button>
         <button
           className="btn primary"
-          disabled={!valid}
-          onClick={async () =>
+          disabled={!valid || saving}
+          onClick={() => runSave(async () =>
             setSaveError(
               await onSave(
                 { brand: f.brand, name: f.name, size: f.size, color: f.color, packSize: f.packSize, packs: f.packs, costPrice: cost, salePrice: sale },
                 product ? Number(f.stock) : undefined,
               ),
-            )
-          }
+            ),
+          )}
         >
-          Saqlash
+          {saving ? 'Saqlanmoqda…' : 'Saqlash'}
         </button>
       </div>
     </Modal>
@@ -520,7 +544,8 @@ function loadDraft(): { brand: string; size: string; packSize: number } {
 
 function NewProductForm({
   initialBrand, onClose, onSave,
-}: { initialBrand: string | null; onClose: () => void; onSave: (inputs: ProductInput[]) => void }) {
+}: { initialBrand: string | null; onClose: () => void; onSave: (inputs: ProductInput[]) => Promise<void> }) {
+  const [saving, runSave] = useOnce()
   const draft = loadDraft()
   const [brand, setBrand] = useState(initialBrand ?? draft.brand)
   const [brands, setBrands] = useState<string[]>([])
@@ -549,7 +574,7 @@ function NewProductForm({
   }, [brand, totalPacks])
   const valid = brand.trim() && name.trim() && packSize >= 1 && c > 0 && sp > 0 && totalPacks > 0
 
-  const save = () => {
+  const save = () => runSave(async () => {
     if (!valid) return
     try {
       localStorage.setItem(DRAFT_KEY, JSON.stringify({ brand: brand.trim(), size: size.trim(), packSize }))
@@ -557,8 +582,8 @@ function NewProductForm({
       // Eslab qolinmasa ham saqlash ishlayveradi.
     }
     if (newBrand) addBrand(brand)
-    onSave(rows.map((r) => ({ brand, name, size, color: r.color.trim(), packSize, packs: r.packs, costPrice: c, salePrice: sp })))
-  }
+    await onSave(rows.map((r) => ({ brand, name, size, color: r.color.trim(), packSize, packs: r.packs, costPrice: c, salePrice: sp })))
+  })
 
   const setRow = (i: number, patch: Partial<{ color: string; packs: number }>) =>
     setColors((list) => list.map((r, j) => (j === i ? { ...r, ...patch } : r)))
@@ -666,7 +691,7 @@ function NewProductForm({
       <div className="modal-actions">
         <span className="grow" />
         <button className="btn ghost" onClick={onClose}>Bekor</button>
-        <button className="btn primary" disabled={!valid} onClick={save}>Saqlash</button>
+        <button className="btn primary" disabled={!valid || saving} onClick={save}>{saving ? 'Saqlanmoqda…' : 'Saqlash'}</button>
       </div>
     </Modal>
   )

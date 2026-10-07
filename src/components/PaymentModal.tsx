@@ -14,7 +14,7 @@ interface Props {
   customerPhone: string
   onPhoneChange: (phone: string) => void
   onCancel: () => void
-  onConfirm: (payment: Payment, change: number, usdRate: number) => void
+  onConfirm: (payment: Payment, change: number, usdRate: number) => void | Promise<void>
 }
 
 const num = (s: string) => {
@@ -58,7 +58,9 @@ export function PaymentModal({ total, usdRate: initialRate, customerName, onCust
   const confirm = () => {
     if (blocked || sent.current) return
     sent.current = true
-    onConfirm({ cash: s.cash, usd: usdAmount, usdRate, card: num(card), debt: num(debt) }, s.change, usdRate)
+    // Ikki marta bosilsa ham sotuv bir marta yoziladi. Saqlanmasa (internet) — qayta bosish mumkin.
+    Promise.resolve(onConfirm({ cash: s.cash, usd: usdAmount, usdRate, card: num(card), debt: num(debt) }, s.change, usdRate))
+      .finally(() => (sent.current = false))
   }
 
   useBackClose(onCancel)
