@@ -15,19 +15,22 @@ import { formatSum, shortSum } from '../lib/money'
 import { inPeriod, type Period } from '../lib/period'
 import { applyTheme } from '../lib/theme'
 import { loadTelegram, type TgWebApp } from '../lib/telegram'
+import { App } from '../App'
 
-type Boot = 'loading' | 'login' | 'unbound' | 'denied' | 'offline' | 'pin' | 'ready'
+type Boot = 'loading' | 'login' | 'unbound' | 'denied' | 'offline' | 'pin' | 'ready' | 'site'
 
 /**
- * Boss panel — Telegram botdagi mini app: egasi telefonda faqat kuzatadi
- * (sotuv, foyda, ombor, nasiya). Hech narsa o'zgartirilmaydi. Kirish: Telegram (bot adminlari)
- * yoki botda berilgan login/parol, keyin do'kon PIN kodi.
+ * Telegram botdagi mini app (panel). Hisob turiga qarab:
+ * - 📊 Kuzatuvchi — faqat statistika (sotuv, foyda, ombor, nasiya), do'kon PIN kodi bilan;
+ * - 🛠 Admin — to'liq sayt (kassa, tovarlar, kirim…) telefon ko'rinishida;
+ * - bot egasi (ADMIN_IDS) — statistika, "🛠 Admin" tugmasi bilan to'liq saytga o'tadi.
+ * Telegram ichida login so'ralmaydi: bot har ochilishda Telegram imzosini tekshirib kirgizadi.
  */
 export function BossApp() {
   const [boot, setBoot] = useState<Boot>('loading')
   const [tg, setTg] = useState<TgWebApp | null>(null)
   const [note, setNote] = useState('')
-  const [role, setRole] = useState<PanelRole>('admin')
+  const [role, setRole] = useState<PanelRole>('owner')
 
   const start = async () => {
     setBoot('loading')
@@ -35,7 +38,7 @@ export function BossApp() {
       const app = await loadTelegram()
       setTg(app)
       if (app) applyTheme(app.colorScheme)
-      let r: PanelRole = 'admin'
+      let r: PanelRole = 'owner'
       if (cloudEnabled) {
         if (app) {
           // Telegram ichida: har ochilishda bot qayta tekshiradi (chiqqan, o'chirilgan yoki
@@ -58,14 +61,18 @@ export function BossApp() {
           return setBoot('login')
         }
       }
-      // Sinov rejimi (baza ulanmagan): ?boss=seller — sotuvchi panelini ko'rish.
-      else if (new URLSearchParams(location.search).get('boss') === 'seller') r = 'seller'
+      // Sinov rejimi (baza ulanmagan): ?boss=admin yoki ?boss=stats — o'sha panelni ko'rish.
+      else {
+        const v = new URLSearchParams(location.search).get('boss')
+        if (v === 'admin' || v === 'stats') r = v
+      }
+      setRole(r)
+      // Admin — to'liq sayt (o'zi ma'lumotni yuklaydi, boshqaruv bo'limlarida PIN so'raydi).
+      if (r === 'admin') return setBoot('site')
       await initStore()
       const s = await getSettings()
       rememberBrand({ name: s.shopName, logo: s.shopLogo })
-      setRole(r)
-      // Sotuvchi paneli PIN so'ramaydi (unda foyda, tannarx yo'q); Boss panel — do'kon PIN kodi bilan.
-      setBoot(r !== 'seller' && s.ownerPin ? 'pin' : 'ready')
+      setBoot(s.ownerPin ? 'pin' : 'ready')
     } catch (e) {
       console.error(e)
       setBoot('offline')
@@ -73,7 +80,7 @@ export function BossApp() {
   }
 
   useEffect(() => {
-    document.title = 'Boss panel'
+    document.title = 'Panel'
     start()
     const sub = supabase?.auth.onAuthStateChange((event) => {
       // Telegram ichida sessiya har ochilishda qayta olinadi — u yerdagi "chiqish" kirish oynasi emas.
@@ -82,8 +89,9 @@ export function BossApp() {
     return () => sub?.data.subscription.unsubscribe()
   }, [])
 
-  if (boot === 'ready') return role === 'seller' ? <SellerDashboard tg={tg} /> : <Dashboard tg={tg} />
-  if (boot === 'login') return <LoginPage onDone={start} subtitle="Boss panel" />
+  if (boot === 'site') return <SiteView tg={tg} onBack={role === 'owner' ? () => setBoot('ready') : undefined} />
+  if (boot === 'ready') return <Dashboard tg={tg} role={role} onSite={role === 'owner' ? () => setBoot('site') : undefined} />
+  if (boot === 'login') return <LoginPage onDone={start} subtitle="Panel" />
   if (boot === 'pin')
     return (
       <div className="boss-pin">
@@ -121,10 +129,10 @@ export function BossApp() {
   )
 }
 
-/** Panel sarlavhasi va pastki bo'limlar — Boss va Sotuvchi panelida bir xil. */
-function PanelShell<T extends string>({ title, tabs, tab, onTab, onReload, busy, updated, tg, children }: {
+/** Panel sarlavhasi va pastki bo'limlar. */
+function PanelShell<T extends string>({ title, tabs, tab, onTab, onReload, busy, updated, tg, action, children }: {
   title: string; tabs: readonly (readonly [T, string, string])[]; tab: T; onTab: (t: T) => void
-  onReload: () => void; busy: boolean; updated: Date; tg: TgWebApp | null; children: React.ReactNode
+  onReload: () => void; busy: boolean; updated: Date; tg: TgWebApp | null; action?: React.ReactNode; children: React.ReactNode
 }) {
   const brand = cachedBrand()
   return (
@@ -135,6 +143,7 @@ function PanelShell<T extends string>({ title, tabs, tab, onTab, onReload, busy,
           <b>{brand.name}</b>
           <span>{title} · {updated.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span>
         </div>
+        {action}
         <button className={`boss-refresh${busy ? ' spin' : ''}`} onClick={onReload} aria-label="Yangilash">
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v4h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
         </button>
@@ -198,13 +207,15 @@ function useLiveData() {
 
 type Tab = 'sales' | 'stock' | 'debts'
 
-function Dashboard({ tg }: { tg: TgWebApp | null }) {
+/** Statistika (kuzatuvchi): sotuv, foyda, ombor, nasiya. Egasida — to'liq saytga o'tish tugmasi. */
+function Dashboard({ tg, role, onSite }: { tg: TgWebApp | null; role: PanelRole; onSite?: () => void }) {
   const [tab, setTab] = useState<Tab>('sales')
   const d = useLiveData()
   return (
     <PanelShell
-      title="Boss panel" tab={tab} onTab={setTab} tg={tg} onReload={d.reload} busy={d.busy} updated={d.updated}
+      title={role === 'stats' ? 'Kuzatuvchi panel' : 'Statistika'} tab={tab} onTab={setTab} tg={tg} onReload={d.reload} busy={d.busy} updated={d.updated}
       tabs={[['sales', 'Sotuvlar', '📈'], ['stock', 'Ombor', '📦'], ['debts', 'Nasiyalar', '📒']] as const}
+      action={onSite && <button className="btn ghost small boss-site" onClick={onSite}>🛠 Admin</button>}
     >
       {tab === 'sales' && d.settings && <SalesView sales={d.sales} settings={d.settings} tg={tg} />}
       {tab === 'stock' && <StockView products={d.products} />}
@@ -213,69 +224,16 @@ function Dashboard({ tg }: { tg: TgWebApp | null }) {
   )
 }
 
-/** Sotuvchi paneli: tovar qidirish (narx, qoldiq) va cheklar. Foyda va tannarx ko'rinmaydi. */
-function SellerDashboard({ tg }: { tg: TgWebApp | null }) {
-  const [tab, setTab] = useState<'goods' | 'receipts'>('goods')
-  const d = useLiveData()
-  return (
-    <PanelShell
-      title="Sotuvchi panel" tab={tab} onTab={setTab} tg={tg} onReload={d.reload} busy={d.busy} updated={d.updated}
-      tabs={[['goods', 'Tovarlar', '👟'], ['receipts', 'Cheklar', '🧾']] as const}
-    >
-      {tab === 'goods' && <GoodsView products={d.products} />}
-      {tab === 'receipts' && d.settings && <ReceiptsView sales={d.sales} settings={d.settings} tg={tg} />}
-    </PanelShell>
-  )
-}
-
-function GoodsView({ products }: { products: Product[] }) {
-  const [q, setQ] = useState('')
-  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean)
-  const list = products
-    .filter((p) => p.stock > 0 && words.every((w) => `${p.brand} ${p.name} ${p.size} ${p.color} ${p.barcode}`.toLowerCase().includes(w)))
-    .sort((a, b) => a.brand.localeCompare(b.brand) || a.name.localeCompare(b.name, undefined, { numeric: true }))
-  const shown = list.slice(0, 200)
+/**
+ * 🛠 Admin: to'liq sayt (kassa, tovarlar, kirim, etiketka…) telefon ko'rinishida.
+ * Bot egasi uchun — Telegram'ning "orqaga" tugmasi (yoki pastdagi tugma) statistikaga qaytaradi.
+ */
+function SiteView({ tg, onBack }: { tg: TgWebApp | null; onBack?: () => void }) {
+  useTgBack(tg, onBack ?? null)
   return (
     <>
-      <input className="input" type="search" placeholder="Qidirish: brend, model, kod, razmer, rang" value={q} onChange={(e) => setQ(e.target.value)} />
-      <div className="boss-kpis">
-        <div className="boss-kpi main"><span>Omborda</span><b>{list.length} pachka</b><small className="muted">{list.reduce((a, p) => a + p.stock, 0)} juft</small></div>
-      </div>
-      <section className="boss-card">
-        {shown.length === 0 && <p className="muted">Topilmadi.</p>}
-        {shown.map((p) => (
-          <div key={p.id} className="boss-row static" style={hueStyle(p.brand)}>
-            <span className="grow"><span><i className="dot" />{!p.name.toLowerCase().startsWith(p.brand.toLowerCase()) && `${p.brand} · `}<b>{p.name}</b></span><small className="muted">{[p.size, p.color, `${p.stock} juft`].filter(Boolean).join(' · ')}</small></span>
-            <span className="num"><b>{formatSum(p.salePrice)}</b><small className="muted">1 juft</small></span>
-          </div>
-        ))}
-        {list.length > shown.length && <p className="muted small">Yana {list.length - shown.length} ta — qidiruvni aniqlashtiring.</p>}
-      </section>
-    </>
-  )
-}
-
-function ReceiptsView({ sales, settings, tg }: { sales: Sale[]; settings: Settings; tg: TgWebApp | null }) {
-  const [period, setPeriod] = useState<Period>('today')
-  const [open, setOpen] = useState<Sale | null>(null)
-  const close = useMemo(() => (open ? () => setOpen(null) : null), [open])
-  useTgBack(tg, close)
-  const list = sales.filter((s) => inPeriod(s.createdAt, period))
-  if (open) return <ReceiptScreen sale={open} settings={settings} onBack={() => setOpen(null)} />
-  return (
-    <>
-      <PeriodPicker value={period} onChange={setPeriod} month={false} />
-      <section className="boss-card">
-        <h2>Cheklar · {list.length}</h2>
-        {list.length === 0 && <p className="muted">Bu davrda chek yo'q.</p>}
-        {list.map((s) => (
-          <button key={s.id} className="boss-row" onClick={() => setOpen(s)}>
-            <span className="muted">№{s.number}</span>
-            <span className="grow">{s.customerName || <span className="muted">Mijozsiz</span>}<small className="muted">{fmtWhen(s.createdAt, period)}</small></span>
-            <span className="muted">›</span>
-          </button>
-        ))}
-      </section>
+      <App />
+      {onBack && !tg && <button className="boss-back" onClick={onBack}>📊 Statistika</button>}
     </>
   )
 }

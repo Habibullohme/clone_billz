@@ -291,7 +291,8 @@ export async function whoAmI(): Promise<string> {
   return [email, deviceName()].filter(Boolean).join(' · ')
 }
 
-export type PanelRole = 'admin' | 'boss' | 'seller'
+/** owner — bot egasi yoki email hisob; admin — to'liq sayt; stats — kuzatuvchi (faqat statistika). */
+export type PanelRole = 'owner' | 'admin' | 'stats'
 
 /**
  * Mini app (Telegram): bot adminlari va botda login qilib bog'langanlar parolsiz kiradi.
@@ -307,10 +308,10 @@ export async function telegramSignIn(initData: string): Promise<{ role: PanelRol
   return v.error ? v.error.message : { role: r.role }
 }
 
-/** Kirgan hisob turi (bot bergan loginlarda app_metadata.role; boshqalar — boss). */
+/** Kirgan hisob turi (bot bergan loginlarda app_metadata.role; boshqalar — egasi). Eski nomlar ham tushuniladi. */
 export async function sessionRole(): Promise<PanelRole> {
   const role = (await getSession())?.user.app_metadata?.role
-  return role === 'seller' ? 'seller' : role === 'boss' ? 'boss' : 'admin'
+  return role === 'admin' || role === 'seller' ? 'admin' : role === 'stats' || role === 'boss' ? 'stats' : 'owner'
 }
 
 /** Faqat shu qurilmadagi sessiyani yopadi. */

@@ -6,7 +6,8 @@ import { LabelsPage } from './pages/LabelsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { PinGate } from './components/PinGate'
 import { getSettings, initStore, onSyncError, refresh, saveSettings, type Settings } from './data/store'
-import { cloudEnabled, getSession, isRevoked, isStaff, signOut, signOutHere, supabase, touchDevice, watchRevoke } from './data/cloud'
+import { cloudEnabled, getSession, isRevoked, isStaff, sessionRole, signOut, signOutHere, supabase, touchDevice, watchRevoke } from './data/cloud'
+import { isBossMode } from './lib/telegram'
 import { LoginPage } from './pages/LoginPage'
 import { applyFavicon, cachedBrand, rememberBrand } from './lib/brand'
 import { ShopMark } from './components/ShopMark'
@@ -54,6 +55,11 @@ export function App() {
       if (cloudEnabled) {
         if (!(await getSession())) return setBoot('login')
         if (!(await isStaff())) return setBoot('denied')
+        // Kuzatuvchi hisob saytda ham faqat statistikani ko'radi (kassa va boshqaruv yopiq).
+        if (!isBossMode() && (await sessionRole()) === 'stats') {
+          location.replace(`${location.pathname}?boss`)
+          return
+        }
         // Boshqa qurilmadan "chiqarilgan" bo'lsa — kirish oynasi.
         if (!(await touchDevice())) {
           await signOut()

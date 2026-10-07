@@ -205,7 +205,7 @@ export const parseList = (t: string) => t.split(/[,;\n]+/).map((x) => x.trim()).
 export const siteUrl = () => (env('SITE_URL') || 'https://richmen.netlify.app').replace(/\/+$/, '')
 /** Loginlar sayt domenidagi email bo'lib saqlanadi: "ali" → ali@richmen.netlify.app (xat yuborilmaydi). */
 export const loginDomain = () => new URL(siteUrl()).hostname
-/** Mini app manzili (Boss va Sotuvchi paneli bitta — hisob turiga qarab ochiladi). */
+/** Mini app manzili (Admin va Kuzatuvchi paneli bitta — hisob turiga qarab ochiladi). */
 export const panelUrl = () => `${siteUrl()}/?boss`
 
 /** Pastdagi menyu. Asosiy admin (ADMIN_IDS dagi birinchi) — loginlarni ham boshqaradi. */
@@ -213,7 +213,7 @@ const menu = (owner: boolean) => ({
   reply_markup: {
     keyboard: [
       [{ text: "📦 Yuk qo'shish" }, { text: '⚙️ Sozlamalar' }],
-      [{ text: '📊 Boss panel', web_app: { url: panelUrl() } }, ...(owner ? [{ text: '👥 Loginlar' }] : [])],
+      [{ text: '📊 Panel', web_app: { url: panelUrl() } }, ...(owner ? [{ text: '👥 Loginlar' }] : [])],
     ],
     resize_keyboard: true, is_persistent: true,
   },
@@ -274,6 +274,8 @@ interface Session extends Partial<Draft> {
   step: Step; packsPerPhoto?: number; photoCount?: number; setting?: string
   /** Login yaratish / parol almashtirish / botga kirish: login nomi, turi va (almashtirishda) foydalanuvchi id. */
   login?: string; userId?: string; role?: Role
+  /** Tahrirlanib boradigan bitta xabar (kirish oynasi yoki kirim kartochkasi). */
+  cardId?: number
   /** Noto'g'ri parollar hisobi (botga kirishda). */
   guard?: { fails?: number; locks?: number; lockUntil?: number }
 }
@@ -294,65 +296,98 @@ async function brandList(): Promise<string[]> {
 
 const chunk = <T,>(a: T[], n: number) => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n))
 
-async function ask(chat: number, s: Session) {
-  const cancel = [b('❌ Bekor qilish', 'cancel')]
+/** Shu brendda oxirgi ishlatilgan narxlar (tez tanlash tugmalari uchun). */
+async function recentPrices(brand: string, field: 'cost_price' | 'sale_price', cost?: number): Promise<number[]> {
+  const rows = await db<{ cost_price: number; sale_price: number }[]>(
+    `products?select=cost_price,sale_price&brand=ilike.${encodeURIComponent(brand.replace(/[*,()]/g, ''))}&order=created_at.desc&limit=200`,
+  ).catch(() => [])
+  const pick = (cost ? rows.filter((r) => Number(r.cost_price) === cost) : []).concat(rows)
+  return [...new Set(pick.map((r) => Number(r[field])).filter((n) => n > 0))].slice(0, 4)
+}
+
+/** Savol kartochkasi: tepasida yig'ilgan javoblar, pastida joriy savol va variantlar. */
+async function card(s: Session, note?: string): Promise<{ text: string; rows: Btn[][] }> {
+  const done = [
+    s.brand && s.step !== 'brand' && s.step !== 'brand_new' && `🏷 Brend: <b>${esc(s.brand)}</b>`,
+    s.model && !['brand', 'brand_new', 'model'].includes(s.step) && `👟 Model: <b>${esc(s.model)}</b>`,
+    s.size !== undefined && ['color', 'packSize', 'cost', 'price'].includes(s.step) && `📏 Razmer: <b>${esc(s.size || '—')}</b>`,
+    s.color !== undefined && ['packSize', 'cost', 'price'].includes(s.step) && `🎨 Rang: <b>${esc(s.color || '—')}</b>`,
+    s.packSize && ['cost', 'price'].includes(s.step) && `📦 Pachkada: <b>${s.packSize} juft</b>`,
+    s.cost && s.step === 'price' && `💵 Kelish: <b>${formatSum(s.cost)}</b>`,
+  ].filter(Boolean) as string[]
+  const total = (s.photoCount ?? 0) * (s.packsPerPhoto ?? 1)
+  const head = `📦 <b>Yangi kirim</b> · ${s.photoCount} ta rasm${total !== s.photoCount ? ` → ${total} pachka` : ''}`
+  let q = ''
+  let rows: Btn[][] = []
   switch (s.step) {
     case 'packs':
-      return say(chat, '📦 Bitta rasm. Bu rasmdagi model <b>nechta pachka</b>?', kb([
-        ['1', '2', '3', '5', '10'].map((n) => b(n, `packs:${n}`)), cancel,
-      ]))
-    case 'brand': {
-      const brands = await brandList()
-      return say(chat, `🏷 <b>Brend</b>ni tanlang (${s.photoCount} ta rasm${(s.packsPerPhoto ?? 1) > 1 ? ` · ${s.packsPerPhoto} pachka` : ''})`, kb([
-        ...chunk(brands.map((x) => b(x, `brand:${x.slice(0, 50)}`)), 3),
-        [b('➕ Yangi brend', 'brand_new')], cancel,
-      ]))
-    }
+      q = '📦 Bitta rasm. Bu rasmdagi model <b>nechta pachka</b>?'
+      rows = [['1', '2', '3', '5', '10'].map((n) => b(n, `packs:${n}`))]
+      break
+    case 'brand':
+      q = '🏷 <b>Brend</b>ni tanlang:'
+      rows = [...chunk((await brandList()).map((x) => b(x, `brand:${x.slice(0, 50)}`)), 3), [b('➕ Yangi brend', 'brand_new')]]
+      break
     case 'brand_new':
-      return say(chat, '✍️ Yangi brend nomini yozing:')
+      q = '✍️ <b>Yangi brend</b> nomini yozing:'
+      break
     case 'model':
-      return say(chat, `✍️ <b>${esc(s.brand!)}</b> — <b>model nomi</b>ni yozing (masalan: qo'shma):`, kb([cancel]))
-    case 'size': {
-      const c = await getCfg()
-      return say(chat, '📏 <b>Razmer</b>:', kb([
-        ...chunk(c.sizes.map((x) => b(x, `size:${x.slice(0, 40)}`)), 3),
-        [b("✍️ Qo'lda kiritish", 'manual:size')], cancel,
-      ]))
+      q = "✍️ <b>Model nomi</b>ni yozing (masalan: qo'shma):"
+      break
+    case 'size':
+      q = "📏 <b>Razmer</b> — tanlang yoki yozing:"
+      rows = chunk((await getCfg()).sizes.map((x) => b(x, `size:${x.slice(0, 40)}`)), 3)
+      break
+    case 'color':
+      q = '🎨 <b>Rang</b> — tanlang yoki yozing:'
+      rows = [...chunk((await getCfg()).colors.map((x) => b(x, `color:${x.slice(0, 40)}`)), 3), [b('— Yozmaslik', 'color:')]]
+      break
+    case 'packSize':
+      q = '👟 <b>Pachkada necha juft?</b>'
+      rows = [(await getCfg()).packSizes.map((x) => b(String(x), `packSize:${x}`))]
+      break
+    case 'cost': {
+      q = "💵 <b>Kelish narxi</b> (1 juft) — tanlang yoki yozing, masalan 200000.\n<i>Kanalga chiqmaydi.</i>"
+      const p = await recentPrices(s.brand ?? '', 'cost_price')
+      if (p.length) rows = chunk(p.map((n) => b(formatSum(n), `cost:${n}`)), 2)
+      break
     }
-    case 'color': {
-      const c = await getCfg()
-      return say(chat, '🎨 <b>Rang</b>:', kb([
-        ...chunk(c.colors.map((x) => b(x, `color:${x.slice(0, 40)}`)), 3),
-        [b("✍️ Qo'lda kiritish", 'manual:color'), b('— Yozmaslik', 'color:')], cancel,
-      ]))
-    }
-    case 'packSize': {
-      const c = await getCfg()
-      return say(chat, '👟 <b>Pachkada necha juft?</b>', kb([
-        c.packSizes.map((x) => b(String(x), `packSize:${x}`)),
-        [b("✍️ Qo'lda kiritish", 'manual:packSize')], cancel,
-      ]))
-    }
-    case 'cost':
-      return say(chat, '💵 <b>Kelish narxi</b> (1 juft uchun), masalan: 200000\n<i>Kanalga chiqmaydi.</i>', kb([cancel]))
-    case 'price':
-      return say(chat, `💰 <b>Sotuv narxi</b> (1 juft uchun). Kelish: ${formatSum(s.cost!)}`, kb([cancel]))
-    case 'confirm': {
-      const total = (s.photoCount ?? 0) * (s.packsPerPhoto ?? 1)
-      const pairs = total * s.packSize!
-      return say(chat, [
-        '📋 <b>Tekshiring</b>',
-        '',
-        `👟 ${esc(s.brand!)} ${esc(s.model!)}`,
-        `📏 ${esc(s.size || '—')} · 🎨 ${esc(s.color || '—')} · ${s.packSize} juftlik`,
-        `📷 ${s.photoCount} ta rasm → <b>${total} pachka</b> (${pairs} juft)`,
-        `💵 Kelish: ${formatSum(s.cost!)} · 💰 Sotuv: <b>${formatSum(s.price!)}</b> (1 juft)`,
-        `📈 Foyda: <b>${formatSum((s.price! - s.cost!) * s.packSize!)}</b> (1 pachka)`,
-        '',
-        'Tasdiqlasangiz — saytga tushadi va kanalga chiqadi.',
-      ].join('\n'), kb([[b('✅ Tasdiqlash', 'ok'), b('❌ Bekor', 'cancel')]]))
+    case 'price': {
+      q = '💰 <b>Sotuv narxi</b> (1 juft) — tanlang yoki yozing:'
+      const p = await recentPrices(s.brand ?? '', 'sale_price', s.cost)
+      if (p.length) rows = chunk(p.map((n) => b(formatSum(n), `price:${n}`)), 2)
+      break
     }
   }
+  return { text: [head, ...(done.length ? ['', ...done] : []), '', ...(note ? [`<i>${note}</i>`] : []), q].join('\n'), rows }
+}
+
+/** Kirim savollari bitta xabarda — u har javobdan keyin tahrirlanadi (chat to'lib ketmaydi). */
+async function ask(chat: number, s: Session, note?: string) {
+  if (s.step === 'confirm') return confirmCard(chat, s, note)
+  const { text, rows } = await card(s, note)
+  const id = await edit(chat, s.cardId, text, rows.length ? kb(rows) : {})
+  if (id !== s.cardId) await setSession(chat, { ...s, cardId: id })
+}
+
+/** Yakuniy tekshiruv: kartochka o'rniga — "✅ Tasdiqlash" pastki tugmasi bilan xabar. */
+async function confirmCard(chat: number, s: Session, note?: string) {
+  const total = (s.photoCount ?? 0) * (s.packsPerPhoto ?? 1)
+  const pairs = total * s.packSize!
+  await drop(chat, s.cardId)
+  const m = await say(chat, [
+    '📋 <b>Tekshiring</b>',
+    '',
+    `👟 ${esc(s.brand!)} ${esc(s.model!)}`,
+    `📏 ${esc(s.size || '—')} · 🎨 ${esc(s.color || '—')} · ${s.packSize} juftlik`,
+    `📷 ${s.photoCount} ta rasm → <b>${total} pachka</b> (${pairs} juft)`,
+    `💵 Kelish: ${formatSum(s.cost!)} · 💰 Sotuv: <b>${formatSum(s.price!)}</b> (1 juft)`,
+    `📈 Foyda: <b>${formatSum((s.price! - s.cost!) * s.packSize!)}</b> (1 pachka)`,
+    ...(note ? ['', `⚠️ ${note}`] : []),
+    '',
+    'Tasdiqlasangiz — saytga tushadi va kanalga chiqadi.',
+  ].join('\n'), CONFIRM_KB) as { message_id?: number }
+  await setSession(chat, { ...s, cardId: m?.message_id })
 }
 
 /** Rasmlar tayyor: nechta rasm kelganini aytadi va savollarni boshlaydi. */
@@ -360,9 +395,9 @@ async function photosDone(chat: number, s: Session) {
   if (s.step !== 'photos') return
   const n = (await db<{ id: number }[]>(`bot_photos?chat_id=eq.${chat}&select=id`)).length
   if (!n) return say(chat, "Hali rasm yo'q. Rasmlarni yuboring.", PHOTO_KB)
-  const ns: Session = { ...s, photoCount: n, step: n === 1 ? 'packs' : 'brand', packsPerPhoto: 1 }
+  const ns: Session = { ...s, photoCount: n, step: n === 1 ? 'packs' : 'brand', packsPerPhoto: 1, cardId: undefined }
   await setSession(chat, ns)
-  await say(chat, `📷 <b>${n} ta rasm</b> qabul qilindi.`, CANCEL_KB)
+  await say(chat, `📷 <b>${n} ta rasm</b> qabul qilindi. Savollarga javob bering 👇`, QA_KB)
   return ask(chat, ns)
 }
 
@@ -610,13 +645,20 @@ async function auth<T = unknown>(path: string, init: RequestInit = {}, bearer = 
   return body as T
 }
 
-/** Hisob turi: boss — Boss panel (sotuv, foyda, ombor, nasiya); sotuvchi — Sotuvchi panel (narx, qoldiq, cheklar). */
-export type Role = 'boss' | 'seller'
-export const ROLE_NAME: Record<Role, string> = { boss: '👔 Boss', seller: '🛒 Sotuvchi' }
+/**
+ * Hisob turi: admin — to'liq sayt (kassa, tovarlar, kirim…) telefonda, mini app ichida;
+ * stats — kuzatuvchi: faqat statistika (sotuv, foyda, ombor, nasiya).
+ */
+export type Role = 'admin' | 'stats'
+export const ROLE_NAME: Record<Role, string> = { admin: '🛠 Admin', stats: '📊 Kuzatuvchi' }
+/** Eski nomlar: boss → kuzatuvchi, seller → admin. */
+export const normRole = (r: unknown): Role | null =>
+  r === 'admin' || r === 'seller' ? 'admin' : r === 'stats' || r === 'boss' ? 'stats' : null
+const PANEL_NAME: Record<Role, string> = { admin: '🛠 Admin panel', stats: '📊 Kuzatuvchi panel' }
 
 /**
  * Hisob ma'lumoti app_metadata da — uni faqat maxfiy kalit o'zgartira oladi
- * (foydalanuvchi o'zi rolini "boss" qilib qo'ya olmaydi).
+ * (foydalanuvchi o'zi turini o'zgartira olmaydi).
  */
 interface AppMeta { role?: Role; login?: string; tg?: number | null }
 interface AuthUser { id: string; email?: string; last_sign_in_at?: string | null; created_at: string; app_metadata?: AppMeta }
@@ -628,8 +670,7 @@ const loginEmail = (login: string) => `${login}@${loginDomain()}`
 function asLogin(u: AuthUser): Login | null {
   const [name, domain] = (u.email ?? '').split('@')
   if (domain !== loginDomain() || !LOGIN_RE.test(name)) return null
-  const role = u.app_metadata?.role
-  return { ...u, login: name, role: role === 'boss' || role === 'seller' ? role : null, tg: Number(u.app_metadata?.tg) || null }
+  return { ...u, login: name, role: normRole(u.app_metadata?.role), tg: Number(u.app_metadata?.tg) || null }
 }
 
 export function genPassword(n = 10): string {
@@ -680,7 +721,7 @@ const setMeta = (u: Login, patch: AppMeta) =>
 async function resetChat(tgId: number, text: string) {
   await tg('setChatMenuButton', { chat_id: tgId, menu_button: { type: 'default' } }).catch(() => {})
   await tg('deleteMyCommands', { scope: { type: 'chat', chat_id: tgId } }).catch(() => {})
-  await say(tgId, text, LOGIN_MENU).catch(() => {})
+  await say(tgId, `${text}\nQayta kirish: /start`, NO_KB).catch(() => {})
 }
 
 /**
@@ -690,7 +731,7 @@ async function resetChat(tgId: number, text: string) {
 async function resetPassword(u: Login, password: string): Promise<Login> {
   await auth(`admin/users/${u.id}`, { method: 'DELETE' })
   if (u.tg) await resetChat(u.tg, '🔐 Parolingiz almashtirildi. Yangi parol bilan qayta kiring.')
-  return createLogin(u.login, password, u.role ?? 'seller')
+  return createLogin(u.login, password, u.role ?? 'stats')
 }
 
 async function deleteLogin(u: Login) {
@@ -704,8 +745,8 @@ async function showLogins(chat: number) {
   const list = await listLogins()
   return say(chat, [
     '👥 <b>Loginlar</b>',
-    `${ROLE_NAME.boss} — sotuv, foyda, ombor, nasiyalarni ko'radi. ${ROLE_NAME.seller} — narx, qoldiq va cheklarni ko'radi.`,
-    'Har biri saytga ham shu login bilan kiradi.',
+    `${ROLE_NAME.admin} — to'liq sayt (kassa, tovarlar, kirim) telefonda. ${ROLE_NAME.stats} — faqat statistika: sotuv, foyda, ombor, nasiya.`,
+    'Saytga ham shu login bilan kiriladi.',
     '',
     ...(list.length
       ? list.map((u) => `• <code>${u.login}</code> — ${u.role ? ROLE_NAME[u.role] : '⚠️ turi tanlanmagan'} · ${u.tg ? '📱 Telegram ulangan' : 'Telegram ulanmagan'} · oxirgi kirish: ${fmtDay(u.last_sign_in_at)}`)
@@ -722,7 +763,7 @@ const loginCard = (login: string, password: string, role: Role) => [
   `🏷 Turi: ${ROLE_NAME[role]}`,
   '',
   `Kirish: botga /start → 🔐 Kirish. Yoki saytda: ${siteUrl()}`,
-  role === 'boss' ? "Boss panel uchun do'kon PIN kodi ham so'raladi." : '',
+  role === 'stats' ? "Statistika uchun do'kon PIN kodi ham so'raladi." : "Boshqaruv bo'limlari uchun do'kon PIN kodi so'raladi.",
 ].filter((x, i, a) => x || i < a.length - 1).join('\n')
 
 /** Login yaratish yoki parolini almashtirish (sessiyadagi holatga qarab). */
@@ -746,15 +787,31 @@ async function finishLogin(chat: number, s: Session, password: string, MENU: Rec
   }
 }
 
-// ---------- Botga login/parol bilan kirish (sotuvchi va boss hisoblari) ----------
+// ---------- Botga login/parol bilan kirish (admin va kuzatuvchi hisoblari) ----------
 
-const LOGIN_MENU = { reply_markup: { keyboard: [[{ text: '🔐 Kirish' }]], resize_keyboard: true, is_persistent: true } }
+const NO_KB = { reply_markup: { remove_keyboard: true } }
+
+/** Bot xabarini tahrirlash (chat to'lib ketmasin). Xabar topilmasa — yangisini yuboradi; xabar id sini qaytaradi. */
+async function edit(chat: number, msgId: number | undefined, text: string, extra: Record<string, unknown> = {}): Promise<number> {
+  if (msgId) {
+    try {
+      await tg('editMessageText', { chat_id: chat, message_id: msgId, text, parse_mode: 'HTML', ...extra })
+      return msgId
+    } catch (e) {
+      if (/not modified/i.test(String(e))) return msgId
+    }
+  }
+  const m = await say(chat, text, extra) as { message_id?: number }
+  return m?.message_id ?? 0
+}
+const drop = (chat: number, msgId?: number) =>
+  msgId ? tg('deleteMessage', { chat_id: chat, message_id: msgId }).catch(() => {}) : Promise.resolve()
 
 /** Kirgan foydalanuvchi menyusi: panel (mini app) va chiqish. */
 const roleMenu = (role: Role) => ({
   reply_markup: {
     keyboard: [
-      [{ text: role === 'boss' ? '📊 Boss panel' : '🛒 Sotuvchi panel', web_app: { url: panelUrl() } }],
+      [{ text: PANEL_NAME[role], web_app: { url: panelUrl() } }],
       [{ text: '🚪 Chiqish' }],
     ],
     resize_keyboard: true, is_persistent: true,
@@ -763,7 +820,9 @@ const roleMenu = (role: Role) => ({
 
 /** Rasm yig'ish paytidagi pastki tugmalar (100–200 ta rasmdan keyin ham ko'rinib turadi). */
 const PHOTO_KB = { reply_markup: { keyboard: [[{ text: '✅ Rasmlar tayyor' }], [{ text: '❌ Bekor qilish' }]], resize_keyboard: true, is_persistent: true } }
-const CANCEL_KB = { reply_markup: { keyboard: [[{ text: '❌ Bekor qilish' }]], resize_keyboard: true, is_persistent: true } }
+/** Savollar paytida: variantlar xabar tagida, "qo'lda" va "bekor" — pastda. */
+const QA_KB = { reply_markup: { keyboard: [[{ text: "✍️ Qo'lda kiritish" }, { text: '❌ Bekor qilish' }]], resize_keyboard: true, is_persistent: true } }
+const CONFIRM_KB = { reply_markup: { keyboard: [[{ text: '✅ Tasdiqlash' }], [{ text: '❌ Bekor qilish' }]], resize_keyboard: true, is_persistent: true } }
 
 const ADMIN_COMMANDS = (owner: boolean) => [
   { command: 'yuk', description: "📦 Yuk qo'shish" },
@@ -779,8 +838,8 @@ async function setupChat(tgId: number, label: string, commands: { command: strin
   await tg('setMyCommands', { commands, scope: { type: 'chat', chat_id: tgId } }).catch(() => {})
 }
 
-/** Noto'g'ri parol: 5 marta — 15 daqiqa, keyin 30, 60… (24 soatgacha) kutish. */
-export const MAX_TRIES = 5
+/** Noto'g'ri login yoki parol: 3 marta — 15 daqiqa, keyin 30, 60… (24 soatgacha) kutish. */
+export const MAX_TRIES = 3
 export const lockMinutes = (locks: number) => Math.min(15 * 2 ** locks, 24 * 60)
 
 interface Guard { fails?: number; locks?: number; lockUntil?: number }
@@ -803,80 +862,111 @@ const who = (f: From) => `${esc(f.first_name ?? '')}${f.username ? ` @${esc(f.us
 
 /** Admin bo'lmaganlar: kirish, bog'langan hisob menyusi, chiqish. */
 async function guestUpdate(u: Update, from: From, chat: number) {
-  if (u.callback_query) {
-    await tg('answerCallbackQuery', { callback_query_id: u.callback_query.id }).catch(() => {})
-    return
-  }
-  const m = u.message!
-  const text = m.text?.trim() ?? ''
-  const owner = admins()[0]
+  if (u.callback_query) await tg('answerCallbackQuery', { callback_query_id: u.callback_query.id }).catch(() => {})
+  const m = u.message ?? { message_id: undefined }
+  const text = u.message?.text?.trim() ?? ''
   const me = await boundLogin(from.id)
 
+  const name = esc(from.first_name || from.username || 'do\'stim')
+
   if (me) {
+    if (u.callback_query) return
     if (text === '🚪 Chiqish' || text === '/logout') {
       await setMeta(me, { tg: null })
-      await resetChat(chat, `🚪 Chiqdingiz. Qayta kirish uchun — 🔐 Kirish.`)
+      await resetChat(chat, `🚪 Chiqdingiz, ${name}.`)
       return
     }
-    const panel = me.role === 'boss' ? '📊 Boss panel' : '🛒 Sotuvchi panel'
     return say(chat, [
-      `👋 Siz <b>${me.login}</b> (${ROLE_NAME[me.role!]}) sifatida kirgansiz.`,
-      `${panel} — pastdagi tugma yoki chatdagi ko'k tugma orqali ochiladi.`,
+      `👋 ${name}, siz ${ROLE_NAME[me.role!]} sifatida kirgansiz.`,
+      `${PANEL_NAME[me.role!]} — pastdagi tugma yoki chatdagi ko'k tugma orqali ochiladi.`,
       '🚪 Chiqish — hisobdan chiqish.',
     ].join('\n'), roleMenu(me.role!))
   }
 
-  if (!text) return say(chat, '🔐 Ishlash uchun avval kiring.', LOGIN_MENU)
+  // Butun kirish bitta xabarda: u tahrirlanib boradi, yozilgan login va parol darhol o'chiriladi.
   const s = (await getSession(chat)) ?? { step: 'auth_idle' as Step }
   const g: Guard = s.guard ?? {}
+  const left = () => Math.ceil(((g.lockUntil ?? 0) - Date.now()) / 60_000)
   const locked = (g.lockUntil ?? 0) > Date.now()
-  const wait = () => say(chat, `⏳ Juda ko'p noto'g'ri urinish. ${Math.ceil(((g.lockUntil ?? 0) - Date.now()) / 60_000)} daqiqadan keyin qayta urinib ko'ring.`, LOGIN_MENU)
+  const lockedText = () => `⛔ Juda ko'p noto'g'ri urinish. <b>${left()} daqiqa</b>dan keyin qayta urinib ko'ring.`
+  const welcome = [
+    `👋 <b>Assalomu alaykum, ${name}!</b>`,
+    "Bu do'kon boti. Ishlash uchun do'kon egasi bergan <b>login va parol</b> bilan kiring.",
+  ].join('\n')
+  const KIRISH = kb([[b('🔐 Kirish', 'auth:start')]])
+  const BEKOR = kb([[b('❌ Bekor qilish', 'auth:cancel')]])
 
-  if (text.startsWith('/start') || (!['auth_login', 'auth_pass'].includes(s.step) && text !== '🔐 Kirish' && text !== '/login')) {
-    await setSession(chat, { step: 'auth_idle', guard: g })
-    return say(chat, [
-      `👋 <b>Assalomu alaykum${from.first_name ? `, ${esc(from.first_name)}` : ''}!</b>`,
-      "Bu do'kon boti. Ishlash uchun do'kon egasi bergan <b>login va parol</b> bilan kiring.",
-      '',
-      '🔐 Kirish tugmasini bosing.',
-    ].join('\n'), LOGIN_MENU)
-  }
-  if (locked) return wait()
-  if (text === '🔐 Kirish' || text === '/login') {
-    await setSession(chat, { step: 'auth_login', guard: g })
-    return say(chat, '👤 Loginingizni yozing:', { reply_markup: { remove_keyboard: true } })
-  }
-  if (s.step === 'auth_login') {
-    const login = text.toLowerCase()
-    if (!LOGIN_RE.test(login)) return say(chat, "🤔 Login noto'g'ri yozildi. Qaytadan yozing:")
-    await setSession(chat, { step: 'auth_pass', login, guard: g })
-    return say(chat, '🔑 Parolni yozing (xabar darhol o\'chiriladi):')
-  }
-  // auth_pass
-  await tg('deleteMessage', { chat_id: chat, message_id: m.message_id }).catch(() => {})
-  const user = await checkPassword(s.login ?? '', text)
-  if (!user || !user.role) {
+  /** Noto'g'ri urinish: hisoblanadi, 3 tadan keyin qulf (egasiga xabar). */
+  const fail = async (reason: string, step: Step, extra: Partial<Session> = {}) => {
     const fails = (g.fails ?? 0) + 1
     if (fails >= MAX_TRIES) {
-      const locks = (g.locks ?? 0)
+      const locks = g.locks ?? 0
       const ng = { fails: 0, locks: locks + 1, lockUntil: Date.now() + lockMinutes(locks) * 60_000 }
-      await setSession(chat, { step: 'auth_idle', guard: ng })
-      if (owner) await say(owner, `⚠️ <b>Shubhali urinish</b>\n${who(from)} <code>${esc(s.login ?? '')}</code> loginiga ${MAX_TRIES} marta noto'g'ri parol kiritdi. ${lockMinutes(locks)} daqiqaga to'xtatildi.`).catch(() => {})
-      return say(chat, `⛔ ${MAX_TRIES} marta noto'g'ri. ${lockMinutes(locks)} daqiqadan keyin qayta urinib ko'ring.`, LOGIN_MENU)
+      const id = await edit(chat, s.cardId, `⛔ ${MAX_TRIES} marta noto'g'ri. <b>${lockMinutes(locks)} daqiqa</b>dan keyin qayta urinib ko'ring.`)
+      await setSession(chat, { step: 'auth_idle', guard: ng, cardId: id })
+      const owner = admins()[0]
+      if (owner) await say(owner, `⚠️ <b>Shubhali urinish</b>\n${who(from)} ${MAX_TRIES} marta noto'g'ri login/parol kiritdi${s.login ? ` (<code>${esc(s.login)}</code>)` : ''}. ${lockMinutes(locks)} daqiqaga to'xtatildi.`).catch(() => {})
+      return
     }
-    await setSession(chat, { step: 'auth_idle', guard: { ...g, fails } })
-    return say(chat, `❌ Login yoki parol noto'g'ri${user && !user.role ? " (hisob turi tanlanmagan — egasiga murojaat qiling)" : ''}. Qolgan urinish: ${MAX_TRIES - fails}.`, LOGIN_MENU)
+    const id = await edit(chat, s.cardId, `${reason}\nQolgan urinish: <b>${MAX_TRIES - fails}</b>`, BEKOR)
+    await setSession(chat, { ...s, ...extra, step, guard: { ...g, fails }, cardId: id })
+  }
+
+  if (u.callback_query) {
+    const data = u.callback_query.data ?? ''
+    const msgId = u.callback_query.message?.message_id
+    if (data === 'auth:start') {
+      if (locked) return edit(chat, msgId, lockedText())
+      await setSession(chat, { step: 'auth_login', guard: g, cardId: msgId })
+      return edit(chat, msgId, '👤 <b>Loginingizni yozing:</b>', BEKOR)
+    }
+    if (data === 'auth:cancel') {
+      await setSession(chat, { step: 'auth_idle', guard: g, cardId: msgId })
+      return edit(chat, msgId, welcome, KIRISH)
+    }
+    return
+  }
+
+  // Login/parol bosqichida yozilgan har qanday xabar darhol o'chiriladi.
+  const typing = s.step === 'auth_login' || s.step === 'auth_pass'
+  if (typing && !text.startsWith('/')) await drop(chat, m.message_id)
+
+  if (!typing || !text || text.startsWith('/')) {
+    if (locked) return say(chat, lockedText(), NO_KB)
+    const id = (await say(chat, welcome, KIRISH) as { message_id?: number })?.message_id
+    await drop(chat, s.cardId)
+    return setSession(chat, { step: 'auth_idle', guard: g, cardId: id })
+  }
+  if (locked) return edit(chat, s.cardId, lockedText())
+
+  if (s.step === 'auth_login') {
+    const login = text.toLowerCase()
+    const exists = LOGIN_RE.test(login) && (await listLogins()).some((x) => x.login === login)
+    if (!exists) return fail(`❌ <b>«${esc(text.slice(0, 30))}»</b> degan login topilmadi.\n👤 Loginni qayta yozing:`, 'auth_login')
+    await setSession(chat, { ...s, step: 'auth_pass', login })
+    return edit(chat, s.cardId, `👤 Login: <b>${login}</b>\n🔑 <b>Parolni yozing:</b>`, BEKOR)
+  }
+
+  // auth_pass
+  const user = await checkPassword(s.login ?? '', text)
+  if (!user) return fail(`👤 Login: <b>${esc(s.login ?? '')}</b>\n❌ Parol noto'g'ri. 🔑 Qayta yozing:`, 'auth_pass')
+  if (!user.role) {
+    await setSession(chat, { step: 'auth_idle', guard: g, cardId: s.cardId })
+    return edit(chat, s.cardId, "⚠️ Bu hisobning turi tanlanmagan. Do'kon egasiga murojaat qiling.", KIRISH)
   }
   // Bitta login — bitta Telegram: avval boshqa Telegramda ochiq bo'lsa, u yerdan chiqariladi.
   if (user.tg && user.tg !== from.id) await resetChat(user.tg, '🚪 Hisobingizga boshqa Telegramdan kirildi — bu yerdan chiqarildingiz.')
   await setMeta(user, { tg: from.id })
   await endSession(chat)
-  const panel = user.role === 'boss' ? '📊 Boss panel' : '🛒 Panel'
-  await setupChat(chat, panel, [{ command: 'logout', description: '🚪 Hisobdan chiqish' }])
+  await setupChat(chat, user.role === 'admin' ? '🛠 Admin' : '📊 Statistika', [{ command: 'logout', description: '🚪 Hisobdan chiqish' }])
+  const owner = admins()[0]
   if (owner && owner !== from.id) await say(owner, `🔐 <code>${user.login}</code> (${ROLE_NAME[user.role]}) botga kirdi: ${who(from)}`).catch(() => {})
+  // Kirish xabari o'rniga — kutib olish (pastki tugmalar bilan).
+  await drop(chat, s.cardId)
   return say(chat, [
-    `✅ Xush kelibsiz, <b>${user.login}</b>! (${ROLE_NAME[user.role]})`,
-    `${user.role === 'boss' ? '📊 Boss panel' : '🛒 Sotuvchi panel'} — pastdagi tugma yoki chatdagi ko'k tugma. Qayta login so'ralmaydi.`,
+    `✅ <b>Xush kelibsiz, ${name}!</b>`,
+    `Hisob turi: ${ROLE_NAME[user.role]}`,
+    `${PANEL_NAME[user.role]} — pastdagi tugma yoki chatdagi ko'k tugma. Qayta login so'ralmaydi.`,
   ].join('\n'), roleMenu(user.role))
 }
 
@@ -911,14 +1001,14 @@ export async function verifyInitData(initData: string, maxAgeSec = 86_400): Prom
  * bot adminlariga ("tg-<id>" hisob) va botda login qilib bog'langan foydalanuvchilarga (o'z hisobi).
  * Boshqalar — kira olmaydi (avval botda kirishi kerak).
  */
-export async function tgAuth(initData: string): Promise<{ token_hash?: string; role?: Role | 'admin'; unbound?: boolean; error?: string }> {
+export async function tgAuth(initData: string): Promise<{ token_hash?: string; role?: Role | 'owner'; unbound?: boolean; error?: string }> {
   const id = await verifyInitData(initData)
   if (!id) return { error: "Telegram ma'lumoti tasdiqlanmadi" }
   let email: string
-  let role: Role | 'admin'
+  let role: Role | 'owner'
   if (admins().includes(id)) {
     email = `tg-${id}@${loginDomain()}`
-    role = 'admin'
+    role = 'owner'
     await auth('admin/users', {
       method: 'POST', body: JSON.stringify({ email, password: genPassword(32), email_confirm: true, app_metadata: { telegram_id: id } }),
     }).catch(() => {}) // bor bo'lsa — xato, e'tiborsiz
@@ -959,10 +1049,7 @@ async function onUpdate(u: Update) {
     const data = u.callback_query.data ?? ''
     await tg('answerCallbackQuery', { callback_query_id: u.callback_query.id }).catch(() => {})
     const s = await getSession(chat)
-    if (data === 'cancel') {
-      await endSession(chat)
-      return say(chat, "❌ Bekor qilindi. Yangi kirim: 📦 Yuk qo'shish", MENU)
-    }
+    if (data === 'cancel') return cancelFlow(chat, s, MENU)
     // Loginlar (faqat asosiy admin)
     if (data.startsWith('lg:')) {
       if (!owner) return say(chat, '⛔ Loginlarni faqat asosiy admin boshqaradi.')
@@ -970,10 +1057,14 @@ async function onUpdate(u: Update) {
       const [, act, id] = data.split(':')
       if (act === 'new') {
         await setSession(chat, { step: 'login_name' })
-        return say(chat, '🏷 Hisob turini tanlang:', kb([[b(ROLE_NAME.boss, 'lg:type:boss'), b(ROLE_NAME.seller, 'lg:type:seller')], [b('❌ Bekor qilish', 'cancel')]]))
+        return say(chat, [
+          '🏷 Hisob turini tanlang:',
+          `${ROLE_NAME.admin} — to'liq sayt telefonda (kassa, tovarlar, kirim, etiketka).`,
+          `${ROLE_NAME.stats} — faqat statistika (sotuv, foyda, ombor, nasiya).`,
+        ].join('\n'), kb([[b(ROLE_NAME.admin, 'lg:type:admin'), b(ROLE_NAME.stats, 'lg:type:stats')], [b('❌ Bekor qilish', 'cancel')]]))
       }
       if (act === 'type') {
-        if (s?.step !== 'login_name' || (id !== 'boss' && id !== 'seller')) return
+        if (s?.step !== 'login_name' || (id !== 'admin' && id !== 'stats')) return
         await setSession(chat, { step: 'login_name', role: id })
         return say(chat, `${ROLE_NAME[id]} uchun login yozing: lotin harf va raqam, 3–20 belgi.\nMasalan: <code>ali</code>, <code>sotuvchi1</code>`, kb([[b('❌ Bekor qilish', 'cancel')]]))
       }
@@ -985,7 +1076,7 @@ async function onUpdate(u: Update) {
       const user = await ourUser(id ?? '')
       if (!user) return say(chat, 'Bu login topilmadi.')
       if (act === 'role') {
-        const role: Role = user.role === 'boss' ? 'seller' : 'boss'
+        const role: Role = user.role === 'admin' ? 'stats' : 'admin'
         await setMeta(user, { role })
         if (user.tg) await resetChat(user.tg, `🏷 Hisobingiz turi o'zgardi: ${ROLE_NAME[role]}. Qayta kiring.`).then(() => setMeta({ ...user, app_metadata: { ...user.app_metadata, role } }, { tg: null }))
         await say(chat, `✅ <code>${user.login}</code> endi ${ROLE_NAME[role]}.`)
@@ -996,7 +1087,7 @@ async function onUpdate(u: Update) {
         return say(chat, `🔑 <code>${user.login}</code> uchun yangi parol yozing (kamida 8 belgi, harf va raqam) yoki 🎲 bosing.\nEski parol bilan ochilgan hamma joydan chiqariladi.`, kb([[b('🎲 Parol yaratish', 'lg:gen')], [b('❌ Bekor qilish', 'cancel')]]))
       }
       if (act === 'del') {
-        return say(chat, `🗑 <code>${user.login}</code> o'chirilsinmi? U saytdan ham, Boss paneldan ham chiqib ketadi.`, kb([[b("Ha, o'chirish", `lg:delok:${user.id}`), b('Yo\'q', 'lg:list')]]))
+        return say(chat, `🗑 <code>${user.login}</code> o'chirilsinmi? U saytdan ham, paneldan ham chiqib ketadi.`, kb([[b("Ha, o'chirish", `lg:delok:${user.id}`), b('Yo\'q', 'lg:list')]]))
       }
       if (act === 'delok') {
         await deleteLogin(user)
@@ -1028,28 +1119,9 @@ async function onUpdate(u: Update) {
     }
     // Eski (tugagan kirimdagi) tugma — jim.
     if (!s) return
-    if (data.startsWith('manual:')) {
-      const key = data.slice(7)
-      if (key !== s.step) return
-      const what: Record<string, string> = { size: 'Razmerni', color: 'Rangni', packSize: 'Pachkadagi juft sonini' }
-      return say(chat, `✍️ ${what[key] ?? 'Qiymatni'} yozing:`)
-    }
+    if (data.startsWith('manual:')) return manualInput(chat, s)
     if (data === 'photos_done') return photosDone(chat, s)
-    if (data === 'ok' && s.step === 'confirm') {
-      // Ikki marta bosilsa (yoki Telegram qayta yuborsa) — faqat bittasi o'tadi.
-      const won = await db<unknown[]>(`bot_sessions?chat_id=eq.${chat}&data->>step=eq.confirm`, {
-        method: 'PATCH', body: JSON.stringify({ data: { ...s, step: 'saving' } }),
-      }, 'return=representation')
-      if (!won.length) return
-      await say(chat, '⏳ Saqlanmoqda va kanalga joylanmoqda…')
-      try {
-        return say(chat, await commit(chat, s), MENU)
-      } catch (e) {
-        console.error(e)
-        await setSession(chat, s)
-        return say(chat, `⚠️ Xato: ${esc(String((e as Error).message ?? e)).slice(0, 300)}\nQaytadan "✅ Tasdiqlash" ni bosib ko'ring.`, kb([[b('✅ Tasdiqlash', 'ok'), b('❌ Bekor', 'cancel')]]))
-      }
-    }
+    if (data === 'ok' && s.step === 'confirm') return confirmSave(chat, s, MENU)
     if (data === 'brand_new') {
       const ns = { ...s, step: 'brand_new' as Step }
       await setSession(chat, ns)
@@ -1063,6 +1135,8 @@ async function onUpdate(u: Update) {
       size: (v) => ({ size: v }),
       color: (v) => ({ color: v }),
       packSize: (v) => (Number(v) > 0 ? { packSize: Number(v) } : null),
+      cost: (v) => (Number(v) > 0 ? { cost: Number(v) } : null),
+      price: (v) => (Number(v) > 0 ? { price: Number(v) } : null),
     }
     // Eski xabardagi tugma bosilsa — e'tiborsiz (joriy savolga tegishli emas).
     if (key !== s.step && !(key === 'brand' && s.step === 'brand_new')) return
@@ -1072,21 +1146,21 @@ async function onUpdate(u: Update) {
     const step: Step = key === 'packs' ? 'brand' : next({ ...s, step: key as Step })
     const ns = { ...s, ...patch, step }
     await setSession(chat, ns)
-    return ask(chat, ns)
+    return ask(chat, ns, priceWarning(ns))
   }
 
   const m = u.message!
   const text = m.text?.trim() ?? ''
 
   if (text === '/start' || text === '/help') {
-    await setupChat(chat, '📊 Boss panel', ADMIN_COMMANDS(owner))
+    await setupChat(chat, '📊 Panel', ADMIN_COMMANDS(owner))
     return say(chat, [
       '👋 <b>Assalomu alaykum!</b>',
       '',
       "📦 <b>Yuk qo'shish</b> — rasmlar yuborib, yangi kirim qilish (tovar saytga tushadi va kanalga chiqadi).",
       "⚙️ <b>Sozlamalar</b> — razmerlar, ranglar, pachka sonlari, kanaldagi narx va telefon.",
-      "📊 <b>Boss panel</b> — sotuv, foyda, ombor va nasiyalarni telefonda kuzatish.",
-      ...(owner ? ["👥 <b>Loginlar</b> — boshqalarga sayt va Boss panel uchun login/parol berish."] : []),
+      "📊 <b>Panel</b> — statistika (sotuv, foyda, ombor, nasiya) va to'liq sayt telefonda.",
+      ...(owner ? ["👥 <b>Loginlar</b> — boshqalarga login/parol berish (🛠 Admin yoki 📊 Kuzatuvchi)."] : []),
       '',
       "/bekor — joriy kirimni bekor qilish · /sync — kanalni yangilash",
     ].join('\n'), MENU)
@@ -1115,8 +1189,20 @@ async function onUpdate(u: Update) {
     return showSettings(chat)
   }
   if (text === '/bekor' || text === '/cancel' || text === '❌ Bekor qilish') {
-    await endSession(chat)
-    return say(chat, "❌ Bekor qilindi. Yangi kirim: 📦 Yuk qo'shish", MENU)
+    await drop(chat, m.message_id)
+    return cancelFlow(chat, await getSession(chat), MENU)
+  }
+  if (text === '✅ Tasdiqlash') {
+    await drop(chat, m.message_id)
+    const cur = await getSession(chat)
+    if (cur?.step !== 'confirm') return
+    return confirmSave(chat, cur, MENU)
+  }
+  if (text === "✍️ Qo'lda kiritish") {
+    await drop(chat, m.message_id)
+    const cur = await getSession(chat)
+    if (!cur) return
+    return manualInput(chat, cur)
   }
   if (text === '✅ Rasmlar tayyor') {
     const cur = await getSession(chat)
@@ -1165,6 +1251,8 @@ async function onUpdate(u: Update) {
     await say(chat, '✅ Saqlandi.', MENU)
     return showSettings(chat)
   }
+  // Savollarga yozilgan javob kartochkada ko'rinadi — xabarning o'zi o'chiriladi (chat toza turadi).
+  if (QA_STEPS.includes(s.step)) await drop(chat, m.message_id)
   let patch: Partial<Session> | null = null
   switch (s.step) {
     case 'photos': return say(chat, 'Rasmlarni yuborib bo\'lgach pastdagi "✅ Rasmlar tayyor" ni bosing.', PHOTO_KB)
@@ -1181,20 +1269,58 @@ async function onUpdate(u: Update) {
       break
     }
     case 'cost': { const v = parseSum(text); patch = v ? { cost: v } : null; break }
-    case 'price': {
-      const v = parseSum(text)
-      patch = v ? { price: v } : null
-      if (v && v < (s.cost ?? 0)) await say(chat, `⚠️ Diqqat: sotuv narxi kelish narxidan (${formatSum(s.cost!)}) past.`)
-      break
-    }
-    case 'confirm': return say(chat, 'Tugmalardan birini bosing: ✅ Tasdiqlash yoki ❌ Bekor.')
+    case 'price': { const v = parseSum(text); patch = v ? { price: v } : null; break }
+    case 'confirm': return say(chat, 'Pastdagi tugmalardan birini bosing: ✅ Tasdiqlash yoki ❌ Bekor qilish.', CONFIRM_KB)
     case 'saving': return say(chat, '⏳ Saqlanmoqda, biroz kuting…')
   }
-  if (!patch) return say(chat, '🤔 Tushunmadim, qaytadan yozing.')
+  if (!patch) return ask(chat, s, `🤔 «${esc(text.slice(0, 30))}» — tushunmadim, qaytadan yozing.`)
   const step: Step = s.step === 'packs' ? 'brand' : next(s)
   const ns = { ...s, ...patch, step }
   await setSession(chat, ns)
-  return ask(chat, ns)
+  return ask(chat, ns, priceWarning(ns))
+}
+
+/** Kirim savollari bosqichlari (javob xabarlari o'chiriladi). */
+const QA_STEPS: Step[] = ['packs', 'brand', 'brand_new', 'model', 'size', 'color', 'packSize', 'cost', 'price']
+
+const priceWarning = (s: Session) =>
+  s.step === 'confirm' && s.price! < s.cost! ? `Sotuv narxi kelish narxidan (${formatSum(s.cost!)}) past!` : undefined
+
+/** "✍️ Qo'lda kiritish": joriy savolga matn bilan javob berish. */
+async function manualInput(chat: number, s: Session) {
+  if (s.step === 'brand') {
+    const ns = { ...s, step: 'brand_new' as Step }
+    await setSession(chat, ns)
+    return ask(chat, ns)
+  }
+  if (!QA_STEPS.includes(s.step)) return
+  return ask(chat, s, '✍️ Javobni yozib yuboring:')
+}
+
+/** Bekor qilish: kartochka ham olib tashlanadi. */
+async function cancelFlow(chat: number, s: Session | null, MENU: Record<string, unknown>) {
+  if (s?.cardId) await drop(chat, s.cardId)
+  await endSession(chat)
+  return say(chat, "❌ Bekor qilindi. Yangi kirim: 📦 Yuk qo'shish", MENU)
+}
+
+/** Tasdiqlash: saytga yozish va kanalga joylash (ikki marta bosilsa ham bir marta). */
+async function confirmSave(chat: number, s: Session, MENU: Record<string, unknown>) {
+  const won = await db<unknown[]>(`bot_sessions?chat_id=eq.${chat}&data->>step=eq.confirm`, {
+    method: 'PATCH', body: JSON.stringify({ data: { ...s, step: 'saving' } }),
+  }, 'return=representation')
+  if (!won.length) return
+  const wait = await edit(chat, s.cardId, '⏳ Saqlanmoqda va kanalga joylanmoqda…')
+  try {
+    const result = await commit(chat, s)
+    await drop(chat, wait)
+    return say(chat, result, MENU)
+  } catch (e) {
+    console.error(e)
+    await drop(chat, wait)
+    await setSession(chat, { ...s, cardId: undefined })
+    return confirmCard(chat, { ...s, cardId: undefined }, `Xato: ${esc(String((e as Error).message ?? e)).slice(0, 200)}. Qaytadan "✅ Tasdiqlash" ni bosing.`)
+  }
 }
 
 // ---------- HTTP kirish nuqtasi ----------
@@ -1229,9 +1355,9 @@ export async function handle(req: Request): Promise<Response> {
       { command: 'login', description: '🔐 Kirish' },
       { command: 'logout', description: '🚪 Chiqish' },
     ] }).catch(() => {})
-    // Hamma uchun oddiy menyu; adminlarga — ko'k "📊 Boss panel" tugmasi va to'liq buyruqlar.
+    // Hamma uchun oddiy menyu; adminlarga — ko'k "📊 Panel" tugmasi va to'liq buyruqlar.
     await tg('setChatMenuButton', { menu_button: { type: 'default' } }).catch(() => {})
-    for (const id of admins()) await setupChat(id, '📊 Boss panel', ADMIN_COMMANDS(id === admins()[0])).catch(() => {})
+    for (const id of admins()) await setupChat(id, '📊 Panel', ADMIN_COMMANDS(id === admins()[0])).catch(() => {})
     const me = await tg<{ username: string }>('getMe', {})
     return new Response(`✅ Tayyor! Bot @${me.username} ulandi (${JSON.stringify(r)}). Endi botga /start yozing.`, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
   }

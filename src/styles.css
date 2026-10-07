@@ -1275,3 +1275,7 @@ input:not([type=checkbox]):not([type=range]):not([type=file]), textarea {
   .nb-form { border-right: 0; border-bottom: 1px solid var(--line); }
   .nb-totals, .nb-totals.big { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* Panel: egasi uchun "🛠 Admin" (to'liq sayt) va statistikaga qaytish */
+.boss-site { padding: 8px 12px; white-space: nowrap; }
+.boss-back { position: fixed; left: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 60; border: 0; border-radius: 999px; padding: 10px 16px; background: var(--fg); color: var(--bg); font: inherit; font-weight: 600; font-size: 13px; box-shadow: 0 6px 20px rgb(0 0 0 / 0.25); cursor: pointer; }
