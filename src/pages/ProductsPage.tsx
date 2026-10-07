@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { NewBatchSheet } from './NewBatch'
 import type { ImportBatch, Product, ProductInput, Sale } from '../types'
 import {
   nameConflict,
-  activeSales, addBrand, deleteBatch, deleteProducts, getBatches, getBrands, getProducts, getSales, importProducts,
-  previewCodes, searchProducts, updateProduct,
+  activeSales, deleteBatch, deleteProducts, getBatches, getProducts, getSales, importProducts,
+  searchProducts, updateProduct,
 } from '../data/store'
 import { formatSum, parseSum } from '../lib/money'
 import { hueStyle } from '../lib/colors'
 import { downloadTemplate, parseRows, readExcel, type ParsedRow } from '../lib/excel'
-import { BackClose, IconEdit, IconTrash, Modal, MoneyInput, Segmented, Select } from '../components/ui'
+import { BackClose, IconEdit, IconTrash, Modal, MoneyInput, Segmented } from '../components/ui'
 
 type View = 'brands' | 'imports'
 type Filter = 'all' | 'instock' | 'sold'
@@ -168,7 +169,7 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
         <div className="head-actions">
           <button className="btn ghost" onClick={() => downloadTemplate()}>Shablon</button>
           <button className="btn ghost" onClick={() => fileRef.current?.click()}>Excel'dan import</button>
-          <button className="btn primary" onClick={() => setAdding(true)}>+ Tovar</button>
+          <button className="btn primary" onClick={() => setAdding(true)}>+ Yangi kirim</button>
           <input
             ref={fileRef}
             type="file"
@@ -395,7 +396,7 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
       )}
 
       {adding && (
-        <NewProductForm
+        <NewBatchSheet
           initialBrand={brand}
           onClose={() => setAdding(false)}
           onSave={async (inputs) => {
@@ -526,172 +527,6 @@ function ProductForm({
         >
           {saving ? 'Saqlanmoqda…' : 'Saqlash'}
         </button>
-      </div>
-    </Modal>
-  )
-}
-
-const DRAFT_KEY = 'dk2.productDraft'
-
-/** Oxirgi kiritilgan brend, razmer va pachka hajmi keyingi safar o'zi turadi. */
-function loadDraft(): { brand: string; size: string; packSize: number } {
-  try {
-    return { brand: '', size: '', packSize: 5, ...JSON.parse(localStorage.getItem(DRAFT_KEY) ?? '{}') }
-  } catch {
-    return { brand: '', size: '', packSize: 5 }
-  }
-}
-
-function NewProductForm({
-  initialBrand, onClose, onSave,
-}: { initialBrand: string | null; onClose: () => void; onSave: (inputs: ProductInput[]) => Promise<void> }) {
-  const [saving, runSave] = useOnce()
-  const draft = loadDraft()
-  const [brand, setBrand] = useState(initialBrand ?? draft.brand)
-  const [brands, setBrands] = useState<string[]>([])
-  const [newBrand, setNewBrand] = useState(false)
-  const [codes, setCodes] = useState<string[]>([])
-  useEffect(() => {
-    getBrands().then((list) => {
-      setBrands(list)
-      if (!list.length) setNewBrand(true)
-      else if (!list.includes(brand)) setBrand(list[0])
-    })
-  }, [])
-  const [name, setName] = useState('')
-  const [size, setSize] = useState(draft.size)
-  const [packSize, setPackSize] = useState(draft.packSize)
-  const [cost, setCost] = useState('')
-  const [sale, setSale] = useState('')
-  const [colors, setColors] = useState<{ color: string; packs: number }[]>([{ color: '', packs: 1 }])
-
-  const c = parseSum(cost)
-  const sp = parseSum(sale)
-  const rows = colors.filter((r) => r.packs > 0)
-  const totalPacks = rows.reduce((a, r) => a + r.packs, 0)
-  useEffect(() => {
-    if (brand.trim() && totalPacks > 0) previewCodes(brand, Math.min(totalPacks, 500)).then(setCodes)
-  }, [brand, totalPacks])
-  const valid = brand.trim() && name.trim() && packSize >= 1 && c > 0 && sp > 0 && totalPacks > 0
-
-  const save = () => runSave(async () => {
-    if (!valid) return
-    try {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({ brand: brand.trim(), size: size.trim(), packSize }))
-    } catch {
-      // Eslab qolinmasa ham saqlash ishlayveradi.
-    }
-    if (newBrand) addBrand(brand)
-    await onSave(rows.map((r) => ({ brand, name, size, color: r.color.trim(), packSize, packs: r.packs, costPrice: c, salePrice: sp })))
-  })
-
-  const setRow = (i: number, patch: Partial<{ color: string; packs: number }>) =>
-    setColors((list) => list.map((r, j) => (j === i ? { ...r, ...patch } : r)))
-
-  return (
-    <Modal title="Yangi tovar" onClose={onClose}>
-      <div className="form-grid">
-        <label className="field">
-          <span>Brend</span>
-          {newBrand ? (
-            <input id="np-brand" className="input" value={brand} placeholder="Yangi brend nomi" onChange={(e) => setBrand(e.target.value)} />
-          ) : (
-            <Select<string>
-              id="np-brand"
-              value={brand}
-              onChange={(v) => {
-                if (v === '__new') {
-                  setNewBrand(true)
-                  setBrand('')
-                } else setBrand(v)
-              }}
-              options={[
-                ...brands.map((b) => ({ value: b, label: <><i className="dot" style={hueStyle(b)} />{b}</> })),
-                { value: '__new', label: '+ Yangi brend…', action: true },
-              ]}
-            />
-          )}
-        </label>
-        <label className="field">
-          <span>Model nomi</span>
-          <input id="np-name" className="input" autoFocus value={name} placeholder="Ezel 18" onChange={(e) => setName(e.target.value)} />
-        </label>
-        <label className="field">
-          <span>Razmer</span>
-          <input id="np-size" className="input" value={size} placeholder="39-43" onChange={(e) => setSize(e.target.value)} />
-        </label>
-        <label className="field">
-          <span>Pachkada (juft)</span>
-          <input id="np-pack" className="input" type="number" min={1} value={packSize} onChange={(e) => setPackSize(Number(e.target.value))} />
-        </label>
-        <label className="field">
-          <span>Kelish narxi (1 juft)</span>
-          <MoneyInput id="np-cost" value={cost} onChange={setCost} />
-        </label>
-        <label className="field">
-          <span>Sotuv narxi (1 juft)</span>
-          <MoneyInput id="np-sale" value={sale} onChange={setSale} />
-        </label>
-      </div>
-
-      <div className="colors">
-        <div className="colors-head">
-          <span>Rang</span>
-          <span>Pachka</span>
-        </div>
-        {colors.map((r, i) => (
-          <div key={i} className="color-row">
-            <input
-              id={`np-color-${i}`}
-              className="input"
-              value={r.color}
-              placeholder={i === 0 ? 'qora' : 'jigarrang'}
-              onChange={(e) => setRow(i, { color: e.target.value })}
-            />
-            <input
-              id={`np-packs-${i}`}
-              className="input"
-              type="number"
-              min={0}
-              value={r.packs}
-              onChange={(e) => setRow(i, { packs: Math.max(0, Number(e.target.value)) })}
-            />
-            <button
-              className="icon danger"
-              aria-label="Rangni olib tashlash"
-              disabled={colors.length === 1}
-              onClick={() => setColors((list) => list.filter((_, j) => j !== i))}
-            >
-              ✕
-            </button>
-          </div>
-        ))}
-        <button className="link small left" onClick={() => setColors((list) => [...list, { color: '', packs: 1 }])}>
-          + yana rang
-        </button>
-      </div>
-
-      {totalPacks > 0 && (
-        <div className="code-range">
-          <div>
-            Jami <b>{totalPacks} pachka</b>
-            {c > 0 && sp > 0 && (
-              <> · bir pachkadan foyda <b className={sp < c ? 'error' : 'ok'}>{formatSum((sp - c) * packSize)}</b></>
-            )}
-          </div>
-          {brand.trim() && (
-            <div className="code-chip-line">
-              Kodlar: <span className="code-chip">{name.trim() || 'Model'} {codes[0]}</span>
-              {totalPacks > 1 && codes.length > 1 && <> – <span className="code-chip">{codes[codes.length - 1]}</span></>}
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className="modal-actions">
-        <span className="grow" />
-        <button className="btn ghost" onClick={onClose}>Bekor</button>
-        <button className="btn primary" disabled={!valid || saving} onClick={save}>{saving ? 'Saqlanmoqda…' : 'Saqlash'}</button>
       </div>
     </Modal>
   )

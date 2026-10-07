@@ -59,3 +59,13 @@ Kompyuterdagi eski bot shu token bilan ishlayotgan bo'lsa — uni to'xtating.
   Login sayt domenidagi email bo'lib saqlanadi (`ali` → `ali@richmen.netlify.app`, xat yuborilmaydi) va saytga ham kiradi.
 - Sayt manzili boshqa bo'lsa — Supabase → Edge Functions → Secrets ga `SITE_URL` qo'shing (masalan `https://richmen.netlify.app`).
 - Bot kodi yangilangach, `...functions/v1/bot?setup=<WEBHOOK_SECRET>` ni bir marta oching — chat pastida "📊 Boss" tugmasi paydo bo'ladi.
+
+## 🔐 Hisob turlari va botga kirish
+
+- **👥 Loginlar → ➕ Yangi login**: avval tur tanlanadi — 👔 Boss (sotuv, foyda, ombor, nasiya) yoki 🛒 Sotuvchi (narx, qoldiq, cheklar).
+- Boshqa odam botga /start bosadi → **🔐 Kirish** → login → parol (xabar darhol o'chiriladi).
+  Kirgach, chatdagi ko'k tugma va pastki tugma panelni ochadi — mini app login so'ramaydi. **🚪 Chiqish** yoki /logout.
+- Xavfsizlik: 5 marta noto'g'ri parol — 15 daqiqa (keyin 30, 60… 24 soatgacha) to'xtatiladi va asosiy adminga xabar boradi;
+  bitta login faqat bitta Telegramda ochiq bo'ladi; parol kamida 8 belgi (harf + raqam);
+  parol almashtirilsa — eski parol bilan ochilgan hamma joydan (sayt, mini app) chiqariladi; hisob turi `app_metadata` da (foydalanuvchi o'zi o'zgartira olmaydi).
+- Bot kodi yangilangach `...functions/v1/bot?setup=<WEBHOOK_SECRET>` ni yana bir marta oching.

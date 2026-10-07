@@ -2,19 +2,9 @@ import { useEffect, useState } from 'react'
 import type { Sale } from '../types'
 import { activeSales, getSales, type Settings } from '../data/store'
 import { Receipt } from './Receipt'
-import { BackClose, Segmented } from './ui'
-
-type Day = 'today' | 'yesterday' | 'week'
-
-function inDay(iso: string, day: Day): boolean {
-  const d = new Date(iso)
-  const start = new Date()
-  start.setHours(0, 0, 0, 0)
-  if (day === 'today') return d >= start
-  const from = new Date(start)
-  from.setDate(from.getDate() - (day === 'yesterday' ? 1 : 6))
-  return d >= from && (day === 'week' || d < start)
-}
+import { BackClose } from './ui'
+import { PeriodPicker } from './PeriodPicker'
+import { inPeriod, type Period } from '../lib/period'
 
 /**
  * Kassadagi "Cheklar": mijozga eski chekni ko'rsatish yoki qayta chiqarish uchun.
@@ -22,7 +12,7 @@ function inDay(iso: string, day: Day): boolean {
  */
 export function ReceiptsModal({ settings, onClose }: { settings: Settings; onClose: () => void }) {
   const [sales, setSales] = useState<Sale[]>([])
-  const [day, setDay] = useState<Day>('today')
+  const [day, setDay] = useState<Period>('today')
   const [q, setQ] = useState('')
   const [open, setOpen] = useState<Sale | null>(null)
 
@@ -33,9 +23,9 @@ export function ReceiptsModal({ settings, onClose }: { settings: Settings; onClo
   const query = q.trim().toLowerCase()
   const list = query
     ? sales.filter((s) => String(s.number).includes(query) || s.customerName.toLowerCase().includes(query)).slice(0, 100)
-    : sales.filter((s) => inDay(s.createdAt, day))
+    : sales.filter((s) => inPeriod(s.createdAt, day))
   const when = (iso: string) =>
-    new Date(iso).toLocaleString('ru-RU', day === 'today' && !query
+    new Date(iso).toLocaleString('ru-RU', (day === 'today' || day.startsWith('d:')) && !query
       ? { hour: '2-digit', minute: '2-digit' }
       : { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 
@@ -63,7 +53,7 @@ export function ReceiptsModal({ settings, onClose }: { settings: Settings; onClo
         </div>
         <input className="input" autoFocus placeholder="Chek № yoki mijoz ismi" value={q} onChange={(e) => setQ(e.target.value)} />
         {!query && (
-          <Segmented<Day> value={day} onChange={setDay} options={[['today', 'Bugun'], ['yesterday', 'Kecha'], ['week', '7 kun']]} />
+          <PeriodPicker value={day} onChange={setDay} month={false} />
         )}
         <div className="receipts-list">
           {list.length === 0 ? (
