@@ -291,16 +291,29 @@ export async function whoAmI(): Promise<string> {
   return [email, deviceName()].filter(Boolean).join(' · ')
 }
 
+export type PanelRole = 'admin' | 'boss' | 'seller'
+
 /**
- * Boss panel (Telegram mini app): bot adminlari Telegram orqali parolsiz kiradi.
- * 'ok' — kirildi, 'login' — login/parol kerak, aks holda xato matni.
+ * Mini app (Telegram): bot adminlari va botda login qilib bog'langanlar parolsiz kiradi.
+ * Natija: kirildi (va hisob turi), 'unbound' — avval botda kirish kerak, aks holda xato matni.
  */
-export async function telegramSignIn(initData: string): Promise<'ok' | 'login' | string> {
+export async function telegramSignIn(initData: string): Promise<{ role: PanelRole } | 'unbound' | string> {
   const { data, error } = await supabase!.functions.invoke('bot', { body: { action: 'tg-auth', initData } })
   if (error) return "Botga ulanib bo'lmadi"
-  const r = data as { token_hash?: string; login?: boolean; error?: string }
-  if (r.login) return 'login'
-  if (!r.token_hash) return r.error ?? 'Kirib bo\'lmadi'
+  const r = data as { token_hash?: string; role?: PanelRole; unbound?: boolean; error?: string }
+  if (r.unbound) return 'unbound'
+  if (!r.token_hash || !r.role) return r.error ?? "Kirib bo'lmadi"
   const v = await supabase!.auth.verifyOtp({ token_hash: r.token_hash, type: 'magiclink' })
-  return v.error ? v.error.message : 'ok'
+  return v.error ? v.error.message : { role: r.role }
+}
+
+/** Kirgan hisob turi (bot bergan loginlarda app_metadata.role; boshqalar — boss). */
+export async function sessionRole(): Promise<PanelRole> {
+  const role = (await getSession())?.user.app_metadata?.role
+  return role === 'seller' ? 'seller' : role === 'boss' ? 'boss' : 'admin'
+}
+
+/** Faqat shu qurilmadagi sessiyani yopadi. */
+export async function signOutLocal() {
+  await supabase?.auth.signOut({ scope: 'local' })
 }

@@ -3,7 +3,7 @@ import type { Customer, Product, Sale } from '../types'
 import {
   activeSales, balanceOf, getCustomers, getProducts, getSales, getSettings, initStore, refresh, type Settings,
 } from '../data/store'
-import { cloudEnabled, getSession, isStaff, signOut, supabase, telegramSignIn, touchDevice } from '../data/cloud'
+import { cloudEnabled, getSession, isStaff, sessionRole, signOut, signOutLocal, supabase, telegramSignIn, touchDevice, type PanelRole } from '../data/cloud'
 import { LoginPage } from '../pages/LoginPage'
 import { PinGate } from '../components/PinGate'
 import { ShopMark } from '../components/ShopMark'
@@ -16,7 +16,7 @@ import { inPeriod, type Period } from '../lib/period'
 import { applyTheme } from '../lib/theme'
 import { loadTelegram, type TgWebApp } from '../lib/telegram'
 
-type Boot = 'loading' | 'login' | 'denied' | 'offline' | 'pin' | 'ready'
+type Boot = 'loading' | 'login' | 'unbound' | 'denied' | 'offline' | 'pin' | 'ready'
 
 /**
  * Boss panel — Telegram botdagi mini app: egasi telefonda faqat kuzatadi
@@ -27,6 +27,7 @@ export function BossApp() {
   const [boot, setBoot] = useState<Boot>('loading')
   const [tg, setTg] = useState<TgWebApp | null>(null)
   const [note, setNote] = useState('')
+  const [role, setRole] = useState<PanelRole>('admin')
 
   const start = async () => {
     setBoot('loading')
@@ -34,22 +35,37 @@ export function BossApp() {
       const app = await loadTelegram()
       setTg(app)
       if (app) applyTheme(app.colorScheme)
+      let r: PanelRole = 'admin'
       if (cloudEnabled) {
-        if (!(await getSession()) && app) {
-          const r = await telegramSignIn(app.initData)
-          if (r !== 'ok' && r !== 'login') setNote(r)
+        if (app) {
+          // Telegram ichida: har ochilishda bot qayta tekshiradi (chiqqan, o'chirilgan yoki
+          // paroli almashgan hisob eski sessiya bilan kira olmaydi). Login so'ralmaydi.
+          await signOutLocal()
+          const res = await telegramSignIn(app.initData)
+          if (res === 'unbound') return setBoot('unbound')
+          if (typeof res === 'string') {
+            setNote(res)
+            return setBoot('offline')
+          }
+          r = res.role
+        } else {
+          if (!(await getSession())) return setBoot('login')
+          r = await sessionRole()
         }
-        if (!(await getSession())) return setBoot('login')
         if (!(await isStaff())) return setBoot('denied')
         if (!(await touchDevice())) {
           await signOut()
           return setBoot('login')
         }
       }
+      // Sinov rejimi (baza ulanmagan): ?boss=seller — sotuvchi panelini ko'rish.
+      else if (new URLSearchParams(location.search).get('boss') === 'seller') r = 'seller'
       await initStore()
       const s = await getSettings()
       rememberBrand({ name: s.shopName, logo: s.shopLogo })
-      setBoot(s.ownerPin ? 'pin' : 'ready')
+      setRole(r)
+      // Sotuvchi paneli PIN so'ramaydi (unda foyda, tannarx yo'q); Boss panel — do'kon PIN kodi bilan.
+      setBoot(r !== 'seller' && s.ownerPin ? 'pin' : 'ready')
     } catch (e) {
       console.error(e)
       setBoot('offline')
@@ -60,13 +76,14 @@ export function BossApp() {
     document.title = 'Boss panel'
     start()
     const sub = supabase?.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_OUT') setBoot('login')
+      // Telegram ichida sessiya har ochilishda qayta olinadi — u yerdagi "chiqish" kirish oynasi emas.
+      if (event === 'SIGNED_OUT' && !window.Telegram?.WebApp?.initData) setBoot('login')
     })
     return () => sub?.data.subscription.unsubscribe()
   }, [])
 
-  if (boot === 'ready') return <Dashboard tg={tg} />
-  if (boot === 'login') return <LoginPage onDone={start} subtitle={note || 'Boss panel'} />
+  if (boot === 'ready') return role === 'seller' ? <SellerDashboard tg={tg} /> : <Dashboard tg={tg} />
+  if (boot === 'login') return <LoginPage onDone={start} subtitle="Boss panel" />
   if (boot === 'pin')
     return (
       <div className="boss-pin">
@@ -78,10 +95,17 @@ export function BossApp() {
       <div className="login-card">
         <ShopMark brand={cachedBrand()} big />
         {boot === 'loading' && <p className="muted">Yuklanmoqda…</p>}
+        {boot === 'unbound' && (
+          <>
+            <h1>Avval botda kiring</h1>
+            <p className="muted small">Botda <b>🔐 Kirish</b> tugmasini bosib, do'kon egasi bergan login va parolni kiriting. Keyin bu oyna o'zi ochiladi.</p>
+            <button className="btn primary big" onClick={() => tg?.close()}>Botga qaytish</button>
+          </>
+        )}
         {boot === 'offline' && (
           <>
-            <h1>Internet yo'q</h1>
-            <p className="muted small">Bazaga ulanib bo'lmadi.</p>
+            <h1>{note ? 'Kirib bo\'lmadi' : "Internet yo'q"}</h1>
+            <p className="muted small">{note || "Bazaga ulanib bo'lmadi."}</p>
             <button className="btn primary big" onClick={start}>Qayta urinish</button>
           </>
         )}
@@ -97,17 +121,52 @@ export function BossApp() {
   )
 }
 
-type Tab = 'sales' | 'stock' | 'debts'
+/** Panel sarlavhasi va pastki bo'limlar — Boss va Sotuvchi panelida bir xil. */
+function PanelShell<T extends string>({ title, tabs, tab, onTab, onReload, busy, updated, tg, children }: {
+  title: string; tabs: readonly (readonly [T, string, string])[]; tab: T; onTab: (t: T) => void
+  onReload: () => void; busy: boolean; updated: Date; tg: TgWebApp | null; children: React.ReactNode
+}) {
+  const brand = cachedBrand()
+  return (
+    <div className="boss">
+      <header className="boss-head">
+        <ShopMark brand={brand} />
+        <div className="boss-title">
+          <b>{brand.name}</b>
+          <span>{title} · {updated.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span>
+        </div>
+        <button className={`boss-refresh${busy ? ' spin' : ''}`} onClick={onReload} aria-label="Yangilash">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v4h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        </button>
+      </header>
+      <main className="boss-body">{children}</main>
+      <nav className="boss-tabs" style={{ gridTemplateColumns: `repeat(${tabs.length}, 1fr)` }}>
+        {tabs.map(([id, label, icon]) => (
+          <button
+            key={id}
+            className={tab === id ? 'on' : ''}
+            onClick={() => {
+              tg?.HapticFeedback?.impactOccurred('light')
+              onTab(id)
+            }}
+          >
+            <span aria-hidden="true">{icon}</span>
+            {label}
+          </button>
+        ))}
+      </nav>
+    </div>
+  )
+}
 
-function Dashboard({ tg }: { tg: TgWebApp | null }) {
-  const [tab, setTab] = useState<Tab>('sales')
+/** Ma'lumotni yuklaydi va ochiq turganda har 30 soniyada yangilaydi. */
+function useLiveData() {
   const [sales, setSales] = useState<Sale[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [settings, setSettings] = useState<Settings | null>(null)
   const [updated, setUpdated] = useState(new Date())
   const [busy, setBusy] = useState(false)
-
   const load = async () => {
     setSales(activeSales(await getSales()))
     setProducts(await getProducts())
@@ -124,10 +183,8 @@ function Dashboard({ tg }: { tg: TgWebApp | null }) {
       setBusy(false)
     }
   }
-
   useEffect(() => {
     load()
-    // Ochiq turganda har 30 soniyada, qaytib kirganda darhol yangilanadi.
     const t = setInterval(() => document.visibilityState === 'visible' && reload(), 30_000)
     const onVis = () => document.visibilityState === 'visible' && reload()
     document.addEventListener('visibilitychange', onVis)
@@ -136,42 +193,115 @@ function Dashboard({ tg }: { tg: TgWebApp | null }) {
       document.removeEventListener('visibilitychange', onVis)
     }
   }, [])
+  return { sales, products, customers, settings, updated, busy, reload }
+}
 
-  const brand = cachedBrand()
+type Tab = 'sales' | 'stock' | 'debts'
+
+function Dashboard({ tg }: { tg: TgWebApp | null }) {
+  const [tab, setTab] = useState<Tab>('sales')
+  const d = useLiveData()
   return (
-    <div className="boss">
-      <header className="boss-head">
-        <ShopMark brand={brand} />
-        <div className="boss-title">
-          <b>{settings?.shopName ?? brand.name}</b>
-          <span>Boss panel · {updated.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span>
-        </div>
-        <button className={`boss-refresh${busy ? ' spin' : ''}`} onClick={reload} aria-label="Yangilash">
-          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v4h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-        </button>
-      </header>
+    <PanelShell
+      title="Boss panel" tab={tab} onTab={setTab} tg={tg} onReload={d.reload} busy={d.busy} updated={d.updated}
+      tabs={[['sales', 'Sotuvlar', '📈'], ['stock', 'Ombor', '📦'], ['debts', 'Nasiyalar', '📒']] as const}
+    >
+      {tab === 'sales' && d.settings && <SalesView sales={d.sales} settings={d.settings} tg={tg} />}
+      {tab === 'stock' && <StockView products={d.products} />}
+      {tab === 'debts' && <DebtsView customers={d.customers} />}
+    </PanelShell>
+  )
+}
 
-      <main className="boss-body">
-        {tab === 'sales' && settings && <SalesView sales={sales} settings={settings} tg={tg} />}
-        {tab === 'stock' && <StockView products={products} />}
-        {tab === 'debts' && <DebtsView customers={customers} />}
-      </main>
+/** Sotuvchi paneli: tovar qidirish (narx, qoldiq) va cheklar. Foyda va tannarx ko'rinmaydi. */
+function SellerDashboard({ tg }: { tg: TgWebApp | null }) {
+  const [tab, setTab] = useState<'goods' | 'receipts'>('goods')
+  const d = useLiveData()
+  return (
+    <PanelShell
+      title="Sotuvchi panel" tab={tab} onTab={setTab} tg={tg} onReload={d.reload} busy={d.busy} updated={d.updated}
+      tabs={[['goods', 'Tovarlar', '👟'], ['receipts', 'Cheklar', '🧾']] as const}
+    >
+      {tab === 'goods' && <GoodsView products={d.products} />}
+      {tab === 'receipts' && d.settings && <ReceiptsView sales={d.sales} settings={d.settings} tg={tg} />}
+    </PanelShell>
+  )
+}
 
-      <nav className="boss-tabs">
-        {([['sales', 'Sotuvlar', '📈'], ['stock', 'Ombor', '📦'], ['debts', 'Nasiyalar', '📒']] as const).map(([id, label, icon]) => (
-          <button
-            key={id}
-            className={tab === id ? 'on' : ''}
-            onClick={() => {
-              tg?.HapticFeedback?.impactOccurred('light')
-              setTab(id)
-            }}
-          >
-            <span aria-hidden="true">{icon}</span>
-            {label}
+function GoodsView({ products }: { products: Product[] }) {
+  const [q, setQ] = useState('')
+  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  const list = products
+    .filter((p) => p.stock > 0 && words.every((w) => `${p.brand} ${p.name} ${p.size} ${p.color} ${p.barcode}`.toLowerCase().includes(w)))
+    .sort((a, b) => a.brand.localeCompare(b.brand) || a.name.localeCompare(b.name, undefined, { numeric: true }))
+  const shown = list.slice(0, 200)
+  return (
+    <>
+      <input className="input" type="search" placeholder="Qidirish: brend, model, kod, razmer, rang" value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="boss-kpis">
+        <div className="boss-kpi main"><span>Omborda</span><b>{list.length} pachka</b><small className="muted">{list.reduce((a, p) => a + p.stock, 0)} juft</small></div>
+      </div>
+      <section className="boss-card">
+        {shown.length === 0 && <p className="muted">Topilmadi.</p>}
+        {shown.map((p) => (
+          <div key={p.id} className="boss-row static" style={hueStyle(p.brand)}>
+            <span className="grow"><span><i className="dot" />{!p.name.toLowerCase().startsWith(p.brand.toLowerCase()) && `${p.brand} · `}<b>{p.name}</b></span><small className="muted">{[p.size, p.color, `${p.stock} juft`].filter(Boolean).join(' · ')}</small></span>
+            <span className="num"><b>{formatSum(p.salePrice)}</b><small className="muted">1 juft</small></span>
+          </div>
+        ))}
+        {list.length > shown.length && <p className="muted small">Yana {list.length - shown.length} ta — qidiruvni aniqlashtiring.</p>}
+      </section>
+    </>
+  )
+}
+
+function ReceiptsView({ sales, settings, tg }: { sales: Sale[]; settings: Settings; tg: TgWebApp | null }) {
+  const [period, setPeriod] = useState<Period>('today')
+  const [open, setOpen] = useState<Sale | null>(null)
+  const close = useMemo(() => (open ? () => setOpen(null) : null), [open])
+  useTgBack(tg, close)
+  const list = sales.filter((s) => inPeriod(s.createdAt, period))
+  if (open) return <ReceiptScreen sale={open} settings={settings} onBack={() => setOpen(null)} />
+  return (
+    <>
+      <PeriodPicker value={period} onChange={setPeriod} month={false} />
+      <section className="boss-card">
+        <h2>Cheklar · {list.length}</h2>
+        {list.length === 0 && <p className="muted">Bu davrda chek yo'q.</p>}
+        {list.map((s) => (
+          <button key={s.id} className="boss-row" onClick={() => setOpen(s)}>
+            <span className="muted">№{s.number}</span>
+            <span className="grow">{s.customerName || <span className="muted">Mijozsiz</span>}<small className="muted">{fmtWhen(s.createdAt, period)}</small></span>
+            <span className="muted">›</span>
           </button>
         ))}
-      </nav>
+      </section>
+    </>
+  )
+}
+
+/** Telegram'ning "orqaga" tugmasi: ochiq oyna bo'lsa ko'rinadi va uni yopadi. */
+function useTgBack(tg: TgWebApp | null, onBack: (() => void) | null) {
+  useEffect(() => {
+    if (!tg || !onBack) return
+    tg.BackButton.show()
+    tg.BackButton.onClick(onBack)
+    return () => {
+      tg.BackButton.offClick(onBack)
+      tg.BackButton.hide()
+    }
+  }, [tg, onBack])
+}
+
+const fmtWhen = (iso: string, period: Period) =>
+  new Date(iso).toLocaleString('ru-RU', period === 'today' || period.startsWith('d:')
+    ? { hour: '2-digit', minute: '2-digit' } : { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+
+function ReceiptScreen({ sale, settings, onBack }: { sale: Sale; settings: Settings; onBack: () => void }) {
+  return (
+    <div className="boss-receipt">
+      <div className="print-area"><Receipt sale={sale} settings={settings} /></div>
+      <button className="btn primary big" onClick={onBack}>← Orqaga</button>
     </div>
   )
 }
@@ -180,17 +310,8 @@ function SalesView({ sales, settings, tg }: { sales: Sale[]; settings: Settings;
   const [period, setPeriod] = useState<Period>('today')
   const [open, setOpen] = useState<Sale | null>(null)
 
-  // Telegram'ning "orqaga" tugmasi chekni yopadi.
-  useEffect(() => {
-    if (!tg || !open) return
-    const close = () => setOpen(null)
-    tg.BackButton.show()
-    tg.BackButton.onClick(close)
-    return () => {
-      tg.BackButton.offClick(close)
-      tg.BackButton.hide()
-    }
-  }, [tg, open])
+  const close = useMemo(() => (open ? () => setOpen(null) : null), [open])
+  useTgBack(tg, close)
 
   const list = sales.filter((s) => inPeriod(s.createdAt, period))
   const sum = (f: (s: Sale) => number) => list.reduce((a, s) => a + f(s), 0)
@@ -216,16 +337,9 @@ function SalesView({ sales, settings, tg }: { sales: Sale[]; settings: Settings;
     return [...m].sort((a, b) => b[1].total - a[1].total)
   }, [list])
   const max = brands[0]?.[1].total ?? 0
-  const when = (iso: string) => new Date(iso).toLocaleString('ru-RU', period === 'today' || period.startsWith('d:')
-    ? { hour: '2-digit', minute: '2-digit' } : { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+  const when = (iso: string) => fmtWhen(iso, period)
 
-  if (open)
-    return (
-      <div className="boss-receipt">
-        <div className="print-area"><Receipt sale={open} settings={settings} /></div>
-        <button className="btn primary big" onClick={() => setOpen(null)}>← Orqaga</button>
-      </div>
-    )
+  if (open) return <ReceiptScreen sale={open} settings={settings} onBack={() => setOpen(null)} />
 
   return (
     <>

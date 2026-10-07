@@ -205,14 +205,15 @@ export const parseList = (t: string) => t.split(/[,;\n]+/).map((x) => x.trim()).
 export const siteUrl = () => (env('SITE_URL') || 'https://richmen.netlify.app').replace(/\/+$/, '')
 /** Loginlar sayt domenidagi email bo'lib saqlanadi: "ali" → ali@richmen.netlify.app (xat yuborilmaydi). */
 export const loginDomain = () => new URL(siteUrl()).hostname
-export const bossUrl = () => `${siteUrl()}/?boss`
+/** Mini app manzili (Boss va Sotuvchi paneli bitta — hisob turiga qarab ochiladi). */
+export const panelUrl = () => `${siteUrl()}/?boss`
 
 /** Pastdagi menyu. Asosiy admin (ADMIN_IDS dagi birinchi) — loginlarni ham boshqaradi. */
 const menu = (owner: boolean) => ({
   reply_markup: {
     keyboard: [
       [{ text: "📦 Yuk qo'shish" }, { text: '⚙️ Sozlamalar' }],
-      [{ text: '📊 Boss panel', web_app: { url: bossUrl() } }, ...(owner ? [{ text: '👥 Loginlar' }] : [])],
+      [{ text: '📊 Boss panel', web_app: { url: panelUrl() } }, ...(owner ? [{ text: '👥 Loginlar' }] : [])],
     ],
     resize_keyboard: true, is_persistent: true,
   },
@@ -268,11 +269,13 @@ async function applySetting(key: string, text: string): Promise<boolean> {
 // ---------- Suhbat holati ----------
 
 type Step = 'photos' | 'packs' | 'brand' | 'brand_new' | 'model' | 'size' | 'color' | 'packSize' | 'cost' | 'price' | 'confirm' | 'saving' | 'setting'
-  | 'login_name' | 'login_pass'
+  | 'login_name' | 'login_pass' | 'auth_idle' | 'auth_login' | 'auth_pass'
 interface Session extends Partial<Draft> {
   step: Step; packsPerPhoto?: number; photoCount?: number; setting?: string
-  /** Login yaratish / parol almashtirish: login nomi va (almashtirishda) foydalanuvchi id. */
-  login?: string; userId?: string
+  /** Login yaratish / parol almashtirish / botga kirish: login nomi, turi va (almashtirishda) foydalanuvchi id. */
+  login?: string; userId?: string; role?: Role
+  /** Noto'g'ri parollar hisobi (botga kirishda). */
+  guard?: { fails?: number; locks?: number; lockUntil?: number }
 }
 
 const getSession = async (chat: number) =>
@@ -344,12 +347,23 @@ async function ask(chat: number, s: Session) {
         `📏 ${esc(s.size || '—')} · 🎨 ${esc(s.color || '—')} · ${s.packSize} juftlik`,
         `📷 ${s.photoCount} ta rasm → <b>${total} pachka</b> (${pairs} juft)`,
         `💵 Kelish: ${formatSum(s.cost!)} · 💰 Sotuv: <b>${formatSum(s.price!)}</b> (1 juft)`,
-        `📈 Foyda: ${formatSum((s.price! - s.cost!) * pairs)}`,
+        `📈 Foyda: <b>${formatSum((s.price! - s.cost!) * s.packSize!)}</b> (1 pachka)`,
         '',
         'Tasdiqlasangiz — saytga tushadi va kanalga chiqadi.',
       ].join('\n'), kb([[b('✅ Tasdiqlash', 'ok'), b('❌ Bekor', 'cancel')]]))
     }
   }
+}
+
+/** Rasmlar tayyor: nechta rasm kelganini aytadi va savollarni boshlaydi. */
+async function photosDone(chat: number, s: Session) {
+  if (s.step !== 'photos') return
+  const n = (await db<{ id: number }[]>(`bot_photos?chat_id=eq.${chat}&select=id`)).length
+  if (!n) return say(chat, "Hali rasm yo'q. Rasmlarni yuboring.", PHOTO_KB)
+  const ns: Session = { ...s, photoCount: n, step: n === 1 ? 'packs' : 'brand', packsPerPhoto: 1 }
+  await setSession(chat, ns)
+  await say(chat, `📷 <b>${n} ta rasm</b> qabul qilindi.`, CANCEL_KB)
+  return ask(chat, ns)
 }
 
 /** Keyingi qadam. */
@@ -585,10 +599,10 @@ async function lastSale(productIds: string[]): Promise<SoldInfo | null> {
 
 // ---------- Loginlar (Supabase Auth, maxfiy kalit bilan) ----------
 
-async function auth<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
+async function auth<T = unknown>(path: string, init: RequestInit = {}, bearer = KEY()): Promise<T> {
   const res = await fetch(`${SB()}/auth/v1/${path}`, {
     ...init,
-    headers: { apikey: KEY(), Authorization: `Bearer ${KEY()}`, 'Content-Type': 'application/json' },
+    headers: { apikey: KEY(), Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' },
   })
   const text = await res.text()
   const body = text ? JSON.parse(text) : null
@@ -596,42 +610,92 @@ async function auth<T = unknown>(path: string, init: RequestInit = {}): Promise<
   return body as T
 }
 
-interface AuthUser { id: string; email?: string; last_sign_in_at?: string | null; created_at: string }
+/** Hisob turi: boss — Boss panel (sotuv, foyda, ombor, nasiya); sotuvchi — Sotuvchi panel (narx, qoldiq, cheklar). */
+export type Role = 'boss' | 'seller'
+export const ROLE_NAME: Record<Role, string> = { boss: '👔 Boss', seller: '🛒 Sotuvchi' }
+
+/**
+ * Hisob ma'lumoti app_metadata da — uni faqat maxfiy kalit o'zgartira oladi
+ * (foydalanuvchi o'zi rolini "boss" qilib qo'ya olmaydi).
+ */
+interface AppMeta { role?: Role; login?: string; tg?: number | null }
+interface AuthUser { id: string; email?: string; last_sign_in_at?: string | null; created_at: string; app_metadata?: AppMeta }
+type Login = AuthUser & { login: string; role: Role | null; tg: number | null }
 
 export const LOGIN_RE = /^[a-z0-9][a-z0-9_.]{2,19}$/
 const loginEmail = (login: string) => `${login}@${loginDomain()}`
-/** Bizning loginimizmi (Telegram orqali kirganlar "tg-…" — ular ro'yxatda ko'rinmaydi). */
-const loginOf = (u: AuthUser) => {
+/** Bizning loginimizmi (Telegram orqali kirgan adminlar "tg-…" — ular ro'yxatda ko'rinmaydi). */
+function asLogin(u: AuthUser): Login | null {
   const [name, domain] = (u.email ?? '').split('@')
-  return domain === loginDomain() && LOGIN_RE.test(name) ? name : null
+  if (domain !== loginDomain() || !LOGIN_RE.test(name)) return null
+  const role = u.app_metadata?.role
+  return { ...u, login: name, role: role === 'boss' || role === 'seller' ? role : null, tg: Number(u.app_metadata?.tg) || null }
 }
 
-export function genPassword(n = 8): string {
-  const abc = 'abcdefghjkmnpqrstuvwxyz23456789'
+export function genPassword(n = 10): string {
+  const abc = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789'
   const bytes = crypto.getRandomValues(new Uint8Array(n))
-  return [...bytes].map((x) => abc[x % abc.length]).join('')
+  const p = [...bytes].map((x) => abc[x % abc.length]).join('')
+  return /\d/.test(p) && /[a-z]/i.test(p) ? p : genPassword(n)
 }
 
-async function listLogins(): Promise<(AuthUser & { login: string })[]> {
+/** Parol talabi: kamida 8 belgi, harf va raqam, login bilan bir xil emas. Xato matni yoki null. */
+export function weakPassword(p: string, login: string): string | null {
+  if (p.length < 8) return 'kamida 8 belgi bo\'lsin'
+  if (!/\d/.test(p) || !/[a-zA-Zа-яА-Я]/.test(p)) return 'harf va raqam aralash bo\'lsin'
+  if (p.toLowerCase().includes(login)) return 'loginni o\'z ichiga olmasin'
+  if (/^(.)\1+$/.test(p) || /12345678|qwerty|parol|password/i.test(p)) return 'juda oddiy'
+  return null
+}
+
+async function listLogins(): Promise<Login[]> {
   const r = await auth<{ users: AuthUser[] }>('admin/users?per_page=1000')
-  return r.users.flatMap((u) => {
-    const login = loginOf(u)
-    return login ? [{ ...u, login }] : []
-  }).sort((a, b) => a.login.localeCompare(b.login))
+  return r.users.flatMap((u) => asLogin(u) ?? []).sort((a, b) => a.login.localeCompare(b.login))
 }
 
-async function createLogin(login: string, password: string): Promise<void> {
-  const u = await auth<AuthUser>('admin/users', {
-    method: 'POST', body: JSON.stringify({ email: loginEmail(login), password, email_confirm: true, user_metadata: { login } }),
-  })
-  await db('staff', { method: 'POST', body: JSON.stringify({ user_id: u.id }) }, 'resolution=ignore-duplicates')
-}
-
-async function ourUser(id: string): Promise<(AuthUser & { login: string }) | null> {
+async function ourUser(id: string): Promise<Login | null> {
   if (!/^[0-9a-f-]{36}$/.test(id)) return null
   const u = await auth<AuthUser>(`admin/users/${id}`).catch(() => null)
-  const login = u && loginOf(u)
-  return login ? { ...u!, login } : null
+  return u && asLogin(u)
+}
+
+/** Shu Telegram hisobiga bog'langan login (bo'lmasa — null). */
+export async function boundLogin(tgId: number): Promise<Login | null> {
+  return (await listLogins()).find((u) => u.tg === tgId && u.role) ?? null
+}
+
+async function createLogin(login: string, password: string, role: Role): Promise<Login> {
+  const u = await auth<AuthUser>('admin/users', {
+    method: 'POST',
+    body: JSON.stringify({ email: loginEmail(login), password, email_confirm: true, app_metadata: { role, login, tg: null } }),
+  })
+  await db('staff', { method: 'POST', body: JSON.stringify({ user_id: u.id }) }, 'resolution=ignore-duplicates')
+  return asLogin(u)!
+}
+
+const setMeta = (u: Login, patch: AppMeta) =>
+  auth(`admin/users/${u.id}`, { method: 'PUT', body: JSON.stringify({ app_metadata: { ...u.app_metadata, ...patch } }) })
+
+/** Telegram chatini "chiqqan" holatga qaytaradi: menyu tugmasi, buyruqlar, klaviatura. */
+async function resetChat(tgId: number, text: string) {
+  await tg('setChatMenuButton', { chat_id: tgId, menu_button: { type: 'default' } }).catch(() => {})
+  await tg('deleteMyCommands', { scope: { type: 'chat', chat_id: tgId } }).catch(() => {})
+  await say(tgId, text, LOGIN_MENU).catch(() => {})
+}
+
+/**
+ * Parolni almashtirish = hisobni qaytadan yaratish (o'sha login, o'sha tur): eski hisobdagi
+ * hamma kirishlar (sayt, mini app, boshqa qurilmalar) darhol bekor bo'ladi.
+ */
+async function resetPassword(u: Login, password: string): Promise<Login> {
+  await auth(`admin/users/${u.id}`, { method: 'DELETE' })
+  if (u.tg) await resetChat(u.tg, '🔐 Parolingiz almashtirildi. Yangi parol bilan qayta kiring.')
+  return createLogin(u.login, password, u.role ?? 'seller')
+}
+
+async function deleteLogin(u: Login) {
+  await auth(`admin/users/${u.id}`, { method: 'DELETE' })
+  if (u.tg) await resetChat(u.tg, '🚪 Hisobingiz o\'chirildi.')
 }
 
 const fmtDay = (iso?: string | null) => (iso ? tashkentStamp(iso).split(', ')[1] : 'hali kirmagan')
@@ -640,42 +704,183 @@ async function showLogins(chat: number) {
   const list = await listLogins()
   return say(chat, [
     '👥 <b>Loginlar</b>',
-    'Sayt va 📊 Boss panelga kirish uchun. Har biri — alohida hisob.',
+    `${ROLE_NAME.boss} — sotuv, foyda, ombor, nasiyalarni ko'radi. ${ROLE_NAME.seller} — narx, qoldiq va cheklarni ko'radi.`,
+    'Har biri saytga ham shu login bilan kiradi.',
     '',
-    ...(list.length ? list.map((u) => `• <code>${u.login}</code> — oxirgi kirish: ${fmtDay(u.last_sign_in_at)}`) : ["<i>Hali login yo'q.</i>"]),
+    ...(list.length
+      ? list.map((u) => `• <code>${u.login}</code> — ${u.role ? ROLE_NAME[u.role] : '⚠️ turi tanlanmagan'} · ${u.tg ? '📱 Telegram ulangan' : 'Telegram ulanmagan'} · oxirgi kirish: ${fmtDay(u.last_sign_in_at)}`)
+      : ["<i>Hali login yo'q.</i>"]),
   ].join('\n'), kb([
-    ...list.map((u) => [b(`🔑 ${u.login}: parol`, `lg:pw:${u.id}`), b(`🗑 ${u.login}`, `lg:del:${u.id}`)]),
+    ...list.map((u) => [b(`🔑 ${u.login}`, `lg:pw:${u.id}`), b(`🔁 turi`, `lg:role:${u.id}`), b(`🗑`, `lg:del:${u.id}`)]),
     [b("➕ Yangi login", 'lg:new')],
   ]))
 }
 
-const loginCard = (login: string, password: string) => [
+const loginCard = (login: string, password: string, role: Role) => [
   `👤 Login: <code>${login}</code>`,
   `🔑 Parol: <code>${esc(password)}</code>`,
-  `🌐 Sayt: ${siteUrl()}`,
+  `🏷 Turi: ${ROLE_NAME[role]}`,
   '',
-  "Shu xabarni egasiga yuboring. Boss panelga kirish uchun do'kon PIN kodi ham kerak.",
-].join('\n')
+  `Kirish: botga /start → 🔐 Kirish. Yoki saytda: ${siteUrl()}`,
+  role === 'boss' ? "Boss panel uchun do'kon PIN kodi ham so'raladi." : '',
+].filter((x, i, a) => x || i < a.length - 1).join('\n')
 
 /** Login yaratish yoki parolini almashtirish (sessiyadagi holatga qarab). */
 async function finishLogin(chat: number, s: Session, password: string, MENU: Record<string, unknown>) {
-  if (password.length < 6) return say(chat, '⚠️ Parol kamida 6 belgi bo\'lsin. Qaytadan yozing yoki 🎲 tugmasini bosing.')
+  const weak = weakPassword(password, s.login!)
+  if (weak) return say(chat, `⚠️ Parol ${weak}. Qaytadan yozing yoki 🎲 tugmasini bosing.`)
   try {
     if (s.userId) {
-      await auth(`admin/users/${s.userId}`, { method: 'PUT', body: JSON.stringify({ password }) })
+      const old = await ourUser(s.userId)
+      if (!old) throw new Error('login topilmadi')
+      const u = await resetPassword(old, password)
       await endSession(chat)
-      return say(chat, `✅ Parol almashtirildi\n\n${loginCard(s.login!, password)}`, MENU)
+      return say(chat, `✅ Parol almashtirildi (eski kirishlar bekor qilindi)\n\n${loginCard(u.login, password, u.role!)}`, MENU)
     }
-    await createLogin(s.login!, password)
+    await createLogin(s.login!, password, s.role!)
     await endSession(chat)
-    return say(chat, `✅ Login yaratildi\n\n${loginCard(s.login!, password)}`, MENU)
+    return say(chat, `✅ Login yaratildi\n\n${loginCard(s.login!, password, s.role!)}`, MENU)
   } catch (e) {
     await endSession(chat)
     return say(chat, `⚠️ Xato: ${esc(String((e as Error).message ?? e)).slice(0, 300)}`, MENU)
   }
 }
 
-// ---------- Mini app (📊 Boss panel) ga kirish ----------
+// ---------- Botga login/parol bilan kirish (sotuvchi va boss hisoblari) ----------
+
+const LOGIN_MENU = { reply_markup: { keyboard: [[{ text: '🔐 Kirish' }]], resize_keyboard: true, is_persistent: true } }
+
+/** Kirgan foydalanuvchi menyusi: panel (mini app) va chiqish. */
+const roleMenu = (role: Role) => ({
+  reply_markup: {
+    keyboard: [
+      [{ text: role === 'boss' ? '📊 Boss panel' : '🛒 Sotuvchi panel', web_app: { url: panelUrl() } }],
+      [{ text: '🚪 Chiqish' }],
+    ],
+    resize_keyboard: true, is_persistent: true,
+  },
+})
+
+/** Rasm yig'ish paytidagi pastki tugmalar (100–200 ta rasmdan keyin ham ko'rinib turadi). */
+const PHOTO_KB = { reply_markup: { keyboard: [[{ text: '✅ Rasmlar tayyor' }], [{ text: '❌ Bekor qilish' }]], resize_keyboard: true, is_persistent: true } }
+const CANCEL_KB = { reply_markup: { keyboard: [[{ text: '❌ Bekor qilish' }]], resize_keyboard: true, is_persistent: true } }
+
+const ADMIN_COMMANDS = (owner: boolean) => [
+  { command: 'yuk', description: "📦 Yuk qo'shish" },
+  { command: 'sozlamalar', description: '⚙️ Sozlamalar' },
+  { command: 'bekor', description: '❌ Joriy kirimni bekor qilish' },
+  { command: 'sync', description: '🔄 Kanalni yangilash' },
+  ...(owner ? [{ command: 'loginlar', description: '👥 Loginlar' }] : []),
+]
+
+/** Chatdagi ko'k tugma (Menu o'rnida) — panelni ochadi; "/" menyusida — /logout. */
+async function setupChat(tgId: number, label: string, commands: { command: string; description: string }[]) {
+  await tg('setChatMenuButton', { chat_id: tgId, menu_button: { type: 'web_app', text: label, web_app: { url: panelUrl() } } }).catch(() => {})
+  await tg('setMyCommands', { commands, scope: { type: 'chat', chat_id: tgId } }).catch(() => {})
+}
+
+/** Noto'g'ri parol: 5 marta — 15 daqiqa, keyin 30, 60… (24 soatgacha) kutish. */
+export const MAX_TRIES = 5
+export const lockMinutes = (locks: number) => Math.min(15 * 2 ** locks, 24 * 60)
+
+interface Guard { fails?: number; locks?: number; lockUntil?: number }
+
+/** Parolni tekshiradi (Supabase o'zi), to'g'ri bo'lsa ochilgan sessiyani darhol yopadi. */
+async function checkPassword(login: string, password: string): Promise<Login | null> {
+  try {
+    const r = await auth<{ access_token: string; user: AuthUser }>('token?grant_type=password', {
+      method: 'POST', body: JSON.stringify({ email: loginEmail(login), password }),
+    })
+    await auth('logout?scope=local', { method: 'POST' }, r.access_token).catch(() => {})
+    return asLogin(r.user)
+  } catch {
+    return null
+  }
+}
+
+type From = { id: number; first_name?: string; username?: string }
+const who = (f: From) => `${esc(f.first_name ?? '')}${f.username ? ` @${esc(f.username)}` : ''} (ID <code>${f.id}</code>)`
+
+/** Admin bo'lmaganlar: kirish, bog'langan hisob menyusi, chiqish. */
+async function guestUpdate(u: Update, from: From, chat: number) {
+  if (u.callback_query) {
+    await tg('answerCallbackQuery', { callback_query_id: u.callback_query.id }).catch(() => {})
+    return
+  }
+  const m = u.message!
+  const text = m.text?.trim() ?? ''
+  const owner = admins()[0]
+  const me = await boundLogin(from.id)
+
+  if (me) {
+    if (text === '🚪 Chiqish' || text === '/logout') {
+      await setMeta(me, { tg: null })
+      await resetChat(chat, `🚪 Chiqdingiz. Qayta kirish uchun — 🔐 Kirish.`)
+      return
+    }
+    const panel = me.role === 'boss' ? '📊 Boss panel' : '🛒 Sotuvchi panel'
+    return say(chat, [
+      `👋 Siz <b>${me.login}</b> (${ROLE_NAME[me.role!]}) sifatida kirgansiz.`,
+      `${panel} — pastdagi tugma yoki chatdagi ko'k tugma orqali ochiladi.`,
+      '🚪 Chiqish — hisobdan chiqish.',
+    ].join('\n'), roleMenu(me.role!))
+  }
+
+  if (!text) return say(chat, '🔐 Ishlash uchun avval kiring.', LOGIN_MENU)
+  const s = (await getSession(chat)) ?? { step: 'auth_idle' as Step }
+  const g: Guard = s.guard ?? {}
+  const locked = (g.lockUntil ?? 0) > Date.now()
+  const wait = () => say(chat, `⏳ Juda ko'p noto'g'ri urinish. ${Math.ceil(((g.lockUntil ?? 0) - Date.now()) / 60_000)} daqiqadan keyin qayta urinib ko'ring.`, LOGIN_MENU)
+
+  if (text.startsWith('/start') || (!['auth_login', 'auth_pass'].includes(s.step) && text !== '🔐 Kirish' && text !== '/login')) {
+    await setSession(chat, { step: 'auth_idle', guard: g })
+    return say(chat, [
+      `👋 <b>Assalomu alaykum${from.first_name ? `, ${esc(from.first_name)}` : ''}!</b>`,
+      "Bu do'kon boti. Ishlash uchun do'kon egasi bergan <b>login va parol</b> bilan kiring.",
+      '',
+      '🔐 Kirish tugmasini bosing.',
+    ].join('\n'), LOGIN_MENU)
+  }
+  if (locked) return wait()
+  if (text === '🔐 Kirish' || text === '/login') {
+    await setSession(chat, { step: 'auth_login', guard: g })
+    return say(chat, '👤 Loginingizni yozing:', { reply_markup: { remove_keyboard: true } })
+  }
+  if (s.step === 'auth_login') {
+    const login = text.toLowerCase()
+    if (!LOGIN_RE.test(login)) return say(chat, "🤔 Login noto'g'ri yozildi. Qaytadan yozing:")
+    await setSession(chat, { step: 'auth_pass', login, guard: g })
+    return say(chat, '🔑 Parolni yozing (xabar darhol o\'chiriladi):')
+  }
+  // auth_pass
+  await tg('deleteMessage', { chat_id: chat, message_id: m.message_id }).catch(() => {})
+  const user = await checkPassword(s.login ?? '', text)
+  if (!user || !user.role) {
+    const fails = (g.fails ?? 0) + 1
+    if (fails >= MAX_TRIES) {
+      const locks = (g.locks ?? 0)
+      const ng = { fails: 0, locks: locks + 1, lockUntil: Date.now() + lockMinutes(locks) * 60_000 }
+      await setSession(chat, { step: 'auth_idle', guard: ng })
+      if (owner) await say(owner, `⚠️ <b>Shubhali urinish</b>\n${who(from)} <code>${esc(s.login ?? '')}</code> loginiga ${MAX_TRIES} marta noto'g'ri parol kiritdi. ${lockMinutes(locks)} daqiqaga to'xtatildi.`).catch(() => {})
+      return say(chat, `⛔ ${MAX_TRIES} marta noto'g'ri. ${lockMinutes(locks)} daqiqadan keyin qayta urinib ko'ring.`, LOGIN_MENU)
+    }
+    await setSession(chat, { step: 'auth_idle', guard: { ...g, fails } })
+    return say(chat, `❌ Login yoki parol noto'g'ri${user && !user.role ? " (hisob turi tanlanmagan — egasiga murojaat qiling)" : ''}. Qolgan urinish: ${MAX_TRIES - fails}.`, LOGIN_MENU)
+  }
+  // Bitta login — bitta Telegram: avval boshqa Telegramda ochiq bo'lsa, u yerdan chiqariladi.
+  if (user.tg && user.tg !== from.id) await resetChat(user.tg, '🚪 Hisobingizga boshqa Telegramdan kirildi — bu yerdan chiqarildingiz.')
+  await setMeta(user, { tg: from.id })
+  await endSession(chat)
+  const panel = user.role === 'boss' ? '📊 Boss panel' : '🛒 Panel'
+  await setupChat(chat, panel, [{ command: 'logout', description: '🚪 Hisobdan chiqish' }])
+  if (owner && owner !== from.id) await say(owner, `🔐 <code>${user.login}</code> (${ROLE_NAME[user.role]}) botga kirdi: ${who(from)}`).catch(() => {})
+  return say(chat, [
+    `✅ Xush kelibsiz, <b>${user.login}</b>! (${ROLE_NAME[user.role]})`,
+    `${user.role === 'boss' ? '📊 Boss panel' : '🛒 Sotuvchi panel'} — pastdagi tugma yoki chatdagi ko'k tugma. Qayta login so'ralmaydi.`,
+  ].join('\n'), roleMenu(user.role))
+}
+
+// ---------- Mini app (panel) ga kirish ----------
 
 const enc = new TextEncoder()
 async function hmac(key: ArrayBuffer, data: string): Promise<ArrayBuffer> {
@@ -702,29 +907,39 @@ export async function verifyInitData(initData: string, maxAgeSec = 86_400): Prom
 }
 
 /**
- * Bot adminlari mini app'ga parolsiz kiradi: har biriga "tg-<id>" hisob (bir marta yaratiladi)
- * va bir martalik kirish kaliti beriladi. Boshqalar — login/parol bilan.
+ * Mini app ochilganda: Telegram imzosi tekshiriladi, keyin bir martalik kirish kaliti beriladi —
+ * bot adminlariga ("tg-<id>" hisob) va botda login qilib bog'langan foydalanuvchilarga (o'z hisobi).
+ * Boshqalar — kira olmaydi (avval botda kirishi kerak).
  */
-export async function tgAuth(initData: string): Promise<{ token_hash?: string; login?: boolean; error?: string }> {
+export async function tgAuth(initData: string): Promise<{ token_hash?: string; role?: Role | 'admin'; unbound?: boolean; error?: string }> {
   const id = await verifyInitData(initData)
   if (!id) return { error: "Telegram ma'lumoti tasdiqlanmadi" }
-  if (!admins().includes(id)) return { login: true }
-  const email = `tg-${id}@${loginDomain()}`
-  await auth('admin/users', {
-    method: 'POST', body: JSON.stringify({ email, password: genPassword(32), email_confirm: true, user_metadata: { telegram_id: id } }),
-  }).catch(() => {}) // bor bo'lsa — xato, e'tiborsiz
+  let email: string
+  let role: Role | 'admin'
+  if (admins().includes(id)) {
+    email = `tg-${id}@${loginDomain()}`
+    role = 'admin'
+    await auth('admin/users', {
+      method: 'POST', body: JSON.stringify({ email, password: genPassword(32), email_confirm: true, app_metadata: { telegram_id: id } }),
+    }).catch(() => {}) // bor bo'lsa — xato, e'tiborsiz
+  } else {
+    const u = await boundLogin(id)
+    if (!u) return { unbound: true }
+    email = u.email!
+    role = u.role!
+  }
   const link = await auth<{ id: string; hashed_token: string }>('admin/generate_link', {
     method: 'POST', body: JSON.stringify({ type: 'magiclink', email }),
   })
   await db('staff', { method: 'POST', body: JSON.stringify({ user_id: link.id }) }, 'resolution=ignore-duplicates')
-  return { token_hash: link.hashed_token }
+  return { token_hash: link.hashed_token, role }
 }
 
 // ---------- Telegram yangilanishlari ----------
 
 interface Update {
-  message?: { message_id?: number; chat: { id: number }; from?: { id: number }; text?: string; photo?: { file_id: string }[]; media_group_id?: string }
-  callback_query?: { id: string; from: { id: number }; data?: string; message?: { chat: { id: number }; message_id: number } }
+  message?: { message_id?: number; chat: { id: number; type?: string }; from?: From; text?: string; photo?: { file_id: string }[]; media_group_id?: string }
+  callback_query?: { id: string; from: From; data?: string; message?: { chat: { id: number }; message_id: number } }
 }
 
 const admins = () => env('ADMIN_IDS').split(/[,\s]+/).filter(Boolean).map(Number)
@@ -733,10 +948,9 @@ async function onUpdate(u: Update) {
   const from = u.message?.from?.id ?? u.callback_query?.from.id
   const chat = u.message?.chat.id ?? u.callback_query?.message?.chat.id
   if (!from || !chat) return
-  if (!admins().includes(from)) {
-    if (u.message?.text?.startsWith('/start')) await say(chat, `Bu do'kon boti. Sizning Telegram ID: <code>${from}</code>\nEgasi uni ADMIN_IDS ga qo'shsa — ishlay olasiz.`)
-    return
-  }
+  // Faqat shaxsiy chat (guruhlarda bot ishlamaydi).
+  if (u.message && u.message.chat.type && u.message.chat.type !== 'private') return
+  if (!admins().includes(from)) return guestUpdate(u, (u.message?.from ?? u.callback_query!.from), chat)
   const owner = admins()[0] === from
   const MENU = menu(owner)
 
@@ -756,7 +970,12 @@ async function onUpdate(u: Update) {
       const [, act, id] = data.split(':')
       if (act === 'new') {
         await setSession(chat, { step: 'login_name' })
-        return say(chat, "👤 Yangi login yozing: lotin harf va raqam, 3–20 belgi.\nMasalan: <code>ali</code>, <code>sotuvchi1</code>", kb([[b('❌ Bekor qilish', 'cancel')]]))
+        return say(chat, '🏷 Hisob turini tanlang:', kb([[b(ROLE_NAME.boss, 'lg:type:boss'), b(ROLE_NAME.seller, 'lg:type:seller')], [b('❌ Bekor qilish', 'cancel')]]))
+      }
+      if (act === 'type') {
+        if (s?.step !== 'login_name' || (id !== 'boss' && id !== 'seller')) return
+        await setSession(chat, { step: 'login_name', role: id })
+        return say(chat, `${ROLE_NAME[id]} uchun login yozing: lotin harf va raqam, 3–20 belgi.\nMasalan: <code>ali</code>, <code>sotuvchi1</code>`, kb([[b('❌ Bekor qilish', 'cancel')]]))
       }
       if (act === 'gen') {
         if (s?.step !== 'login_pass') return
@@ -765,15 +984,22 @@ async function onUpdate(u: Update) {
       if (act === 'list') return showLogins(chat)
       const user = await ourUser(id ?? '')
       if (!user) return say(chat, 'Bu login topilmadi.')
+      if (act === 'role') {
+        const role: Role = user.role === 'boss' ? 'seller' : 'boss'
+        await setMeta(user, { role })
+        if (user.tg) await resetChat(user.tg, `🏷 Hisobingiz turi o'zgardi: ${ROLE_NAME[role]}. Qayta kiring.`).then(() => setMeta({ ...user, app_metadata: { ...user.app_metadata, role } }, { tg: null }))
+        await say(chat, `✅ <code>${user.login}</code> endi ${ROLE_NAME[role]}.`)
+        return showLogins(chat)
+      }
       if (act === 'pw') {
         await setSession(chat, { step: 'login_pass', login: user.login, userId: user.id })
-        return say(chat, `🔑 <code>${user.login}</code> uchun yangi parol yozing (kamida 6 belgi) yoki 🎲 bosing:`, kb([[b('🎲 Parol yaratish', 'lg:gen')], [b('❌ Bekor qilish', 'cancel')]]))
+        return say(chat, `🔑 <code>${user.login}</code> uchun yangi parol yozing (kamida 8 belgi, harf va raqam) yoki 🎲 bosing.\nEski parol bilan ochilgan hamma joydan chiqariladi.`, kb([[b('🎲 Parol yaratish', 'lg:gen')], [b('❌ Bekor qilish', 'cancel')]]))
       }
       if (act === 'del') {
         return say(chat, `🗑 <code>${user.login}</code> o'chirilsinmi? U saytdan ham, Boss paneldan ham chiqib ketadi.`, kb([[b("Ha, o'chirish", `lg:delok:${user.id}`), b('Yo\'q', 'lg:list')]]))
       }
       if (act === 'delok') {
-        await auth(`admin/users/${user.id}`, { method: 'DELETE' })
+        await deleteLogin(user)
         await say(chat, `✅ <code>${user.login}</code> o'chirildi.`)
         return showLogins(chat)
       }
@@ -808,14 +1034,7 @@ async function onUpdate(u: Update) {
       const what: Record<string, string> = { size: 'Razmerni', color: 'Rangni', packSize: 'Pachkadagi juft sonini' }
       return say(chat, `✍️ ${what[key] ?? 'Qiymatni'} yozing:`)
     }
-    if (data === 'photos_done') {
-      if (s.step !== 'photos') return
-      const n = (await db<{ id: number }[]>(`bot_photos?chat_id=eq.${chat}&select=id`)).length
-      if (!n) return say(chat, 'Hali rasm yo\'q.')
-      const ns: Session = { ...s, photoCount: n, step: n === 1 ? 'packs' : 'brand', packsPerPhoto: 1 }
-      await setSession(chat, ns)
-      return ask(chat, ns)
-    }
+    if (data === 'photos_done') return photosDone(chat, s)
     if (data === 'ok' && s.step === 'confirm') {
       // Ikki marta bosilsa (yoki Telegram qayta yuborsa) — faqat bittasi o'tadi.
       const won = await db<unknown[]>(`bot_sessions?chat_id=eq.${chat}&data->>step=eq.confirm`, {
@@ -860,6 +1079,7 @@ async function onUpdate(u: Update) {
   const text = m.text?.trim() ?? ''
 
   if (text === '/start' || text === '/help') {
+    await setupChat(chat, '📊 Boss panel', ADMIN_COMMANDS(owner))
     return say(chat, [
       '👋 <b>Assalomu alaykum!</b>',
       '',
@@ -881,7 +1101,7 @@ async function onUpdate(u: Update) {
       'Bir xil narxdagi pachkalar — har rasm 1 pachka. Bitta rasm yuborsangiz, nechta pachka ekanini so\'rayman.',
       '',
       'Hammasini yuborib bo\'lgach — tugmani bosing:',
-    ].join('\n'), kb([[b('✅ Rasmlar tayyor', 'photos_done')], [b('❌ Bekor qilish', 'cancel')]]))
+    ].join('\n'), PHOTO_KB)
   }
   if (text === '👥 Loginlar' || text === '/loginlar') {
     if (!owner) return say(chat, '⛔ Loginlarni faqat asosiy admin boshqaradi.')
@@ -894,9 +1114,14 @@ async function onUpdate(u: Update) {
     if (cur?.step === 'setting') await endSession(chat)
     return showSettings(chat)
   }
-  if (text === '/bekor' || text === '/cancel') {
+  if (text === '/bekor' || text === '/cancel' || text === '❌ Bekor qilish') {
     await endSession(chat)
-    return say(chat, '❌ Bekor qilindi.')
+    return say(chat, "❌ Bekor qilindi. Yangi kirim: 📦 Yuk qo'shish", MENU)
+  }
+  if (text === '✅ Rasmlar tayyor') {
+    const cur = await getSession(chat)
+    if (cur?.step !== 'photos') return say(chat, "Hozir rasm yig'ilmayapti. Yangi kirim: 📦 Yuk qo'shish", MENU)
+    return photosDone(chat, cur)
   }
   if (text === '/sync') {
     const r = await syncSold()
@@ -913,7 +1138,7 @@ async function onUpdate(u: Update) {
       method: 'POST', body: JSON.stringify({ chat_id: chat, data: { step: 'photos' } }),
     }, 'resolution=ignore-duplicates,return=representation')
     if (created.length) {
-      return say(chat, "📷 Yangi kirim boshlandi, rasmlar qabul qilinmoqda… Hammasini yuborib bo'lgach, tugmani bosing:", kb([[b('✅ Rasmlar tayyor', 'photos_done')], [b('❌ Bekor qilish', 'cancel')]]))
+      return say(chat, "📷 Yangi kirim boshlandi, rasmlar qabul qilinmoqda… Hammasini yuborib bo'lgach, pastdagi <b>✅ Rasmlar tayyor</b> tugmasini bosing.", PHOTO_KB)
     }
     return
   }
@@ -922,11 +1147,12 @@ async function onUpdate(u: Update) {
   const s = await getSession(chat)
   if (!s) return say(chat, "Yangi kirim: 📦 Yuk qo'shish · Sozlamalar: ⚙️ Sozlamalar", MENU)
   if (s.step === 'login_name') {
+    if (!s.role) return say(chat, '🏷 Avval hisob turini tanlang (tugmalardan).')
     const login = text.toLowerCase()
     if (!LOGIN_RE.test(login)) return say(chat, '🤔 Faqat lotin harf, raqam, nuqta yoki _ (3–20 belgi). Qaytadan yozing.')
     if ((await listLogins()).some((u) => u.login === login)) return say(chat, `⚠️ <code>${login}</code> allaqachon bor. Boshqa nom yozing.`)
-    await setSession(chat, { step: 'login_pass', login })
-    return say(chat, `🔑 <code>${login}</code> uchun parol yozing (kamida 6 belgi) yoki 🎲 bosing:`, kb([[b('🎲 Parol yaratish', 'lg:gen')], [b('❌ Bekor qilish', 'cancel')]]))
+    await setSession(chat, { step: 'login_pass', login, role: s.role })
+    return say(chat, `🔑 <code>${login}</code> uchun parol yozing (kamida 8 belgi, harf va raqam) yoki 🎲 bosing:`, kb([[b('🎲 Parol yaratish', 'lg:gen')], [b('❌ Bekor qilish', 'cancel')]]))
   }
   if (s.step === 'login_pass') {
     // Parol yozilgan xabar chatda qolmasin.
@@ -941,7 +1167,7 @@ async function onUpdate(u: Update) {
   }
   let patch: Partial<Session> | null = null
   switch (s.step) {
-    case 'photos': return say(chat, 'Rasmlarni yuborib bo\'lgach "✅ Rasmlar tayyor" ni bosing.')
+    case 'photos': return say(chat, 'Rasmlarni yuborib bo\'lgach pastdagi "✅ Rasmlar tayyor" ni bosing.', PHOTO_KB)
     case 'packs': { const n = parseInt(text); patch = n > 0 && n < 500 ? { packsPerPhoto: n } : null; break }
     case 'brand':
     case 'brand_new': patch = text.length >= 2 ? { brand: text.replace(/\s+/g, ' ') } : null; break
@@ -999,14 +1225,13 @@ export async function handle(req: Request): Promise<Response> {
     const hook = `${SB()}/functions/v1/bot`
     const r = await tg('setWebhook', { url: hook, secret_token: env('WEBHOOK_SECRET'), allowed_updates: ['message', 'callback_query'] })
     await tg('setMyCommands', { commands: [
-      { command: 'yuk', description: "📦 Yuk qo'shish" },
-      { command: 'sozlamalar', description: '⚙️ Sozlamalar' },
-      { command: 'bekor', description: '❌ Joriy kirimni bekor qilish' },
-      { command: 'sync', description: '🔄 Kanalni yangilash' },
-      { command: 'loginlar', description: '👥 Loginlar (asosiy admin)' },
+      { command: 'start', description: '🏠 Boshlash' },
+      { command: 'login', description: '🔐 Kirish' },
+      { command: 'logout', description: '🚪 Chiqish' },
     ] }).catch(() => {})
-    // Chat pastidagi "📊 Boss" tugmasi — mini app.
-    await tg('setChatMenuButton', { menu_button: { type: 'web_app', text: '📊 Boss', web_app: { url: bossUrl() } } }).catch(() => {})
+    // Hamma uchun oddiy menyu; adminlarga — ko'k "📊 Boss panel" tugmasi va to'liq buyruqlar.
+    await tg('setChatMenuButton', { menu_button: { type: 'default' } }).catch(() => {})
+    for (const id of admins()) await setupChat(id, '📊 Boss panel', ADMIN_COMMANDS(id === admins()[0])).catch(() => {})
     const me = await tg<{ username: string }>('getMe', {})
     return new Response(`✅ Tayyor! Bot @${me.username} ulandi (${JSON.stringify(r)}). Endi botga /start yozing.`, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
   }
