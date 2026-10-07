@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cartToInputs } from './NewBatch'
+import { cartToInputs } from '../lib/kirim'
 
 describe('kirim savati', () => {
   it("har rang — alohida qator, 0 pachkali rang tashlanadi, har model o'z narxi bilan", () => {
