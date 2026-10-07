@@ -81,3 +81,11 @@ Kompyuterdagi eski bot shu token bilan ishlayotgan bo'lsa — uni to'xtating.
   3 marta noto'g'ri — 15 daqiqa (keyin 30, 60…) to'xtatiladi.
 - Yuk qo'shish savollari bitta kartochkada (javoblar o'chib, kartochkada yig'iladi);
   "✍️ Qo'lda kiritish", "❌ Bekor qilish", "✅ Tasdiqlash" — pastki tugmalar; narxlar uchun oxirgi ishlatilganlar tugmada.
+
+## Yangilanish: pastki tugmalar va bitta "ekran"
+
+- Bot menyulari (Asosiy menyu, ⚙️ Sozlamalar, 👥 Loginlar, login kartasi, kirish oynasi) — pastki tugmalarda, hammasida **⬅️ Orqaga**.
+  Tugma bosilganda (yoki javob yozilganda) yozilgan xabar o'chadi, tepadagi bot xabari yangilanadi — chatda bitta "ekran" turadi.
+- Kirim savollaridagi variantlar (brend, razmer, rang, narx) — xabar tagida; "✍️ Qo'lda kiritish", "❌ Bekor qilish", "✅ Tasdiqlash" — pastda.
+- **📊 Kuzatuvchi PIN kodi** — shaxsiy: birinchi marta panelni ochganda o'zi yaratadi, botda /changepass bilan o'zgartiradi,
+  unutsa — asosiy admin 👥 Loginlar → login → 🔢 PIN reset. PIN o'zi saqlanmaydi (maxfiy kalit bilan imzolangan izi), 5 marta xato — 15 daqiqa.

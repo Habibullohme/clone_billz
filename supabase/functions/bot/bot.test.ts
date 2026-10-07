@@ -34,6 +34,8 @@ function match(row: Row, key: string, cond: string): boolean {
 }
 
 let users: Row[]
+/** Saytdan chaqiruvda JWT egasi (soxta). */
+let jwtUser: string | null = null
 
 /** Soxta Supabase Auth (admin API). */
 function fakeAuth(path: string, method: string, body: any): Response {
@@ -44,6 +46,10 @@ function fakeAuth(path: string, method: string, body: any): Response {
     return u ? json({ access_token: 'at_' + u.id, user: u }) : json({ error_description: 'Invalid login credentials' }, 400)
   }
   if (path.startsWith('logout')) return json({})
+  if (path === 'user') {
+    const u = users.find((x) => x.id === jwtUser)
+    return u ? json(u) : json({ msg: 'no' }, 401)
+  }
   if (path === 'admin/users' && method === 'POST') {
     if (users.some((u) => u.email === body.email)) return json({ msg: 'A user with this email address has already been registered' }, 422)
     const u = { id: crypto.randomUUID(), email: body.email, password: body.password, app_metadata: body.app_metadata ?? {}, created_at: new Date().toISOString(), last_sign_in_at: null }
@@ -121,6 +127,8 @@ const shown = () => [...sent].reverse().find((x) => x.method === 'sendMessage' |
 const lastMarkup = () => shown()?.body.reply_markup
 const lastText = () => shown()?.body.text as string
 /** Pastki (reply) klaviatura — oxirgi yuborilgan xabardagi. */
+const deletedMsg = (chat: number, mid: number) => sent.some((x) => x.method === 'deleteMessage' && x.body.chat_id === chat && x.body.message_id === mid)
+const keyTexts = () => lastKeyboard().flat().map((x: any) => x.text) as string[]
 const lastKeyboard = () => [...sent].reverse().find((x) => x.method === 'sendMessage' && x.body.reply_markup?.keyboard)?.body.reply_markup.keyboard
 
 beforeEach(() => {
@@ -128,6 +136,7 @@ beforeEach(() => {
   counters = { product: 40, 'brand:velton': 20, batch: 3 }
   sent = []
   users = []
+  jwtUser = null
   vi.stubGlobal('fetch', fakeFetch)
   vi.stubGlobal('Deno', { env: { get: (k: string) => ENV[k] } })
 })
@@ -181,37 +190,54 @@ describe('sozlamalar', () => {
     const c = postCaption({ brand: 'B', model: 'm', size: '', color: '', packSize: 5, cost: 1, price: 220000 }, 'A1', {}, 1, 1, false)
     expect(c).not.toContain('220 000')
   })
-  it("/start — menyu; Yuk qo'shish; sozlamalardan razmer, rang, telefon, narx", async () => {
+  it("/start — asosiy menyu; sozlamalar pastki tugmalarda, Orqaga; kirim", async () => {
     await handle(text('/start'))
-    expect(lastMarkup().keyboard[0][0].text).toBe("📦 Yuk qo'shish")
-    expect(tables.bot_sessions ?? []).toHaveLength(0) // /start kirim boshlamaydi
+    expect(lastText()).toContain('Asosiy menyu')
+    expect(lastKeyboard()[0].map((x: any) => x.text)).toEqual(["📦 Yuk qo'shish", '⚙️ Sozlamalar'])
+    expect(tables.bot_sessions[0].data.step).toBe('home') // /start kirim boshlamaydi
+    expect(deletedMsg(7, 55)).toBe(true) // bosilgan tugma (yozuv) o'chadi
 
     await handle(text('⚙️ Sozlamalar'))
     expect(lastText()).toContain('44-45-46')
     expect(lastText()).toContain('zamish')
-    await handle(press('set:sizes'))
+    expect(keyTexts()).toContain('⬅️ Orqaga')
+    await handle(text('📏 Razmerlar'))
+    expect(lastText()).toContain('Razmerlarni vergul')
+    expect(keyTexts()).toEqual(['⬅️ Orqaga'])
     await handle(text('39-43, 40-44, 44-45-46'))
-    await handle(press('set:colors'))
+    expect(lastText()).toContain('✅ Saqlandi')
+    await handle(text('🎨 Ranglar'))
     await handle(text('qora, karesh, zamish'))
-    await handle(press('set:phone'))
+    await handle(text('📞 Telefon'))
     await handle(text('+998 90 111 22 33'))
-    await handle(press('set:price'))
-    expect(lastText()).toContain("ko'rsatilmaydi")
+    await handle(text('🙈 Narxni yashirish'))
+    expect(lastText()).toContain('yashirilgan')
+    expect(keyTexts()).toContain("💰 Narxni ko'rsatish")
+    // Orqaga: kiritishdan → sozlamalar → asosiy menyu
+    await handle(text('📍 Manzil'))
+    await handle(text('⬅️ Orqaga'))
+    expect(lastText()).toContain('Bot sozlamalari')
+    await handle(text('⬅️ Orqaga'))
+    expect(lastText()).toContain('Asosiy menyu')
     const cfg = tables.settings.find((r) => r.id === 'bot')!.data
     expect(cfg.sizes).toEqual(['39-43', '40-44', '44-45-46'])
     expect(cfg.colors).toEqual(['qora', 'karesh', 'zamish'])
     expect(cfg.phone).toBe('+998 90 111 22 33')
     expect(cfg.showPrice).toBe(false)
+    // Chatda faqat bitta ekran: oldingi ekranlar o'chiriladi.
+    const screens = sent.filter((x) => x.method === 'sendMessage' && x.body.chat_id === 7).length
+    const dels = sent.filter((x) => x.method === 'deleteMessage' && x.body.chat_id === 7 && x.body.message_id !== 55).length
+    expect(screens - dels).toBe(1)
 
     // Kirim: sozlamadagi tugmalar va qo'lda kiritish
     await handle(text("📦 Yuk qo'shish"))
     await handle(photo('p1'))
     await handle(photo('p2'))
-    await handle(press('photos_done'))
+    await handle(text('✅ Rasmlar tayyor'))
     await handle(press('brand:Velton'))
     await handle(text('klassik'))
     expect(lastMarkup().inline_keyboard.flat().map((x: any) => x.text)).toEqual(['39-43', '40-44', '44-45-46'])
-    expect(lastKeyboard().flat().map((x: any) => x.text)).toEqual(["✍️ Qo'lda kiritish", '❌ Bekor qilish'])
+    expect(keyTexts()).toEqual(["✍️ Qo'lda kiritish", '❌ Bekor qilish'])
     expect(lastText()).toContain('Model: <b>klassik</b>') // javoblar kartochkada yig'iladi
     await handle(text("✍️ Qo'lda kiritish"))
     expect(lastText()).toContain('Javobni yozib yuboring')
@@ -221,7 +247,7 @@ describe('sozlamalar', () => {
     await handle(press('packSize:6'))
     await handle(text('150000'))
     await handle(text('170000'))
-    expect(lastKeyboard().flat().map((x: any) => x.text)).toEqual(['✅ Tasdiqlash', '❌ Bekor qilish'])
+    expect(keyTexts()).toEqual(['✅ Tasdiqlash', '❌ Bekor qilish'])
     await handle(text('✅ Tasdiqlash'))
     const post = sent.find((x) => x.method === 'sendPhoto')!.body.caption
     expect(post).toContain('38-42')
@@ -229,6 +255,8 @@ describe('sozlamalar', () => {
     expect(post).toContain('+998 90 111 22 33')
     expect(post).not.toContain('170 000')
     expect(tables.products).toHaveLength(2)
+    expect(lastText()).toContain('Kirim №')
+    expect(lastKeyboard()[0].map((x: any) => x.text)).toEqual(["📦 Yuk qo'shish", '⚙️ Sozlamalar'])
   })
 })
 
@@ -252,9 +280,10 @@ describe('bir nechta telefon va postlarni yangilash', () => {
     expect(first).toContain('📞 +998 90 000 00 00\n📞 +998 91 000 00 00')
 
     expect(await refreshPosts(90, 0)).toEqual({ edited: 0, same: 2, left: 0 })
-    await handle(press('set:phone'))
+    await handle(text('⚙️ Sozlamalar'))
+    await handle(text('📞 Telefon'))
     await handle(text('+998 99 777 77 77, +998 88 666 66 66'))
-    await handle(press('set:price'))
+    await handle(text('🙈 Narxni yashirish'))
     sent = []
     expect(await refreshPosts(1, 0)).toEqual({ edited: 1, same: 0, left: 1 })
     expect(await refreshPosts(90, 0)).toEqual({ edited: 1, same: 1, left: 0 })
@@ -296,7 +325,7 @@ describe('bot oqimi', () => {
     expect(posts[0].body.caption).not.toContain('200 000')
     expect(tables.channel_posts).toHaveLength(3)
     expect(lastText()).toContain('Kirim №4')
-    expect(tables.bot_sessions).toHaveLength(0)
+    expect(tables.bot_sessions[0].data.step).toBe('home')
 
     // Saytda bittasi sotildi
     const sold = tables.products[1]
@@ -350,7 +379,7 @@ describe('bot oqimi', () => {
   it('begona foydalanuvchi ishlata olmaydi, noto\'g\'ri kalit rad etiladi', async () => {
     await handle(tgReq({ message: { chat: { id: 99 }, from: { id: 99 }, text: '/start' } }))
     expect(lastText()).toContain('login va parol')
-    expect(lastMarkup().inline_keyboard[0][0].callback_data).toBe('auth:start')
+    expect(lastKeyboard()[0][0].text).toBe('🔐 Kirish')
     await handle(text("📦 Yuk qo'shish", 99))
     expect(tables.bot_sessions.find((r) => r.chat_id === 99)?.data.step).toBe('auth_idle') // kirim boshlanmadi
     const bad = await handle(new Request('https://x/functions/v1/bot', { method: 'POST', headers: { 'X-Telegram-Bot-Api-Secret-Token': 'xx' }, body: '{}' }))
@@ -374,44 +403,57 @@ function signInit(user: object, token = ENV.BOT_TOKEN, authDate = Math.floor(Dat
 }
 
 describe('loginlar (asosiy admin)', () => {
-  it("yaratish (tur bilan) → parol almashtirish → o'chirish", async () => {
+  it("yaratish (tur bilan) → turini almashtirish → parol → o'chirish — hammasi pastki tugmalar bilan", async () => {
     await handle(text('👥 Loginlar'))
     expect(lastText()).toContain("Hali login yo'q")
-    await handle(press('lg:new'))
-    expect(lastMarkup().inline_keyboard[0].map((x: any) => x.callback_data)).toEqual(['lg:type:admin', 'lg:type:stats'])
+    expect(keyTexts()).toEqual(['➕ Yangi login', '⬅️ Orqaga'])
+    await handle(text('➕ Yangi login'))
+    expect(lastKeyboard()[0].map((x: any) => x.text)).toEqual(['🛠 Admin', '📊 Kuzatuvchi'])
     await handle(text('ali'))
-    expect(lastText()).toContain('hisob turini tanlang')
-    await handle(press('lg:type:stats'))
+    expect(lastText()).toContain('Hisob turini tanlang') // avval tur
+    await handle(text('📊 Kuzatuvchi'))
     await handle(text('Ali'))
-    expect(lastText()).toContain('<code>ali</code> uchun parol')
+    expect(lastText()).toContain('Login:  <code>ali</code>')
+    expect(keyTexts()).toEqual(['🎲 Parol yaratish', '⬅️ Orqaga'])
     await handle(text('abc12'))
-    expect(lastText()).toContain("kamida 8")
+    expect(lastText()).toContain('kamida 8')
     await handle(text('ali12345'))
-    expect(lastText()).toContain("loginni")
+    expect(lastText()).toContain('loginni')
     await handle(text('salom2026'))
-    expect(sent.some((x) => x.method === 'deleteMessage' && x.body.message_id === 55)).toBe(true) // parol xabari o'chdi
-    expect(lastText()).toContain('Login yaratildi')
-    expect(lastText()).toContain('Kuzatuvchi')
+    expect(deletedMsg(7, 55)).toBe(true) // parol xabari o'chdi
+    const card = sent.find((x) => x.method === 'sendMessage' && x.body.text.includes("Kirish ma'lumoti"))!.body.text
+    expect(card).toContain('salom2026')
+    expect(card).toContain('Kuzatuvchi')
+    expect(lastText()).toContain('<b>ali</b> yaratildi')
     expect(users).toHaveLength(1)
     expect(users[0].email).toBe('ali@richmen.netlify.app')
     expect(users[0].app_metadata.role).toBe('stats')
     expect(tables.staff.map((r) => r.user_id)).toEqual([users[0].id])
+    expect(keyTexts()).toEqual(['👤 ali', '➕ Yangi login', '⬅️ Orqaga'])
 
-    // takror nom
-    await handle(press('lg:new'))
-    await handle(press('lg:type:admin'))
+    // takror nom; Orqaga
+    await handle(text('➕ Yangi login'))
+    await handle(text('🛠 Admin'))
     await handle(text('ali'))
     expect(lastText()).toContain('allaqachon bor')
-    await handle(press('cancel'))
+    await handle(text('⬅️ Orqaga'))
+    expect(lastText()).toContain('Hisob turini tanlang')
+    await handle(text('⬅️ Orqaga'))
+    expect(lastText()).toContain('Loginlar')
 
-    // turi o'zgaradi
-    await handle(press(`lg:role:${users[0].id}`))
+    // login kartasi
+    await handle(text('👤 ali'))
+    expect(lastText()).toContain('👤 <b>ali</b>')
+    expect(lastText()).toContain('PIN:  hali yaratilmagan')
+    expect(keyTexts()).toContain('🔢 PIN reset')
+    await handle(text('🔁 Turini almashtirish'))
     expect(users[0].app_metadata.role).toBe('admin')
+    expect(keyTexts()).not.toContain('🔢 PIN reset')
 
     // parol almashtirish — hisob qayta yaratiladi (eski kirishlar bekor), turi saqlanadi
     const oldId = users[0].id
-    await handle(press(`lg:pw:${oldId}`))
-    await handle(press('lg:gen'))
+    await handle(text('🔑 Parolni almashtirish'))
+    await handle(text('🎲 Parol yaratish'))
     expect(lastText()).toContain('Parol almashtirildi')
     expect(users).toHaveLength(1)
     expect(users[0].id).not.toBe(oldId)
@@ -419,31 +461,32 @@ describe('loginlar (asosiy admin)', () => {
     expect(users[0].password).toMatch(/^[a-zA-Z2-9]{10}$/)
     expect(tables.staff.map((r) => r.user_id)).toEqual([users[0].id])
 
-    const id = users[0].id
-    await handle(press(`lg:del:${id}`))
+    await handle(text("🗑 O'chirish"))
     expect(users).toHaveLength(1)
-    await handle(press(`lg:delok:${id}`))
+    await handle(text("✅ Ha, o'chirish"))
     expect(users).toHaveLength(0)
     expect(tables.staff).toHaveLength(0)
+    expect(lastText()).toContain("o'chirildi")
   })
 
-  it("boshqa admin loginlarni boshqara olmaydi; begona foydalanuvchini o'chirib bo'lmaydi", async () => {
+  it("boshqa admin loginlarni boshqara olmaydi; begona hisob ro'yxatda yo'q", async () => {
     ENV.ADMIN_IDS = '7,8'
     try {
       await handle(text('👥 Loginlar', 8))
       expect(lastText()).toContain('faqat asosiy admin')
-      // Egasining haqiqiy emaili — bizning login emas.
       users.push({ id: '11111111-1111-1111-1111-111111111111', email: 'egasi@gmail.com', created_at: '' })
-      await handle(press('lg:delok:11111111-1111-1111-1111-111111111111'))
+      await handle(text('👥 Loginlar'))
+      await handle(text('👤 egasi'))
+      expect(lastText()).toContain('Loginlar') // karta ochilmadi
       expect(users).toHaveLength(1)
     } finally {
       ENV.ADMIN_IDS = '7'
     }
   })
 
-  it('menyuda Boss panel (mini app), egasida Loginlar', async () => {
+  it('menyuda Panel (mini app), egasida Loginlar', async () => {
     await handle(text('/start'))
-    const rows = lastMarkup().keyboard
+    const rows = lastKeyboard()
     expect(rows[1][0].web_app.url).toBe('https://richmen.netlify.app/?boss')
     expect(rows[1][1].text).toBe('👥 Loginlar')
   })
@@ -480,51 +523,55 @@ describe('Boss panelga Telegram orqali kirish', () => {
 })
 
 describe('botga login/parol bilan kirish', () => {
-  const guest = (t: string, id = 50, mid = 70) => tgReq({ message: { message_id: mid, chat: { id, type: 'private' }, from: { id, first_name: 'Vali' }, text: t } })
-  const tap = (data: string, id = 50, mid = 900) => tgReq({ callback_query: { id: 'q', from: { id, first_name: 'Vali' }, data, message: { chat: { id }, message_id: mid } } })
-  const deleted = (id: number, mid: number) => sent.some((x) => x.method === 'deleteMessage' && x.body.chat_id === id && x.body.message_id === mid)
-  /** /start → 🔐 Kirish (bitta xabar tahrirlanadi). */
+  let mid = 70
+  const guest = (t: string, id = 50) => tgReq({ message: { message_id: ++mid, chat: { id, type: 'private' }, from: { id, first_name: 'Vali' }, text: t } })
+  const myText = (id = 50) => [...sent].reverse().find((x) => (x.method === 'sendMessage' || x.method === 'editMessageText') && x.body.chat_id === id)!
+  /** /start → 🔐 Kirish (pastki tugma). */
   const begin = async (id = 50) => {
     await handle(guest('/start', id))
-    const welcome = [...sent].reverse().find((x) => x.method === 'sendMessage' && x.body.chat_id === id)!
-    expect(welcome.body.text).toContain('Assalomu alaykum, Vali')
-    const mid = msgId // xabar id si (soxta Telegram ketma-ket beradi)
-    await handle(tap('auth:start', id, mid))
-    return mid
+    expect(myText(id).body.text).toContain('Assalomu alaykum, Vali')
+    expect(lastKeyboard()[0][0].text).toBe('🔐 Kirish')
+    expect(deletedMsg(id, mid)).toBe(true) // /start ham o'chadi
+    await handle(guest('🔐 Kirish', id))
+    expect(deletedMsg(id, mid)).toBe(true)
   }
   beforeEach(() => {
     users.push({ id: '22222222-2222-2222-2222-222222222222', email: 'vali@richmen.netlify.app', password: 'kassa2026', app_metadata: { role: 'admin', login: 'vali' }, created_at: '' })
     tables.staff = [{ user_id: '22222222-2222-2222-2222-222222222222' }]
   })
 
-  it("bitta xabar: login → parol → xush kelibsiz (Telegram ismi), yozilganlar o'chadi; mini app parolsiz; chiqish", async () => {
-    const card = await begin()
-    let last = shown()!
-    expect(last.method).toBe('editMessageText')
-    expect(last.body.message_id).toBe(card)
+  it("pastki tugma bosilsa tepadagi xabar o'zgaradi: login → parol → xush kelibsiz; yozilganlar o'chadi; chiqish", async () => {
+    await begin()
+    let last = myText()
     expect(last.body.text).toContain('Loginingizni yozing')
+    expect(keyTexts()).toEqual(['⬅️ Orqaga'])
+    const card = last.method === 'sendMessage' ? msgId : last.body.message_id
 
-    await handle(guest('Vali', 50, 71))
-    expect(deleted(50, 71)).toBe(true)
-    last = shown()!
-    expect(last.method).toBe('editMessageText')
+    await handle(guest('Vali'))
+    expect(deletedMsg(50, mid)).toBe(true)
+    last = myText()
+    expect(last.method).toBe('editMessageText') // o'sha xabar o'zgardi
     expect(last.body.message_id).toBe(card)
     expect(last.body.text).toContain('Parolni yozing')
 
-    await handle(guest('kassa2026', 50, 72))
-    expect(deleted(50, 72)).toBe(true)
-    expect(deleted(50, card)).toBe(true) // kirish xabari o'rniga kutib olish
-    expect(lastText()).toContain('Xush kelibsiz, Vali')
-    expect(lastText()).not.toContain('vali</b>')
-    expect(lastMarkup().keyboard[0][0].web_app.url).toBe('https://richmen.netlify.app/?boss')
-    expect(lastMarkup().keyboard[0][0].text).toBe('🛠 Admin panel')
-    expect(users[0].app_metadata.tg).toBe(50)
-    const menuBtn = sent.find((x) => x.method === 'setChatMenuButton' && x.body.chat_id === 50)!
-    expect(menuBtn.body.menu_button.type).toBe('web_app')
-    expect(sent.some((x) => x.method === 'sendMessage' && x.body.chat_id === 7 && x.body.text.includes('botga kirdi'))).toBe(true)
+    // Orqaga — loginga qaytadi
+    await handle(guest('⬅️ Orqaga'))
+    expect(myText().body.text).toContain('Loginingizni yozing')
+    await handle(guest('vali'))
 
-    const r = await tgAuth(signInit({ id: 50 }))
-    expect(r).toEqual({ token_hash: 'th_22222222-2222-2222-2222-222222222222', role: 'admin' })
+    await handle(guest('kassa2026'))
+    expect(deletedMsg(50, mid)).toBe(true)
+    expect(deletedMsg(50, card)).toBe(true) // kirish xabari o'rniga kutib olish
+    expect(myText().body.text).toContain('Xush kelibsiz, Vali')
+    expect(lastKeyboard()[0][0].web_app.url).toBe('https://richmen.netlify.app/?boss')
+    expect(lastKeyboard()[0][0].text).toBe('🛠 Admin panel')
+    expect(users[0].app_metadata.tg).toBe(50)
+    expect(sent.find((x) => x.method === 'setChatMenuButton' && x.body.chat_id === 50)!.body.menu_button.type).toBe('web_app')
+    const note = sent.find((x) => x.method === 'sendMessage' && x.body.chat_id === 7 && x.body.text.includes('Botga kirish'))!.body.text
+    expect(note).toContain('👤 Login:  <code>vali</code>')
+    expect(note).toContain('🆔 <code>50</code>')
+
+    expect(await tgAuth(signInit({ id: 50 }))).toEqual({ token_hash: 'th_22222222-2222-2222-2222-222222222222', role: 'admin' })
 
     // admin funksiyalari (bot ichidagi) yopiq
     await handle(guest("📦 Yuk qo'shish"))
@@ -532,34 +579,34 @@ describe('botga login/parol bilan kirish', () => {
 
     await handle(guest('🚪 Chiqish'))
     expect(users[0].app_metadata.tg).toBeNull()
+    expect(myText().body.text).toContain('Chiqdingiz')
+    expect(lastKeyboard()[0][0].text).toBe('🔐 Kirish')
     expect(await tgAuth(signInit({ id: 50 }))).toEqual({ unbound: true })
   })
 
   it("mavjud bo'lmagan login — o'sha xabarda aytiladi va qayta so'raladi", async () => {
-    const card = await begin()
-    await handle(guest('yoqlogin', 50, 71))
-    expect(deleted(50, 71)).toBe(true)
-    const last = shown()!
-    expect(last.body.message_id).toBe(card)
-    expect(last.body.text).toContain('«yoqlogin»</b> degan login topilmadi')
-    expect(last.body.text).toContain('Qolgan urinish: <b>2</b>')
-    await handle(guest('vali', 50, 73))
-    expect(lastText()).toContain('Parolni yozing')
+    await begin()
+    await handle(guest('yoqlogin'))
+    const t = myText().body.text
+    expect(t).toContain('«yoqlogin»</b> degan login topilmadi')
+    expect(t).toContain('Qolgan urinish: <b>2</b>')
+    await handle(guest('vali'))
+    expect(myText().body.text).toContain('Parolni yozing')
   })
 
   it("3 marta noto'g'ri — 15 daqiqa to'xtatiladi, egasiga ogohlantirish, /start ochmaydi", async () => {
     await begin()
     await handle(guest('vali'))
     await handle(guest('notogri1'))
-    expect(lastText()).toContain("Parol noto'g'ri")
+    expect(myText().body.text).toContain("Parol noto'g'ri")
     await handle(guest('notogri2'))
     await handle(guest('notogri3'))
-    expect(lastText()).toContain('15 daqiqa')
+    expect(myText().body.text).toContain('15 daqiqa')
     expect(sent.some((x) => x.body?.chat_id === 7 && x.body.text?.includes('Shubhali urinish'))).toBe(true)
     await handle(guest('/start'))
-    expect(lastText()).toContain("Juda ko'p")
-    await handle(tap('auth:start'))
-    expect(lastText()).toContain("Juda ko'p")
+    expect(myText().body.text).toContain("Juda ko'p")
+    await handle(guest('🔐 Kirish'))
+    expect(myText().body.text).toContain("Juda ko'p")
     expect(users[0].app_metadata.tg).toBeUndefined()
   })
 
@@ -578,24 +625,73 @@ describe('botga login/parol bilan kirish', () => {
     users[0].app_metadata = {}
     await begin()
     await handle(guest('vali'))
-    // turi yo'q login ro'yxatda "topilmadi" emas — u bor, lekin kira olmaydi
     await handle(guest('kassa2026'))
-    expect(lastText()).toContain('turi tanlanmagan')
+    expect(myText().body.text).toContain('turi tanlanmagan')
     expect(users[0].app_metadata.tg).toBeUndefined()
 
     users[0].app_metadata = { role: 'seller' }
     await begin()
     await handle(guest('vali'))
     await handle(guest('kassa2026'))
-    expect(lastText()).toContain('Xush kelibsiz')
-    expect(lastMarkup().keyboard[0][0].text).toBe('🛠 Admin panel')
+    expect(myText().body.text).toContain('Xush kelibsiz')
+    expect(lastKeyboard()[0][0].text).toBe('🛠 Admin panel')
+  })
+
+  it("kuzatuvchi PIN: botda o'zgartiradi, sayt bot orqali tekshiradi, egasi reset qiladi", async () => {
+    users[0].app_metadata = { role: 'stats', login: 'vali' }
+    await begin()
+    await handle(guest('vali'))
+    await handle(guest('kassa2026'))
+    expect(lastKeyboard()[0][0].text).toBe('📊 Kuzatuvchi panel')
+    expect(lastKeyboard()[1].map((x: any) => x.text)).toEqual(["🔢 PIN kodni o'zgartirish", '🚪 Chiqish'])
+
+    // Sayt (mini app): hali PIN yo'q → yaratadi
+    jwtUser = users[0].id
+    const call = async (op: string, pin?: string) => (await handle(new Request('https://x/functions/v1/bot', {
+      method: 'POST', headers: { Authorization: 'Bearer jwt' }, body: JSON.stringify({ action: 'pin', op, pin }),
+    }))).json()
+    expect(await call('status')).toEqual({ hasPin: false })
+    expect((await call('set', '12a')).error).toBeTruthy()
+    expect(await call('set', '1234')).toEqual({ ok: true })
+    expect(users[0].app_metadata.pin).toBeTruthy()
+    expect(users[0].app_metadata.pin).not.toContain('1234') // PIN o'zi saqlanmaydi
+    expect((await call('set', '9999')).error).toContain('allaqachon')
+    expect(await call('check', '1234')).toEqual({ ok: true })
+    expect((await call('check', '0000')).error).toContain('Qolgan urinish: 4')
+
+    // Botda /changepass
+    await handle(guest('/changepass'))
+    expect(myText().body.text).toContain('Hozirgi PIN')
+    await handle(guest('1111'))
+    expect(myText().body.text).toContain("PIN noto'g'ri")
+    await handle(guest('1234'))
+    expect(myText().body.text).toContain('Yangi PIN')
+    await handle(guest('5678'))
+    expect(myText().body.text).toContain('takrorlang')
+    await handle(guest('5679'))
+    expect(myText().body.text).toContain('Bir xil emas')
+    await handle(guest('5678'))
+    await handle(guest('5678'))
+    expect(myText().body.text).toContain("PIN kod o'zgartirildi")
+    expect(await call('check', '5678')).toEqual({ ok: true })
+
+    // Egasi reset qiladi → keyingi kirishda yangisini yaratadi
+    await handle(text('👥 Loginlar'))
+    await handle(text('👤 vali'))
+    expect(lastText()).toContain("PIN:  o'rnatilgan")
+    await handle(text('🔢 PIN reset'))
+    expect(await call('status')).toEqual({ hasPin: false })
+
+    // Admin hisobga PIN tegishli emas
+    users[0].app_metadata.role = 'admin'
+    expect((await call('status')).error).toBeTruthy()
   })
 })
 
 describe('rasmlar tugmalari va tasdiq', () => {
   it("pastdagi tugmalar; tasdiqda 1 pachka foydasi", async () => {
     await handle(text("📦 Yuk qo'shish"))
-    expect(lastMarkup().keyboard.map((r: any) => r[0].text)).toEqual(['✅ Rasmlar tayyor', '❌ Bekor qilish'])
+    expect(lastKeyboard().map((r: any) => r[0].text)).toEqual(['✅ Rasmlar tayyor', '❌ Bekor qilish'])
     await handle(photo('a1'))
     await handle(photo('a2'))
     await handle(text('✅ Rasmlar tayyor'))
@@ -609,6 +705,8 @@ describe('rasmlar tugmalari va tasdiq', () => {
     await handle(text('170000'))
     expect(lastText()).toContain('120 000</b> (1 pachka)')
     await handle(text('❌ Bekor qilish'))
-    expect(tables.bot_sessions.find((r) => r.chat_id === 7)).toBeUndefined()
+    expect(tables.bot_sessions.find((r) => r.chat_id === 7)!.data.step).toBe('home')
+    expect(lastText()).toContain('Kirim bekor qilindi')
+    expect(tables.bot_photos).toHaveLength(0)
   })
 })

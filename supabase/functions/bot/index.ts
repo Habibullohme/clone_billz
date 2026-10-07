@@ -208,38 +208,6 @@ export const loginDomain = () => new URL(siteUrl()).hostname
 /** Mini app manzili (Admin va Kuzatuvchi paneli bitta — hisob turiga qarab ochiladi). */
 export const panelUrl = () => `${siteUrl()}/?boss`
 
-/** Pastdagi menyu. Asosiy admin (ADMIN_IDS dagi birinchi) — loginlarni ham boshqaradi. */
-const menu = (owner: boolean) => ({
-  reply_markup: {
-    keyboard: [
-      [{ text: "📦 Yuk qo'shish" }, { text: '⚙️ Sozlamalar' }],
-      [{ text: '📊 Panel', web_app: { url: panelUrl() } }, ...(owner ? [{ text: '👥 Loginlar' }] : [])],
-    ],
-    resize_keyboard: true, is_persistent: true,
-  },
-})
-
-async function showSettings(chat: number) {
-  const c = await getCfg()
-  const shop = (await db<{ data: Shop }[]>('settings?id=eq.main&select=data'))[0]?.data ?? {}
-  const show = (v: string | null, site?: string) => (v === null ? `${esc(site || '—')} <i>(saytdan)</i>` : v === '' ? "<i>ko'rsatilmaydi</i>" : esc(v))
-  return say(chat, [
-    '⚙️ <b>Bot sozlamalari</b>',
-    '',
-    `📏 Razmerlar: ${esc(c.sizes.join(', '))}`,
-    `🎨 Ranglar: ${esc(c.colors.join(', '))}`,
-    `📦 Pachkada juft: ${c.packSizes.join(', ')}`,
-    `💰 Kanalda narx: ${c.showPrice ? "ko'rsatiladi" : "ko'rsatilmaydi"}`,
-    `📞 Telefon: ${show(c.phone, shop.shopPhone)}`,
-    `📍 Manzil: ${show(c.address, shop.shopAddress)}`,
-  ].join('\n'), kb([
-    [b('📏 Razmerlar', 'set:sizes'), b('🎨 Ranglar', 'set:colors'), b('📦 Pachka', 'set:packs')],
-    [b(c.showPrice ? '💰 Narxni yashirish' : "💰 Narxni ko'rsatish", 'set:price')],
-    [b('📞 Telefon', 'set:phone'), b('📍 Manzil', 'set:address')],
-    [b('🔄 Kanaldagi postlarni yangilash', 'set:refresh')],
-  ]))
-}
-
 const SET_PROMPTS: Record<string, string> = {
   sizes: "📏 Razmerlarni vergul bilan yozing.\nMasalan: <code>39-43, 40-44, 41-45, 44-45-46</code>",
   colors: "🎨 Ranglarni vergul bilan yozing.\nMasalan: <code>qora, oq, jigarrang, zamish</code>",
@@ -269,13 +237,18 @@ async function applySetting(key: string, text: string): Promise<boolean> {
 // ---------- Suhbat holati ----------
 
 type Step = 'photos' | 'packs' | 'brand' | 'brand_new' | 'model' | 'size' | 'color' | 'packSize' | 'cost' | 'price' | 'confirm' | 'saving' | 'setting'
-  | 'login_name' | 'login_pass' | 'auth_idle' | 'auth_login' | 'auth_pass'
+  | 'home' | 'm_settings' | 'm_logins' | 'm_login' | 'm_login_del' | 'login_type' | 'login_name' | 'login_pass'
+  | 'auth_idle' | 'auth_login' | 'auth_pass' | 'pin_old' | 'pin_new' | 'pin_new2'
 interface Session extends Partial<Draft> {
   step: Step; packsPerPhoto?: number; photoCount?: number; setting?: string
   /** Login yaratish / parol almashtirish / botga kirish: login nomi, turi va (almashtirishda) foydalanuvchi id. */
   login?: string; userId?: string; role?: Role
-  /** Tahrirlanib boradigan bitta xabar (kirish oynasi yoki kirim kartochkasi). */
-  cardId?: number
+  /** Ekran: tahrirlanib boradigan bitta xabar (menyu, kirish oynasi yoki kirim kartochkasi) va uning pastki tugmalari. */
+  cardId?: number; kbKey?: string
+  /** Kirim savollari paytidagi pastki tugmalar xabari. */
+  kbId?: number
+  /** PIN almashtirishda: yangi PIN izi (ikkinchi marta tekshirish uchun). */
+  pinNew?: string
   /** Noto'g'ri parollar hisobi (botga kirishda). */
   guard?: { fails?: number; locks?: number; lockUntil?: number }
 }
@@ -375,6 +348,7 @@ async function confirmCard(chat: number, s: Session, note?: string) {
   const total = (s.photoCount ?? 0) * (s.packsPerPhoto ?? 1)
   const pairs = total * s.packSize!
   await drop(chat, s.cardId)
+  await drop(chat, s.kbId)
   const m = await say(chat, [
     '📋 <b>Tekshiring</b>',
     '',
@@ -387,17 +361,19 @@ async function confirmCard(chat: number, s: Session, note?: string) {
     '',
     'Tasdiqlasangiz — saytga tushadi va kanalga chiqadi.',
   ].join('\n'), CONFIRM_KB) as { message_id?: number }
-  await setSession(chat, { ...s, cardId: m?.message_id })
+  await setSession(chat, { ...s, cardId: m?.message_id, kbId: undefined, kbKey: undefined })
 }
 
 /** Rasmlar tayyor: nechta rasm kelganini aytadi va savollarni boshlaydi. */
 async function photosDone(chat: number, s: Session) {
   if (s.step !== 'photos') return
   const n = (await db<{ id: number }[]>(`bot_photos?chat_id=eq.${chat}&select=id`)).length
-  if (!n) return say(chat, "Hali rasm yo'q. Rasmlarni yuboring.", PHOTO_KB)
-  const ns: Session = { ...s, photoCount: n, step: n === 1 ? 'packs' : 'brand', packsPerPhoto: 1, cardId: undefined }
+  if (!n) return screen(chat, s, { step: 'photos' }, "📷 Hali rasm yo'q. Avval rasmlarni yuboring, keyin <b>✅ Rasmlar tayyor</b>.", PHOTO_KEYS)
+  // Rasm yig'ish ekrani o'rniga: pastki tugmalar ("qo'lda", "bekor") xabari va savol kartochkasi.
+  await drop(chat, s.cardId)
+  const kb = await say(chat, `📷 <b>${n} ta rasm</b> qabul qilindi. Savollarga javob bering 👇`, QA_KB) as { message_id?: number }
+  const ns: Session = { ...s, photoCount: n, step: n === 1 ? 'packs' : 'brand', packsPerPhoto: 1, cardId: undefined, kbKey: undefined, kbId: kb?.message_id }
   await setSession(chat, ns)
-  await say(chat, `📷 <b>${n} ta rasm</b> qabul qilindi. Savollarga javob bering 👇`, QA_KB)
   return ask(chat, ns)
 }
 
@@ -654,13 +630,15 @@ export const ROLE_NAME: Record<Role, string> = { admin: '🛠 Admin', stats: '�
 /** Eski nomlar: boss → kuzatuvchi, seller → admin. */
 export const normRole = (r: unknown): Role | null =>
   r === 'admin' || r === 'seller' ? 'admin' : r === 'stats' || r === 'boss' ? 'stats' : null
-const PANEL_NAME: Record<Role, string> = { admin: '🛠 Admin panel', stats: '📊 Kuzatuvchi panel' }
-
 /**
  * Hisob ma'lumoti app_metadata da — uni faqat maxfiy kalit o'zgartira oladi
  * (foydalanuvchi o'zi turini o'zgartira olmaydi).
  */
-interface AppMeta { role?: Role; login?: string; tg?: number | null }
+interface AppMeta {
+  role?: Role; login?: string; tg?: number | null
+  /** Kuzatuvchining PIN izi (maxfiy kalit bilan), noto'g'ri urinishlar va qulf vaqti. */
+  pin?: string | null; pinFails?: number; pinLock?: number
+}
 interface AuthUser { id: string; email?: string; last_sign_in_at?: string | null; created_at: string; app_metadata?: AppMeta }
 type Login = AuthUser & { login: string; role: Role | null; tg: number | null }
 
@@ -714,19 +692,20 @@ async function createLogin(login: string, password: string, role: Role): Promise
   return asLogin(u)!
 }
 
-const setMeta = (u: Login, patch: AppMeta) =>
+const setMeta = (u: { id: string; app_metadata?: AppMeta }, patch: AppMeta) =>
   auth(`admin/users/${u.id}`, { method: 'PUT', body: JSON.stringify({ app_metadata: { ...u.app_metadata, ...patch } }) })
 
-/** Telegram chatini "chiqqan" holatga qaytaradi: menyu tugmasi, buyruqlar, klaviatura. */
-async function resetChat(tgId: number, text: string) {
+/** Telegram chatini "chiqqan" holatga qaytaradi: menyu tugmasi, buyruqlar va kirish ekrani. */
+async function resetChat(tgId: number, note: string) {
   await tg('setChatMenuButton', { chat_id: tgId, menu_button: { type: 'default' } }).catch(() => {})
   await tg('deleteMyCommands', { scope: { type: 'chat', chat_id: tgId } }).catch(() => {})
-  await say(tgId, `${text}\nQayta kirish: /start`, NO_KB).catch(() => {})
+  const s = await getSession(tgId).catch(() => null)
+  await screen(tgId, s, { step: 'auth_idle', guard: s?.guard }, `${note}\n\n${welcomeText()}`, LOGIN_KEYS).catch(() => {})
 }
 
 /**
  * Parolni almashtirish = hisobni qaytadan yaratish (o'sha login, o'sha tur): eski hisobdagi
- * hamma kirishlar (sayt, mini app, boshqa qurilmalar) darhol bekor bo'ladi.
+ * hamma kirishlar (sayt, mini app, boshqa qurilmalar) darhol bekor bo'ladi. PIN ham qaytadan yaratiladi.
  */
 async function resetPassword(u: Login, password: string): Promise<Login> {
   await auth(`admin/users/${u.id}`, { method: 'DELETE' })
@@ -736,60 +715,52 @@ async function resetPassword(u: Login, password: string): Promise<Login> {
 
 async function deleteLogin(u: Login) {
   await auth(`admin/users/${u.id}`, { method: 'DELETE' })
-  if (u.tg) await resetChat(u.tg, '🚪 Hisobingiz o\'chirildi.')
+  if (u.tg) await resetChat(u.tg, "🚪 Hisobingiz o'chirildi.")
 }
 
 const fmtDay = (iso?: string | null) => (iso ? tashkentStamp(iso).split(', ')[1] : 'hali kirmagan')
 
-async function showLogins(chat: number) {
-  const list = await listLogins()
-  return say(chat, [
-    '👥 <b>Loginlar</b>',
-    `${ROLE_NAME.admin} — to'liq sayt (kassa, tovarlar, kirim) telefonda. ${ROLE_NAME.stats} — faqat statistika: sotuv, foyda, ombor, nasiya.`,
-    'Saytga ham shu login bilan kiriladi.',
-    '',
-    ...(list.length
-      ? list.map((u) => `• <code>${u.login}</code> — ${u.role ? ROLE_NAME[u.role] : '⚠️ turi tanlanmagan'} · ${u.tg ? '📱 Telegram ulangan' : 'Telegram ulanmagan'} · oxirgi kirish: ${fmtDay(u.last_sign_in_at)}`)
-      : ["<i>Hali login yo'q.</i>"]),
-  ].join('\n'), kb([
-    ...list.map((u) => [b(`🔑 ${u.login}`, `lg:pw:${u.id}`), b(`🔁 turi`, `lg:role:${u.id}`), b(`🗑`, `lg:del:${u.id}`)]),
-    [b("➕ Yangi login", 'lg:new')],
-  ]))
-}
+// ---------- Kuzatuvchining shaxsiy PIN kodi ----------
 
-const loginCard = (login: string, password: string, role: Role) => [
-  `👤 Login: <code>${login}</code>`,
-  `🔑 Parol: <code>${esc(password)}</code>`,
-  `🏷 Turi: ${ROLE_NAME[role]}`,
-  '',
-  `Kirish: botga /start → 🔐 Kirish. Yoki saytda: ${siteUrl()}`,
-  role === 'stats' ? "Statistika uchun do'kon PIN kodi ham so'raladi." : "Boshqaruv bo'limlari uchun do'kon PIN kodi so'raladi.",
-].filter((x, i, a) => x || i < a.length - 1).join('\n')
+export const PIN_RE = /^\d{4,6}$/
+const PIN_TRIES = 5
 
-/** Login yaratish yoki parolini almashtirish (sessiyadagi holatga qarab). */
-async function finishLogin(chat: number, s: Session, password: string, MENU: Record<string, unknown>) {
-  const weak = weakPassword(password, s.login!)
-  if (weak) return say(chat, `⚠️ Parol ${weak}. Qaytadan yozing yoki 🎲 tugmasini bosing.`)
-  try {
-    if (s.userId) {
-      const old = await ourUser(s.userId)
-      if (!old) throw new Error('login topilmadi')
-      const u = await resetPassword(old, password)
-      await endSession(chat)
-      return say(chat, `✅ Parol almashtirildi (eski kirishlar bekor qilindi)\n\n${loginCard(u.login, password, u.role!)}`, MENU)
-    }
-    await createLogin(s.login!, password, s.role!)
-    await endSession(chat)
-    return say(chat, `✅ Login yaratildi\n\n${loginCard(s.login!, password, s.role!)}`, MENU)
-  } catch (e) {
-    await endSession(chat)
-    return say(chat, `⚠️ Xato: ${esc(String((e as Error).message ?? e)).slice(0, 300)}`, MENU)
+/** PIN izi: maxfiy kalit bilan imzolangan (bazadagi iz bilan PIN ni topib bo'lmaydi). */
+const pinHash = async (userId: string, pin: string) =>
+  hex(await hmac(enc.encode(`${env('WEBHOOK_SECRET')}:pin`).buffer as ArrayBuffer, `${userId}:${pin}`))
+
+/** PIN to'g'rimi: null — to'g'ri, aks holda xato matni. Noto'g'ri urinishlar sanaladi (5 ta → 15 daqiqa). */
+export async function pinCheck(u: { id: string; app_metadata?: AppMeta }, pin: string): Promise<string | null> {
+  const m = u.app_metadata ?? {}
+  if (!m.pin) return 'PIN hali yaratilmagan'
+  if ((m.pinLock ?? 0) > Date.now()) return `Juda ko'p urinish. ${Math.ceil((m.pinLock! - Date.now()) / 60_000)} daqiqadan keyin urinib ko'ring.`
+  if (PIN_RE.test(pin) && (await pinHash(u.id, pin)) === m.pin) {
+    if (m.pinFails) await setMeta(u, { pinFails: 0 })
+    return null
   }
+  const fails = (m.pinFails ?? 0) + 1
+  if (fails >= PIN_TRIES) {
+    await setMeta(u, { pinFails: 0, pinLock: Date.now() + 15 * 60_000 })
+    return `${PIN_TRIES} marta noto'g'ri — 15 daqiqa kuting.`
+  }
+  await setMeta(u, { pinFails: fails })
+  return `PIN noto'g'ri. Qolgan urinish: ${PIN_TRIES - fails}`
 }
 
-// ---------- Botga login/parol bilan kirish (admin va kuzatuvchi hisoblari) ----------
+export async function pinSet(u: { id: string; app_metadata?: AppMeta }, pin: string) {
+  await setMeta(u, { pin: await pinHash(u.id, pin), pinFails: 0, pinLock: 0 })
+}
 
-const NO_KB = { reply_markup: { remove_keyboard: true } }
+// ---------- Ekran: pastki tugmalar va bitta yangilanib boradigan xabar ----------
+
+type Key = { text: string; web_app?: { url: string } }
+type Keys = Key[][]
+const keys = (...rows: (string | Key)[][]): Keys =>
+  rows.filter((r) => r.length).map((r) => r.map((x) => (typeof x === 'string' ? { text: x } : x)))
+const replyKb = (k: Keys) => ({ reply_markup: { keyboard: k, resize_keyboard: true, is_persistent: true } })
+
+const BACK = '⬅️ Orqaga'
+const HOME = '🏠 Menyu'
 
 /** Bot xabarini tahrirlash (chat to'lib ketmasin). Xabar topilmasa — yangisini yuboradi; xabar id sini qaytaradi. */
 async function edit(chat: number, msgId: number | undefined, text: string, extra: Record<string, unknown> = {}): Promise<number> {
@@ -807,36 +778,209 @@ async function edit(chat: number, msgId: number | undefined, text: string, extra
 const drop = (chat: number, msgId?: number) =>
   msgId ? tg('deleteMessage', { chat_id: chat, message_id: msgId }).catch(() => {}) : Promise.resolve()
 
-/** Kirgan foydalanuvchi menyusi: panel (mini app) va chiqish. */
-const roleMenu = (role: Role) => ({
-  reply_markup: {
-    keyboard: [
-      [{ text: PANEL_NAME[role], web_app: { url: panelUrl() } }],
-      [{ text: '🚪 Chiqish' }],
-    ],
-    resize_keyboard: true, is_persistent: true,
-  },
-})
+/**
+ * Bot "ekrani": har chatda bitta asosiy xabar. Pastdagi tugma bosilganda (yoki javob yozilganda)
+ * yozilgan xabar o'chiriladi va ekran yangilanadi: tugmalar o'sha bo'lsa — matn tahrirlanadi,
+ * boshqacha bo'lsa — eskisi o'chib, yangisi chiqadi (Telegram pastki tugmalarni tahrirlatmaydi).
+ */
+async function screen(chat: number, prev: Session | null, next: Session, text: string, k: Keys): Promise<void> {
+  const kbKey = JSON.stringify(k)
+  let id: number | undefined
+  if (prev?.cardId && prev.kbKey === kbKey) {
+    try {
+      await tg('editMessageText', { chat_id: chat, message_id: prev.cardId, text, parse_mode: 'HTML' })
+      id = prev.cardId
+    } catch (e) {
+      if (/not modified/i.test(String(e))) id = prev.cardId
+    }
+  }
+  if (!id) {
+    await drop(chat, prev?.cardId)
+    await drop(chat, prev?.kbId)
+    const m = await say(chat, text, replyKb(k)) as { message_id?: number }
+    id = m?.message_id
+  }
+  await setSession(chat, { ...next, cardId: id, kbKey, kbId: undefined })
+}
+
+/** Ekran matni: tepada (bo'lsa) natija/xato, keyin sarlavha va qatorlar. */
+const page = (note: string | undefined, ...lines: (string | false | null | undefined)[]) =>
+  [...(note ? [note, ''] : []), ...lines.filter((x) => x !== false && x !== null && x !== undefined)].join('\n')
 
 /** Rasm yig'ish paytidagi pastki tugmalar (100–200 ta rasmdan keyin ham ko'rinib turadi). */
-const PHOTO_KB = { reply_markup: { keyboard: [[{ text: '✅ Rasmlar tayyor' }], [{ text: '❌ Bekor qilish' }]], resize_keyboard: true, is_persistent: true } }
+const PHOTO_KEYS = keys(['✅ Rasmlar tayyor'], ['❌ Bekor qilish'])
 /** Savollar paytida: variantlar xabar tagida, "qo'lda" va "bekor" — pastda. */
-const QA_KB = { reply_markup: { keyboard: [[{ text: "✍️ Qo'lda kiritish" }, { text: '❌ Bekor qilish' }]], resize_keyboard: true, is_persistent: true } }
-const CONFIRM_KB = { reply_markup: { keyboard: [[{ text: '✅ Tasdiqlash' }], [{ text: '❌ Bekor qilish' }]], resize_keyboard: true, is_persistent: true } }
+const QA_KB = replyKb(keys(["✍️ Qo'lda kiritish", '❌ Bekor qilish']))
+const CONFIRM_KB = replyKb(keys(['✅ Tasdiqlash'], ['❌ Bekor qilish']))
 
 const ADMIN_COMMANDS = (owner: boolean) => [
+  { command: 'start', description: '🏠 Asosiy menyu' },
   { command: 'yuk', description: "📦 Yuk qo'shish" },
   { command: 'sozlamalar', description: '⚙️ Sozlamalar' },
+  ...(owner ? [{ command: 'loginlar', description: '👥 Loginlar' }] : []),
   { command: 'bekor', description: '❌ Joriy kirimni bekor qilish' },
   { command: 'sync', description: '🔄 Kanalni yangilash' },
-  ...(owner ? [{ command: 'loginlar', description: '👥 Loginlar' }] : []),
 ]
 
-/** Chatdagi ko'k tugma (Menu o'rnida) — panelni ochadi; "/" menyusida — /logout. */
+/** Chatdagi ko'k tugma (Menu o'rnida) — panelni ochadi; "/" menyusida — buyruqlar. */
 async function setupChat(tgId: number, label: string, commands: { command: string; description: string }[]) {
   await tg('setChatMenuButton', { chat_id: tgId, menu_button: { type: 'web_app', text: label, web_app: { url: panelUrl() } } }).catch(() => {})
   await tg('setMyCommands', { commands, scope: { type: 'chat', chat_id: tgId } }).catch(() => {})
 }
+
+// ---------- Admin ekranlari: asosiy menyu, sozlamalar, loginlar ----------
+
+const adminKeys = (owner: boolean) => keys(
+  ["📦 Yuk qo'shish", '⚙️ Sozlamalar'],
+  [{ text: '📊 Panel', web_app: { url: panelUrl() } }, ...(owner ? ['👥 Loginlar'] : [])],
+)
+
+async function homeScreen(chat: number, prev: Session | null, owner: boolean, note?: string) {
+  return screen(chat, prev, { step: 'home' }, page(note,
+    '🏠 <b>Asosiy menyu</b>',
+    '',
+    "📦 <b>Yuk qo'shish</b> — rasm yuborib yangi kirim",
+    '⚙️ <b>Sozlamalar</b> — razmer, rang, pachka, narx, telefon',
+    "📊 <b>Panel</b> — statistika va to'liq sayt",
+    owner && '👥 <b>Loginlar</b> — boshqalarga kirish berish',
+  ), adminKeys(owner))
+}
+
+const SETTING_BTN: Record<string, string> = {
+  '📏 Razmerlar': 'sizes', '🎨 Ranglar': 'colors', '📦 Pachka': 'packs', '📞 Telefon': 'phone', '📍 Manzil': 'address',
+}
+const PRICE_ON = "💰 Narxni ko'rsatish"
+const PRICE_OFF = '🙈 Narxni yashirish'
+const REFRESH = '🔄 Kanal postlarini yangilash'
+
+async function settingsScreen(chat: number, prev: Session | null, note?: string) {
+  const c = await getCfg()
+  const shop = (await db<{ data: Shop }[]>('settings?id=eq.main&select=data'))[0]?.data ?? {}
+  const show = (v: string | null, site?: string) =>
+    v === null ? `${esc(site || '—')} <i>(saytdan)</i>` : v === '' ? "<i>ko'rsatilmaydi</i>" : esc(v)
+  return screen(chat, prev, { step: 'm_settings' }, page(note,
+    '⚙️ <b>Bot sozlamalari</b>',
+    '',
+    `📏 Razmerlar:  <b>${esc(c.sizes.join(', '))}</b>`,
+    `🎨 Ranglar:  <b>${esc(c.colors.join(', '))}</b>`,
+    `📦 Pachkada juft:  <b>${c.packSizes.join(', ')}</b>`,
+    `💰 Kanalda narx:  <b>${c.showPrice ? "ko'rsatiladi" : 'yashirilgan'}</b>`,
+    `📞 Telefon:  ${show(c.phone, shop.shopPhone)}`,
+    `📍 Manzil:  ${show(c.address, shop.shopAddress)}`,
+    '',
+    "<i>O'zgartirish uchun pastdagi tugmani bosing.</i>",
+  ), keys(['📏 Razmerlar', '🎨 Ranglar', '📦 Pachka'], [c.showPrice ? PRICE_OFF : PRICE_ON, '📞 Telefon', '📍 Manzil'], [REFRESH], [BACK]))
+}
+
+async function loginsScreen(chat: number, prev: Session | null, note?: string) {
+  const list = await listLogins()
+  const rows = list.map((u) => [
+    `👤 <b>${u.login}</b> — ${u.role ? ROLE_NAME[u.role] : '⚠️ turi tanlanmagan'}`,
+    `      ${u.tg ? '📱 Telegram ulangan' : '📵 Telegram ulanmagan'} · 🕓 ${fmtDay(u.last_sign_in_at)}`,
+  ].join('\n'))
+  return screen(chat, prev, { step: 'm_logins' }, page(note,
+    `👥 <b>Loginlar</b> · ${list.length} ta`,
+    '',
+    rows.length ? rows.join('\n\n') : "<i>Hali login yo'q.</i>",
+    '',
+    `${ROLE_NAME.admin} — to'liq sayt telefonda`,
+    `${ROLE_NAME.stats} — faqat statistika (o'z PIN kodi bilan)`,
+    '',
+    "<i>Loginni tanlang yoki yangisini qo'shing.</i>",
+  ), keys(...chunk(list.map((u) => `👤 ${u.login}`), 2), ['➕ Yangi login'], [BACK]))
+}
+
+async function loginScreen(chat: number, prev: Session | null, u: Login, note?: string) {
+  return screen(chat, prev, { step: 'm_login', userId: u.id, login: u.login }, page(note,
+    `👤 <b>${u.login}</b>`,
+    '',
+    `🏷 Turi:  ${u.role ? ROLE_NAME[u.role] : '⚠️ tanlanmagan'}`,
+    `📱 Telegram:  ${u.tg ? 'ulangan' : 'ulanmagan'}`,
+    u.role === 'stats' && `🔢 PIN:  ${u.app_metadata?.pin ? "o'rnatilgan" : 'hali yaratilmagan'}`,
+    `🕓 Oxirgi kirish:  ${fmtDay(u.last_sign_in_at)}`,
+    `📅 Yaratilgan:  ${fmtDay(u.created_at)}`,
+  ), keys(
+    ['🔑 Parolni almashtirish', '🔁 Turini almashtirish'],
+    [...(u.role === 'stats' ? ['🔢 PIN reset'] : []), "🗑 O'chirish"],
+    [BACK],
+  ))
+}
+
+const loginTypeScreen = (chat: number, prev: Session | null) =>
+  screen(chat, prev, { step: 'login_type' }, page(undefined,
+    '➕ <b>Yangi login</b>',
+    '',
+    'Hisob turini tanlang:',
+    `${ROLE_NAME.admin} — to'liq sayt telefonda (kassa, tovarlar, kirim, etiketka)`,
+    `${ROLE_NAME.stats} — faqat statistika (sotuv, foyda, ombor, nasiya)`,
+  ), keys([ROLE_NAME.admin, ROLE_NAME.stats], [BACK]))
+
+const loginNameScreen = (chat: number, prev: Session | null, role: Role, note?: string) =>
+  screen(chat, prev, { step: 'login_name', role }, page(note,
+    `➕ <b>Yangi login</b> · ${ROLE_NAME[role]}`,
+    '',
+    '👤 Login yozing: lotin harf va raqam, 3–20 belgi.',
+    'Masalan: <code>ali</code>, <code>sotuvchi1</code>',
+  ), keys([BACK]))
+
+const loginPassScreen = (chat: number, prev: Session | null, next: Session, note?: string) =>
+  screen(chat, prev, { ...next, step: 'login_pass' }, page(note,
+    next.userId ? `🔑 <b>${next.login}</b> — yangi parol` : `➕ <b>Yangi login</b> · ${ROLE_NAME[next.role!]}`,
+    '',
+    `👤 Login:  <code>${next.login}</code>`,
+    '🔑 Parol yozing (kamida 8 belgi, harf va raqam) yoki 🎲 bosing.',
+    next.userId ? '<i>Eski parol bilan ochilgan hamma joydan chiqariladi.</i>' : '',
+  ), keys(['🎲 Parol yaratish'], [BACK]))
+
+const loginCard = (login: string, password: string, role: Role) => [
+  `🔐 <b>Kirish ma'lumoti</b>`,
+  '',
+  `👤 Login:  <code>${login}</code>`,
+  `🔑 Parol:  <code>${esc(password)}</code>`,
+  `🏷 Turi:  ${ROLE_NAME[role]}`,
+  '',
+  `Botda: /start → 🔐 Kirish`,
+  `Saytda: ${siteUrl()}`,
+  role === 'stats' ? "Birinchi kirishda o'z PIN kodingizni yaratasiz." : '',
+].filter((x, i, a) => x || i < a.length - 1).join('\n')
+
+/** Login yaratish yoki parolini almashtirish. Kirish ma'lumoti alohida xabar (egasiga yuborish uchun). */
+async function finishLogin(chat: number, s: Session, password: string) {
+  const weak = weakPassword(password, s.login!)
+  if (weak) return loginPassScreen(chat, s, s, `⚠️ Parol ${weak}. Qaytadan yozing yoki 🎲 bosing.`)
+  try {
+    if (s.userId) {
+      const old = await ourUser(s.userId)
+      if (!old) throw new Error('login topilmadi')
+      const u = await resetPassword(old, password)
+      await say(chat, loginCard(u.login, password, u.role!))
+      return loginScreen(chat, { ...s, cardId: undefined }, u, '✅ Parol almashtirildi — eski kirishlar bekor qilindi. Yangi ma\'lumot yuqorida.')
+    }
+    await createLogin(s.login!, password, s.role!)
+    await say(chat, loginCard(s.login!, password, s.role!))
+    return loginsScreen(chat, { ...s, cardId: undefined }, `✅ <b>${s.login}</b> yaratildi. Kirish ma'lumoti yuqorida — egasiga yuboring.`)
+  } catch (e) {
+    return loginsScreen(chat, s, `⚠️ Xato: ${esc(String((e as Error).message ?? e)).slice(0, 200)}`)
+  }
+}
+
+// ---------- Botga login/parol bilan kirish (admin va kuzatuvchi hisoblari) ----------
+
+const LOGIN_KEYS = keys(['🔐 Kirish'])
+const PANEL_NAME: Record<Role, string> = { admin: '🛠 Admin panel', stats: '📊 Kuzatuvchi panel' }
+const PIN_BTN = "🔢 PIN kodni o'zgartirish"
+const roleKeys = (role: Role) => keys(
+  [{ text: PANEL_NAME[role], web_app: { url: panelUrl() } }],
+  role === 'stats' ? [PIN_BTN, '🚪 Chiqish'] : ['🚪 Chiqish'],
+)
+
+const welcomeText = (name?: string) => [
+  `👋 <b>Assalomu alaykum${name ? `, ${name}` : ''}!</b>`,
+  '',
+  "Bu do'kon boti. Ishlash uchun do'kon egasi bergan <b>login va parol</b> bilan kiring.",
+  '',
+  '👇 <b>🔐 Kirish</b> tugmasini bosing.',
+].join('\n')
 
 /** Noto'g'ri login yoki parol: 3 marta — 15 daqiqa, keyin 30, 60… (24 soatgacha) kutish. */
 export const MAX_TRIES = 3
@@ -858,116 +1002,130 @@ async function checkPassword(login: string, password: string): Promise<Login | n
 }
 
 type From = { id: number; first_name?: string; username?: string }
-const who = (f: From) => `${esc(f.first_name ?? '')}${f.username ? ` @${esc(f.username)}` : ''} (ID <code>${f.id}</code>)`
+const whoLines = (f: From) => [
+  `🙍 ${esc(f.first_name ?? '')}${f.username ? ` (@${esc(f.username)})` : ''}`,
+  `🆔 <code>${f.id}</code>`,
+]
 
-/** Admin bo'lmaganlar: kirish, bog'langan hisob menyusi, chiqish. */
+/** Kirgan foydalanuvchining ekrani. */
+const roleHome = (chat: number, prev: Session | null, me: Login, name: string, note?: string) =>
+  screen(chat, prev, { step: 'home' }, page(note,
+    `👋 <b>${name}</b>`,
+    '',
+    `🏷 Hisob:  ${ROLE_NAME[me.role!]}`,
+    '',
+    `${PANEL_NAME[me.role!]} — pastdagi tugma yoki chatdagi ko'k tugma.`,
+    me.role === 'stats' && `${PIN_BTN} — /changepass`,
+    '🚪 Chiqish — /logout',
+  ), roleKeys(me.role!))
+
+const pinScreen = (chat: number, prev: Session | null, step: Step, note?: string, extra: Partial<Session> = {}) =>
+  screen(chat, prev, { ...extra, step, guard: prev?.guard }, page(note,
+    '🔢 <b>PIN kodni o\'zgartirish</b>',
+    '',
+    step === 'pin_old' ? '🔒 Hozirgi PIN kodni yozing:' : step === 'pin_new' ? '🆕 Yangi PIN kod (4–6 raqam):' : '🔁 Yangi PIN kodni takrorlang:',
+    '<i>Yozganingiz darhol o\'chiriladi.</i>',
+  ), keys([BACK]))
+
+/** Admin bo'lmaganlar: kirish, bog'langan hisob menyusi, PIN, chiqish. Hamma narsa — pastki tugmalar va bitta ekran. */
 async function guestUpdate(u: Update, from: From, chat: number) {
-  if (u.callback_query) await tg('answerCallbackQuery', { callback_query_id: u.callback_query.id }).catch(() => {})
-  const m = u.message ?? { message_id: undefined }
-  const text = u.message?.text?.trim() ?? ''
-  const me = await boundLogin(from.id)
-
-  const name = esc(from.first_name || from.username || 'do\'stim')
-
-  if (me) {
-    if (u.callback_query) return
-    if (text === '🚪 Chiqish' || text === '/logout') {
-      await setMeta(me, { tg: null })
-      await resetChat(chat, `🚪 Chiqdingiz, ${name}.`)
-      return
-    }
-    return say(chat, [
-      `👋 ${name}, siz ${ROLE_NAME[me.role!]} sifatida kirgansiz.`,
-      `${PANEL_NAME[me.role!]} — pastdagi tugma yoki chatdagi ko'k tugma orqali ochiladi.`,
-      '🚪 Chiqish — hisobdan chiqish.',
-    ].join('\n'), roleMenu(me.role!))
-  }
-
-  // Butun kirish bitta xabarda: u tahrirlanib boradi, yozilgan login va parol darhol o'chiriladi.
-  const s = (await getSession(chat)) ?? { step: 'auth_idle' as Step }
-  const g: Guard = s.guard ?? {}
-  const left = () => Math.ceil(((g.lockUntil ?? 0) - Date.now()) / 60_000)
-  const locked = (g.lockUntil ?? 0) > Date.now()
-  const lockedText = () => `⛔ Juda ko'p noto'g'ri urinish. <b>${left()} daqiqa</b>dan keyin qayta urinib ko'ring.`
-  const welcome = [
-    `👋 <b>Assalomu alaykum, ${name}!</b>`,
-    "Bu do'kon boti. Ishlash uchun do'kon egasi bergan <b>login va parol</b> bilan kiring.",
-  ].join('\n')
-  const KIRISH = kb([[b('🔐 Kirish', 'auth:start')]])
-  const BEKOR = kb([[b('❌ Bekor qilish', 'auth:cancel')]])
-
-  /** Noto'g'ri urinish: hisoblanadi, 3 tadan keyin qulf (egasiga xabar). */
-  const fail = async (reason: string, step: Step, extra: Partial<Session> = {}) => {
-    const fails = (g.fails ?? 0) + 1
-    if (fails >= MAX_TRIES) {
-      const locks = g.locks ?? 0
-      const ng = { fails: 0, locks: locks + 1, lockUntil: Date.now() + lockMinutes(locks) * 60_000 }
-      const id = await edit(chat, s.cardId, `⛔ ${MAX_TRIES} marta noto'g'ri. <b>${lockMinutes(locks)} daqiqa</b>dan keyin qayta urinib ko'ring.`)
-      await setSession(chat, { step: 'auth_idle', guard: ng, cardId: id })
-      const owner = admins()[0]
-      if (owner) await say(owner, `⚠️ <b>Shubhali urinish</b>\n${who(from)} ${MAX_TRIES} marta noto'g'ri login/parol kiritdi${s.login ? ` (<code>${esc(s.login)}</code>)` : ''}. ${lockMinutes(locks)} daqiqaga to'xtatildi.`).catch(() => {})
-      return
-    }
-    const id = await edit(chat, s.cardId, `${reason}\nQolgan urinish: <b>${MAX_TRIES - fails}</b>`, BEKOR)
-    await setSession(chat, { ...s, ...extra, step, guard: { ...g, fails }, cardId: id })
-  }
-
   if (u.callback_query) {
-    const data = u.callback_query.data ?? ''
-    const msgId = u.callback_query.message?.message_id
-    if (data === 'auth:start') {
-      if (locked) return edit(chat, msgId, lockedText())
-      await setSession(chat, { step: 'auth_login', guard: g, cardId: msgId })
-      return edit(chat, msgId, '👤 <b>Loginingizni yozing:</b>', BEKOR)
-    }
-    if (data === 'auth:cancel') {
-      await setSession(chat, { step: 'auth_idle', guard: g, cardId: msgId })
-      return edit(chat, msgId, welcome, KIRISH)
-    }
+    await tg('answerCallbackQuery', { callback_query_id: u.callback_query.id }).catch(() => {})
     return
   }
+  const m = u.message!
+  const text = m.text?.trim() ?? ''
+  // Foydalanuvchi yozgan har qanday xabar (tugma, login, parol, PIN) darhol o'chiriladi — ekran yangilanadi.
+  await drop(chat, m.message_id)
+  const name = esc(from.first_name || from.username || "do'stim")
+  const s = await getSession(chat)
+  const me = await boundLogin(from.id)
 
-  // Login/parol bosqichida yozilgan har qanday xabar darhol o'chiriladi.
-  const typing = s.step === 'auth_login' || s.step === 'auth_pass'
-  if (typing && !text.startsWith('/')) await drop(chat, m.message_id)
-
-  if (!typing || !text || text.startsWith('/')) {
-    if (locked) return say(chat, lockedText(), NO_KB)
-    const id = (await say(chat, welcome, KIRISH) as { message_id?: number })?.message_id
-    await drop(chat, s.cardId)
-    return setSession(chat, { step: 'auth_idle', guard: g, cardId: id })
+  if (me) {
+    if (text === '🚪 Chiqish' || text === '/logout') {
+      await setMeta(me, { tg: null })
+      await tg('setChatMenuButton', { chat_id: chat, menu_button: { type: 'default' } }).catch(() => {})
+      await tg('deleteMyCommands', { scope: { type: 'chat', chat_id: chat } }).catch(() => {})
+      return screen(chat, s, { step: 'auth_idle', guard: s?.guard }, page(`🚪 Chiqdingiz, ${name}.`, welcomeText()), LOGIN_KEYS)
+    }
+    const step = s?.step
+    const inPin = step === 'pin_old' || step === 'pin_new' || step === 'pin_new2'
+    if (text === BACK || text === '/start' || (!inPin && text !== PIN_BTN && text !== '/changepass')) return roleHome(chat, s, me, name)
+    if (me.role !== 'stats') return roleHome(chat, s, me, name, "ℹ️ PIN kod faqat kuzatuvchi hisobda.")
+    if (text === PIN_BTN || text === '/changepass') return pinScreen(chat, s, me.app_metadata?.pin ? 'pin_old' : 'pin_new')
+    if (step === 'pin_old') {
+      const err = await pinCheck(me, text)
+      return err ? pinScreen(chat, s, 'pin_old', `❌ ${err}`) : pinScreen(chat, s, 'pin_new', '✅ To\'g\'ri.')
+    }
+    if (!PIN_RE.test(text)) return pinScreen(chat, s, step!, '⚠️ PIN — 4 dan 6 tagacha raqam.', { pinNew: s?.pinNew })
+    if (step === 'pin_new') return pinScreen(chat, s, 'pin_new2', undefined, { pinNew: await pinHash(me.id, text) })
+    if (s?.pinNew !== (await pinHash(me.id, text))) return pinScreen(chat, s, 'pin_new', '❌ Bir xil emas — qaytadan.')
+    await pinSet(me, text)
+    return roleHome(chat, s, me, name, "✅ PIN kod o'zgartirildi.")
   }
-  if (locked) return edit(chat, s.cardId, lockedText())
 
-  if (s.step === 'auth_login') {
+  // Kirmagan foydalanuvchi.
+  const g: Guard = s?.guard ?? {}
+  const locked = (g.lockUntil ?? 0) > Date.now()
+  const idle = () => screen(chat, s, { step: 'auth_idle', guard: g }, welcomeText(name), LOGIN_KEYS)
+  if (locked) {
+    return screen(chat, s, { step: 'auth_idle', guard: g },
+      `⛔ Juda ko'p noto'g'ri urinish.\n\n⏳ <b>${Math.ceil((g.lockUntil! - Date.now()) / 60_000)} daqiqa</b>dan keyin qayta urinib ko'ring.`, LOGIN_KEYS)
+  }
+  const loginScr = (note?: string) => screen(chat, s, { step: 'auth_login', guard: g }, page(note, '🔐 <b>Kirish</b>', '', '👤 Loginingizni yozing:'), keys([BACK]))
+  const passScr = (login: string, note?: string, guard = g) =>
+    screen(chat, s, { step: 'auth_pass', login, guard }, page(note, '🔐 <b>Kirish</b>', '', `👤 Login:  <b>${esc(login)}</b>`, '🔑 Parolni yozing:'), keys([BACK]))
+
+  /** Noto'g'ri urinish: sanaladi, 3 tadan keyin qulf (egasiga xabar). */
+  const fail = async (retry: (note: string, guard: Guard) => Promise<void>, reason: string) => {
+    const fails = (g.fails ?? 0) + 1
+    if (fails < MAX_TRIES) return retry(`${reason}\nQolgan urinish: <b>${MAX_TRIES - fails}</b>`, { ...g, fails })
+    const locks = g.locks ?? 0
+    const ng = { fails: 0, locks: locks + 1, lockUntil: Date.now() + lockMinutes(locks) * 60_000 }
+    await screen(chat, s, { step: 'auth_idle', guard: ng },
+      `⛔ ${MAX_TRIES} marta noto'g'ri.\n\n⏳ <b>${lockMinutes(locks)} daqiqa</b>dan keyin qayta urinib ko'ring.`, LOGIN_KEYS)
+    const owner = admins()[0]
+    if (owner) {
+      await say(owner, [
+        '⚠️ <b>Shubhali urinish</b>',
+        '',
+        ...whoLines(from),
+        s?.login ? `👤 Login:  <code>${esc(s.login)}</code>` : '',
+        `❌ ${MAX_TRIES} marta noto'g'ri — ${lockMinutes(locks)} daqiqaga to'xtatildi`,
+      ].filter(Boolean).join('\n')).catch(() => {})
+    }
+  }
+
+  if (text === '🔐 Kirish' || text === '/login') return loginScr()
+  if (text === BACK) return s?.step === 'auth_pass' ? loginScr() : idle()
+  if (s?.step === 'auth_login' && text && !text.startsWith('/')) {
     const login = text.toLowerCase()
     const exists = LOGIN_RE.test(login) && (await listLogins()).some((x) => x.login === login)
-    if (!exists) return fail(`❌ <b>«${esc(text.slice(0, 30))}»</b> degan login topilmadi.\n👤 Loginni qayta yozing:`, 'auth_login')
-    await setSession(chat, { ...s, step: 'auth_pass', login })
-    return edit(chat, s.cardId, `👤 Login: <b>${login}</b>\n🔑 <b>Parolni yozing:</b>`, BEKOR)
+    if (exists) return passScr(login)
+    return fail(
+      (note, guard) => screen(chat, s, { step: 'auth_login', guard }, page(note, '🔐 <b>Kirish</b>', '', '👤 Loginni qayta yozing:'), keys([BACK])),
+      `❌ <b>«${esc(text.slice(0, 30))}»</b> degan login topilmadi.`,
+    )
   }
-
-  // auth_pass
-  const user = await checkPassword(s.login ?? '', text)
-  if (!user) return fail(`👤 Login: <b>${esc(s.login ?? '')}</b>\n❌ Parol noto'g'ri. 🔑 Qayta yozing:`, 'auth_pass')
-  if (!user.role) {
-    await setSession(chat, { step: 'auth_idle', guard: g, cardId: s.cardId })
-    return edit(chat, s.cardId, "⚠️ Bu hisobning turi tanlanmagan. Do'kon egasiga murojaat qiling.", KIRISH)
+  if (s?.step === 'auth_pass' && text && !text.startsWith('/')) {
+    const user = await checkPassword(s.login ?? '', text)
+    if (!user) return fail((note, guard) => passScr(s.login ?? '', note, guard), "❌ Parol noto'g'ri.")
+    if (!user.role) return screen(chat, s, { step: 'auth_idle', guard: g }, "⚠️ Bu hisobning turi tanlanmagan.\nDo'kon egasiga murojaat qiling.", LOGIN_KEYS)
+    // Bitta login — bitta Telegram: avval boshqa Telegramda ochiq bo'lsa, u yerdan chiqariladi.
+    if (user.tg && user.tg !== from.id) await resetChat(user.tg, '🚪 Hisobingizga boshqa Telegramdan kirildi — bu yerdan chiqarildingiz.')
+    await setMeta(user, { tg: from.id })
+    await setupChat(chat, user.role === 'admin' ? '🛠 Admin' : '📊 Statistika', [
+      { command: 'start', description: '🏠 Bosh sahifa' },
+      ...(user.role === 'stats' ? [{ command: 'changepass', description: "🔢 PIN kodni o'zgartirish" }] : []),
+      { command: 'logout', description: '🚪 Hisobdan chiqish' },
+    ])
+    const owner = admins()[0]
+    if (owner && owner !== from.id) {
+      await say(owner, ['🔐 <b>Botga kirish</b>', '', `👤 Login:  <code>${user.login}</code> · ${ROLE_NAME[user.role]}`, ...whoLines(from)].join('\n')).catch(() => {})
+    }
+    return roleHome(chat, s, { ...user, tg: from.id }, name, `✅ <b>Xush kelibsiz, ${name}!</b>`)
   }
-  // Bitta login — bitta Telegram: avval boshqa Telegramda ochiq bo'lsa, u yerdan chiqariladi.
-  if (user.tg && user.tg !== from.id) await resetChat(user.tg, '🚪 Hisobingizga boshqa Telegramdan kirildi — bu yerdan chiqarildingiz.')
-  await setMeta(user, { tg: from.id })
-  await endSession(chat)
-  await setupChat(chat, user.role === 'admin' ? '🛠 Admin' : '📊 Statistika', [{ command: 'logout', description: '🚪 Hisobdan chiqish' }])
-  const owner = admins()[0]
-  if (owner && owner !== from.id) await say(owner, `🔐 <code>${user.login}</code> (${ROLE_NAME[user.role]}) botga kirdi: ${who(from)}`).catch(() => {})
-  // Kirish xabari o'rniga — kutib olish (pastki tugmalar bilan).
-  await drop(chat, s.cardId)
-  return say(chat, [
-    `✅ <b>Xush kelibsiz, ${name}!</b>`,
-    `Hisob turi: ${ROLE_NAME[user.role]}`,
-    `${PANEL_NAME[user.role]} — pastdagi tugma yoki chatdagi ko'k tugma. Qayta login so'ralmaydi.`,
-  ].join('\n'), roleMenu(user.role))
+  return idle()
 }
 
 // ---------- Mini app (panel) ga kirish ----------
@@ -1034,6 +1192,10 @@ interface Update {
 
 const admins = () => env('ADMIN_IDS').split(/[,\s]+/).filter(Boolean).map(Number)
 
+/** Kirim (yuk qo'shish) bosqichlari — bu paytda menyu tugmalari ishlamaydi. */
+const IMPORT_STEPS: Step[] = ['photos', 'packs', 'brand', 'brand_new', 'model', 'size', 'color', 'packSize', 'cost', 'price', 'confirm', 'saving']
+const inImport = (s: Session | null) => Boolean(s && IMPORT_STEPS.includes(s.step))
+
 async function onUpdate(u: Update) {
   const from = u.message?.from?.id ?? u.callback_query?.from.id
   const chat = u.message?.chat.id ?? u.callback_query?.message?.chat.id
@@ -1042,220 +1204,233 @@ async function onUpdate(u: Update) {
   if (u.message && u.message.chat.type && u.message.chat.type !== 'private') return
   if (!admins().includes(from)) return guestUpdate(u, (u.message?.from ?? u.callback_query!.from), chat)
   const owner = admins()[0] === from
-  const MENU = menu(owner)
+  if (u.callback_query) return adminCallback(u.callback_query, chat, owner)
+  return adminMessage(u.message!, chat, owner)
+}
 
-  // Tugmalar
-  if (u.callback_query) {
-    const data = u.callback_query.data ?? ''
-    await tg('answerCallbackQuery', { callback_query_id: u.callback_query.id }).catch(() => {})
-    const s = await getSession(chat)
-    if (data === 'cancel') return cancelFlow(chat, s, MENU)
-    // Loginlar (faqat asosiy admin)
-    if (data.startsWith('lg:')) {
-      if (!owner) return say(chat, '⛔ Loginlarni faqat asosiy admin boshqaradi.')
-      if (s && !s.step.startsWith('login_') && s.step !== 'setting') return say(chat, "⚠️ Avval joriy kirimni tugating yoki /bekor deb yozing.")
-      const [, act, id] = data.split(':')
-      if (act === 'new') {
-        await setSession(chat, { step: 'login_name' })
-        return say(chat, [
-          '🏷 Hisob turini tanlang:',
-          `${ROLE_NAME.admin} — to'liq sayt telefonda (kassa, tovarlar, kirim, etiketka).`,
-          `${ROLE_NAME.stats} — faqat statistika (sotuv, foyda, ombor, nasiya).`,
-        ].join('\n'), kb([[b(ROLE_NAME.admin, 'lg:type:admin'), b(ROLE_NAME.stats, 'lg:type:stats')], [b('❌ Bekor qilish', 'cancel')]]))
-      }
-      if (act === 'type') {
-        if (s?.step !== 'login_name' || (id !== 'admin' && id !== 'stats')) return
-        await setSession(chat, { step: 'login_name', role: id })
-        return say(chat, `${ROLE_NAME[id]} uchun login yozing: lotin harf va raqam, 3–20 belgi.\nMasalan: <code>ali</code>, <code>sotuvchi1</code>`, kb([[b('❌ Bekor qilish', 'cancel')]]))
-      }
-      if (act === 'gen') {
-        if (s?.step !== 'login_pass') return
-        return finishLogin(chat, s, genPassword(), MENU)
-      }
-      if (act === 'list') return showLogins(chat)
-      const user = await ourUser(id ?? '')
-      if (!user) return say(chat, 'Bu login topilmadi.')
-      if (act === 'role') {
-        const role: Role = user.role === 'admin' ? 'stats' : 'admin'
-        await setMeta(user, { role })
-        if (user.tg) await resetChat(user.tg, `🏷 Hisobingiz turi o'zgardi: ${ROLE_NAME[role]}. Qayta kiring.`).then(() => setMeta({ ...user, app_metadata: { ...user.app_metadata, role } }, { tg: null }))
-        await say(chat, `✅ <code>${user.login}</code> endi ${ROLE_NAME[role]}.`)
-        return showLogins(chat)
-      }
-      if (act === 'pw') {
-        await setSession(chat, { step: 'login_pass', login: user.login, userId: user.id })
-        return say(chat, `🔑 <code>${user.login}</code> uchun yangi parol yozing (kamida 8 belgi, harf va raqam) yoki 🎲 bosing.\nEski parol bilan ochilgan hamma joydan chiqariladi.`, kb([[b('🎲 Parol yaratish', 'lg:gen')], [b('❌ Bekor qilish', 'cancel')]]))
-      }
-      if (act === 'del') {
-        return say(chat, `🗑 <code>${user.login}</code> o'chirilsinmi? U saytdan ham, paneldan ham chiqib ketadi.`, kb([[b("Ha, o'chirish", `lg:delok:${user.id}`), b('Yo\'q', 'lg:list')]]))
-      }
-      if (act === 'delok') {
-        await deleteLogin(user)
-        await say(chat, `✅ <code>${user.login}</code> o'chirildi.`)
-        return showLogins(chat)
-      }
-      return showLogins(chat)
-    }
-    // Sozlamalar
-    if (data.startsWith('set:')) {
-      const key = data.slice(4)
-      if (s && s.step !== 'setting') return say(chat, "⚠️ Avval joriy kirimni tugating yoki /bekor deb yozing.")
-      if (key === 'price') {
-        const c = await getCfg()
-        await saveCfg({ ...c, showPrice: !c.showPrice })
-        return showSettings(chat)
-      }
-      if (key === 'refresh') {
-        await say(chat, '🔄 Kanaldagi postlar yangilanmoqda…')
-        const r = await refreshPosts()
-        return say(chat, [
-          `✅ Yangilandi: ${r.edited} ta post${r.same ? ` (${r.same} tasi o'zgarmagan)` : ''}`,
-          r.left ? `⏳ Yana ${r.left} ta qoldi — tugmani yana bir bor bosing.` : null,
-        ].filter(Boolean).join('\n'))
-      }
-      if (!SET_PROMPTS[key]) return
-      await setSession(chat, { step: 'setting', setting: key })
-      return say(chat, SET_PROMPTS[key], kb([[b('❌ Bekor qilish', 'cancel')]]))
-    }
-    // Eski (tugagan kirimdagi) tugma — jim.
-    if (!s) return
-    if (data.startsWith('manual:')) return manualInput(chat, s)
-    if (data === 'photos_done') return photosDone(chat, s)
-    if (data === 'ok' && s.step === 'confirm') return confirmSave(chat, s, MENU)
-    if (data === 'brand_new') {
-      const ns = { ...s, step: 'brand_new' as Step }
-      await setSession(chat, ns)
-      return ask(chat, ns)
-    }
-    const [key, ...rest] = data.split(':')
-    const val = rest.join(':')
-    const fields: Record<string, (v: string) => Partial<Session> | null> = {
-      packs: (v) => (Number(v) > 0 ? { packsPerPhoto: Number(v) } : null),
-      brand: (v) => ({ brand: v }),
-      size: (v) => ({ size: v }),
-      color: (v) => ({ color: v }),
-      packSize: (v) => (Number(v) > 0 ? { packSize: Number(v) } : null),
-      cost: (v) => (Number(v) > 0 ? { cost: Number(v) } : null),
-      price: (v) => (Number(v) > 0 ? { price: Number(v) } : null),
-    }
-    // Eski xabardagi tugma bosilsa — e'tiborsiz (joriy savolga tegishli emas).
-    if (key !== s.step && !(key === 'brand' && s.step === 'brand_new')) return
-    const patch = fields[key]?.(val)
-    if (!patch) return
-    if (key === 'packSize') await saveCfg(learnPackSize(await getCfg(), Number(val)))
-    const step: Step = key === 'packs' ? 'brand' : next({ ...s, step: key as Step })
-    const ns = { ...s, ...patch, step }
+/** Xabar tagidagi tugmalar — faqat kirim savollaridagi variantlar (brend, razmer, rang, narx…). */
+async function adminCallback(q: NonNullable<Update['callback_query']>, chat: number, owner: boolean) {
+  const data = q.data ?? ''
+  await tg('answerCallbackQuery', { callback_query_id: q.id }).catch(() => {})
+  const s = await getSession(chat)
+  if (!s || !inImport(s)) return // eski xabardagi tugma
+  if (data === 'cancel') return cancelFlow(chat, s, owner)
+  if (data.startsWith('manual:')) return manualInput(chat, s)
+  if (data === 'photos_done') return photosDone(chat, s)
+  if (data === 'ok' && s.step === 'confirm') return confirmSave(chat, s, owner)
+  if (data === 'brand_new') {
+    const ns = { ...s, step: 'brand_new' as Step }
     await setSession(chat, ns)
-    return ask(chat, ns, priceWarning(ns))
+    return ask(chat, ns)
   }
+  const [key, ...rest] = data.split(':')
+  const val = rest.join(':')
+  const fields: Record<string, (v: string) => Partial<Session> | null> = {
+    packs: (v) => (Number(v) > 0 ? { packsPerPhoto: Number(v) } : null),
+    brand: (v) => ({ brand: v }),
+    size: (v) => ({ size: v }),
+    color: (v) => ({ color: v }),
+    packSize: (v) => (Number(v) > 0 ? { packSize: Number(v) } : null),
+    cost: (v) => (Number(v) > 0 ? { cost: Number(v) } : null),
+    price: (v) => (Number(v) > 0 ? { price: Number(v) } : null),
+  }
+  // Eski xabardagi tugma bosilsa — e'tiborsiz (joriy savolga tegishli emas).
+  if (key !== s.step && !(key === 'brand' && s.step === 'brand_new')) return
+  const patch = fields[key]?.(val)
+  if (!patch) return
+  if (key === 'packSize') await saveCfg(learnPackSize(await getCfg(), Number(val)))
+  const step: Step = key === 'packs' ? 'brand' : next({ ...s, step: key as Step })
+  const ns = { ...s, ...patch, step }
+  await setSession(chat, ns)
+  return ask(chat, ns, priceWarning(ns))
+}
 
-  const m = u.message!
-  const text = m.text?.trim() ?? ''
-
-  if (text === '/start' || text === '/help') {
-    await setupChat(chat, '📊 Panel', ADMIN_COMMANDS(owner))
-    return say(chat, [
-      '👋 <b>Assalomu alaykum!</b>',
-      '',
-      "📦 <b>Yuk qo'shish</b> — rasmlar yuborib, yangi kirim qilish (tovar saytga tushadi va kanalga chiqadi).",
-      "⚙️ <b>Sozlamalar</b> — razmerlar, ranglar, pachka sonlari, kanaldagi narx va telefon.",
-      "📊 <b>Panel</b> — statistika (sotuv, foyda, ombor, nasiya) va to'liq sayt telefonda.",
-      ...(owner ? ["👥 <b>Loginlar</b> — boshqalarga login/parol berish (🛠 Admin yoki 📊 Kuzatuvchi)."] : []),
-      '',
-      "/bekor — joriy kirimni bekor qilish · /sync — kanalni yangilash",
-    ].join('\n'), MENU)
-  }
-  if (text === "📦 Yuk qo'shish" || text === '/yuk') {
-    const cur = await getSession(chat)
-    if (cur && cur.step !== 'photos' && cur.step !== 'setting') return say(chat, '⚠️ Avval joriy kirimni tugating yoki /bekor deb yozing.')
-    await endSession(chat)
-    await setSession(chat, { step: 'photos' })
-    return say(chat, [
-      "📷 <b>Rasmlarni yuboring</b>",
-      'Bir xil narxdagi pachkalar — har rasm 1 pachka. Bitta rasm yuborsangiz, nechta pachka ekanini so\'rayman.',
-      '',
-      'Hammasini yuborib bo\'lgach — tugmani bosing:',
-    ].join('\n'), PHOTO_KB)
-  }
-  if (text === '👥 Loginlar' || text === '/loginlar') {
-    if (!owner) return say(chat, '⛔ Loginlarni faqat asosiy admin boshqaradi.')
-    const cur = await getSession(chat)
-    if (cur?.step.startsWith('login_') || cur?.step === 'setting') await endSession(chat)
-    return showLogins(chat)
-  }
-  if (text === '⚙️ Sozlamalar' || text === '/sozlamalar') {
-    const cur = await getSession(chat)
-    if (cur?.step === 'setting') await endSession(chat)
-    return showSettings(chat)
-  }
-  if (text === '/bekor' || text === '/cancel' || text === '❌ Bekor qilish') {
-    await drop(chat, m.message_id)
-    return cancelFlow(chat, await getSession(chat), MENU)
-  }
-  if (text === '✅ Tasdiqlash') {
-    await drop(chat, m.message_id)
-    const cur = await getSession(chat)
-    if (cur?.step !== 'confirm') return
-    return confirmSave(chat, cur, MENU)
-  }
-  if (text === "✍️ Qo'lda kiritish") {
-    await drop(chat, m.message_id)
-    const cur = await getSession(chat)
-    if (!cur) return
-    return manualInput(chat, cur)
-  }
-  if (text === '✅ Rasmlar tayyor') {
-    const cur = await getSession(chat)
-    if (cur?.step !== 'photos') return say(chat, "Hozir rasm yig'ilmayapti. Yangi kirim: 📦 Yuk qo'shish", MENU)
-    return photosDone(chat, cur)
-  }
-  if (text === '/sync') {
-    const r = await syncSold()
-    return say(chat, `🔄 Kanal yangilandi: ${r.archived} ta sotilganlarga o'tdi, ${r.updated} ta yangilandi.`)
-  }
-
-  // Rasm: yig'ib boriladi (albom rasmlari bir vaqtda keladi).
-  if (m.photo?.length) {
-    const s = await getSession(chat)
-    if (s && s.step !== 'photos') return say(chat, s.step === 'setting' ? '⚠️ Avval sozlamani yozing yoki ❌ Bekor qiling.' : '⚠️ Avval joriy kirimni tugating yoki /bekor deb yozing.')
-    await db('bot_photos', { method: 'POST', body: JSON.stringify({ chat_id: chat, file_id: m.photo.at(-1)!.file_id }) })
-    // Faqat birinchi rasmga javob (qolganlari jim qo'shiladi).
+/** Rasm: kirimga yig'iladi (albom rasmlari bir vaqtda keladi — faqat birinchisiga javob). */
+async function onPhoto(m: NonNullable<Update['message']>, chat: number, s: Session | null) {
+  if (inImport(s) && s!.step !== 'photos') return ask(chat, s!, '⚠️ Avval shu kirimni tugating yoki ❌ Bekor qiling.')
+  await db('bot_photos', { method: 'POST', body: JSON.stringify({ chat_id: chat, file_id: m.photo!.at(-1)!.file_id }) })
+  if (s?.step === 'photos') return
+  const text = "📷 <b>Yangi kirim</b>\n\nRasmlar qabul qilinmoqda…\nHammasini yuborib bo'lgach — pastdagi <b>✅ Rasmlar tayyor</b>."
+  // Kim birinchi bo'lib "rasm yig'ish" holatiga o'tkazsa — o'sha javob beradi.
+  if (!s) {
     const created = await db<unknown[]>('bot_sessions', {
       method: 'POST', body: JSON.stringify({ chat_id: chat, data: { step: 'photos' } }),
     }, 'resolution=ignore-duplicates,return=representation')
-    if (created.length) {
-      return say(chat, "📷 Yangi kirim boshlandi, rasmlar qabul qilinmoqda… Hammasini yuborib bo'lgach, pastdagi <b>✅ Rasmlar tayyor</b> tugmasini bosing.", PHOTO_KB)
-    }
+    if (created.length) return screen(chat, null, { step: 'photos' }, text, PHOTO_KEYS)
     return
   }
+  const won = await db<unknown[]>(`bot_sessions?chat_id=eq.${chat}&data->>step=eq.${s.step}`, {
+    method: 'PATCH', body: JSON.stringify({ data: { ...s, step: 'photos' } }),
+  }, 'return=representation')
+  if (won.length) return screen(chat, s, { step: 'photos' }, text, PHOTO_KEYS)
+}
 
-  // Matnli javoblar
+/** Admin xabarlari: pastki tugmalar (menyu, orqaga), kirim javoblari va rasmlar. */
+async function adminMessage(m: NonNullable<Update['message']>, chat: number, owner: boolean) {
+  const text = m.text?.trim() ?? ''
   const s = await getSession(chat)
-  if (!s) return say(chat, "Yangi kirim: 📦 Yuk qo'shish · Sozlamalar: ⚙️ Sozlamalar", MENU)
-  if (s.step === 'login_name') {
-    if (!s.role) return say(chat, '🏷 Avval hisob turini tanlang (tugmalardan).')
-    const login = text.toLowerCase()
-    if (!LOGIN_RE.test(login)) return say(chat, '🤔 Faqat lotin harf, raqam, nuqta yoki _ (3–20 belgi). Qaytadan yozing.')
-    if ((await listLogins()).some((u) => u.login === login)) return say(chat, `⚠️ <code>${login}</code> allaqachon bor. Boshqa nom yozing.`)
-    await setSession(chat, { step: 'login_pass', login, role: s.role })
-    return say(chat, `🔑 <code>${login}</code> uchun parol yozing (kamida 8 belgi, harf va raqam) yoki 🎲 bosing:`, kb([[b('🎲 Parol yaratish', 'lg:gen')], [b('❌ Bekor qilish', 'cancel')]]))
+  if (m.photo?.length) return onPhoto(m, chat, s)
+
+  // Hamma joyda ishlaydigan buyruqlar.
+  if (text === '/start' || text === '/help' || text === HOME) {
+    await drop(chat, m.message_id)
+    await setupChat(chat, '📊 Panel', ADMIN_COMMANDS(owner))
+    if (inImport(s)) return cancelFlow(chat, s, owner)
+    return homeScreen(chat, s, owner)
   }
-  if (s.step === 'login_pass') {
-    // Parol yozilgan xabar chatda qolmasin.
-    await tg('deleteMessage', { chat_id: chat, message_id: m.message_id }).catch(() => {})
-    return finishLogin(chat, s, text, MENU)
+  if (text === '/sync') {
+    await drop(chat, m.message_id)
+    const r = await syncSold()
+    if (inImport(s)) return
+    return homeScreen(chat, s, owner, `🔄 Kanal yangilandi: ${r.archived} ta sotilganlarga o'tdi, ${r.updated} ta yangilandi.`)
   }
-  if (s.step === 'setting') {
-    if (!(await applySetting(s.setting ?? '', text))) return say(chat, '🤔 Tushunmadim, qaytadan yozing.')
-    await endSession(chat)
-    await say(chat, '✅ Saqlandi.', MENU)
-    return showSettings(chat)
+
+  // ---- Kirim davomida ----
+  if (inImport(s)) return importMessage(m, chat, s!, owner)
+
+  // ---- Menyular (yozilgan xabar o'chadi, ekran yangilanadi) ----
+  await drop(chat, m.message_id)
+  if (text === "📦 Yuk qo'shish" || text === '/yuk') {
+    await db(`bot_photos?chat_id=eq.${chat}`, { method: 'DELETE' })
+    return screen(chat, s, { step: 'photos' }, page(undefined,
+      "📷 <b>Yangi kirim — rasmlarni yuboring</b>",
+      '',
+      "• Bir xil narxdagi pachkalar — har rasm 1 pachka.",
+      "• Bitta rasm yuborsangiz, nechta pachka ekanini so'rayman.",
+      '',
+      "Hammasini yuborib bo'lgach — pastdagi <b>✅ Rasmlar tayyor</b>.",
+    ), PHOTO_KEYS)
+  }
+  if (text === '⚙️ Sozlamalar' || text === '/sozlamalar') return settingsScreen(chat, s)
+  if (text === '👥 Loginlar' || text === '/loginlar') {
+    return owner ? loginsScreen(chat, s) : homeScreen(chat, s, owner, '⛔ Loginlarni faqat asosiy admin boshqaradi.')
+  }
+  if (text === '/bekor' || text === '❌ Bekor qilish') return homeScreen(chat, s, owner)
+
+  const step = s?.step
+  if (text === BACK) {
+    switch (step) {
+      case 'setting': return settingsScreen(chat, s)
+      case 'm_login': case 'login_type': return loginsScreen(chat, s)
+      case 'login_name': return loginTypeScreen(chat, s)
+      case 'login_pass': {
+        if (!s!.userId) return loginNameScreen(chat, s, s!.role ?? 'stats')
+        const u = await ourUser(s!.userId)
+        return u ? loginScreen(chat, s, u) : loginsScreen(chat, s)
+      }
+      case 'm_login_del': {
+        const u = await ourUser(s!.userId ?? '')
+        return u ? loginScreen(chat, s, u) : loginsScreen(chat, s)
+      }
+      default: return homeScreen(chat, s, owner)
+    }
+  }
+
+  // Sozlamalar
+  if (step === 'm_settings') {
+    const key = SETTING_BTN[text]
+    if (key) return screen(chat, s, { step: 'setting', setting: key }, SET_PROMPTS[key], keys([BACK]))
+    if (text === PRICE_ON || text === PRICE_OFF) {
+      const c = await getCfg()
+      await saveCfg({ ...c, showPrice: text === PRICE_ON })
+      return settingsScreen(chat, s, text === PRICE_ON ? "✅ Kanalda narx endi ko'rsatiladi." : '✅ Kanalda narx endi yashiriladi.')
+    }
+    if (text === REFRESH) {
+      await screen(chat, s, { step: 'm_settings' }, '🔄 Kanaldagi postlar yangilanmoqda…', keys([BACK]))
+      const r = await refreshPosts()
+      return settingsScreen(chat, await getSession(chat), [
+        `✅ Yangilandi: ${r.edited} ta post${r.same ? ` (${r.same} tasi o'zgarmagan)` : ''}`,
+        r.left ? `⏳ Yana ${r.left} ta qoldi — tugmani yana bosing.` : '',
+      ].filter(Boolean).join('\n'))
+    }
+    return settingsScreen(chat, s)
+  }
+  if (step === 'setting') {
+    if (await applySetting(s!.setting ?? '', text)) return settingsScreen(chat, s, '✅ Saqlandi.')
+    return screen(chat, s, { step: 'setting', setting: s!.setting }, page('🤔 Tushunmadim, qaytadan yozing.', SET_PROMPTS[s!.setting ?? ''] ?? ''), keys([BACK]))
+  }
+
+  // Loginlar (faqat asosiy admin)
+  if (step?.startsWith('login_') || step?.startsWith('m_login')) {
+    if (!owner) return homeScreen(chat, s, owner)
+    if (step === 'm_logins') {
+      if (text === '➕ Yangi login') return loginTypeScreen(chat, s)
+      const u = text.startsWith('👤 ') ? (await listLogins()).find((x) => x.login === text.slice(3).trim()) : null
+      return u ? loginScreen(chat, s, u) : loginsScreen(chat, s)
+    }
+    if (step === 'login_type') {
+      const role = text === ROLE_NAME.admin ? 'admin' : text === ROLE_NAME.stats ? 'stats' : null
+      return role ? loginNameScreen(chat, s, role) : loginTypeScreen(chat, s)
+    }
+    if (step === 'login_name') {
+      const role = s!.role ?? 'stats'
+      const login = text.toLowerCase()
+      if (!LOGIN_RE.test(login)) return loginNameScreen(chat, s, role, "🤔 Faqat lotin harf, raqam, nuqta yoki _ (3–20 belgi).")
+      if ((await listLogins()).some((x) => x.login === login)) return loginNameScreen(chat, s, role, `⚠️ <b>${login}</b> allaqachon bor. Boshqa nom yozing.`)
+      return loginPassScreen(chat, s, { step: 'login_pass', login, role })
+    }
+    if (step === 'login_pass') return finishLogin(chat, s!, text === '🎲 Parol yaratish' ? genPassword() : text)
+    const u = await ourUser(s!.userId ?? '')
+    if (!u) return loginsScreen(chat, s, 'Bu login topilmadi.')
+    if (step === 'm_login') {
+      if (text === '🔑 Parolni almashtirish') return loginPassScreen(chat, s, { step: 'login_pass', login: u.login, userId: u.id, role: u.role ?? 'stats' })
+      if (text === '🔁 Turini almashtirish') {
+        const role: Role = u.role === 'admin' ? 'stats' : 'admin'
+        await setMeta(u, { role, tg: null })
+        if (u.tg) await resetChat(u.tg, `🏷 Hisobingiz turi o'zgardi: ${ROLE_NAME[role]}. Qayta kiring.`)
+        return loginScreen(chat, s, { ...u, role, tg: null, app_metadata: { ...u.app_metadata, role } }, `✅ Endi ${ROLE_NAME[role]}.`)
+      }
+      if (text === '🔢 PIN reset' && u.role === 'stats') {
+        await setMeta(u, { pin: null, pinFails: 0, pinLock: 0 })
+        return loginScreen(chat, s, { ...u, app_metadata: { ...u.app_metadata, pin: null } }, "✅ PIN o'chirildi — keyingi kirishda o'zi yangisini yaratadi.")
+      }
+      if (text === "🗑 O'chirish") {
+        return screen(chat, s, { step: 'm_login_del', userId: u.id }, page(undefined,
+          `🗑 <b>${u.login}</b> o'chirilsinmi?`,
+          '',
+          "U saytdan ham, paneldan ham darhol chiqib ketadi.",
+        ), keys(["✅ Ha, o'chirish"], [BACK]))
+      }
+      return loginScreen(chat, s, u)
+    }
+    if (step === 'm_login_del') {
+      if (text === "✅ Ha, o'chirish") {
+        await deleteLogin(u)
+        return loginsScreen(chat, s, `✅ <b>${u.login}</b> o'chirildi.`)
+      }
+      return loginScreen(chat, s, u)
+    }
+  }
+  return homeScreen(chat, s, owner, text ? '👇 Pastdagi tugmalardan foydalaning.' : undefined)
+}
+
+/** Kirim davomidagi xabarlar: pastki tugmalar va savollarga javoblar. */
+async function importMessage(m: NonNullable<Update['message']>, chat: number, s: Session, owner: boolean) {
+  const text = m.text?.trim() ?? ''
+  if (text === '/bekor' || text === '/cancel' || text === '❌ Bekor qilish') {
+    await drop(chat, m.message_id)
+    return cancelFlow(chat, s, owner)
+  }
+  if (text === '✅ Tasdiqlash') {
+    await drop(chat, m.message_id)
+    return s.step === 'confirm' ? confirmSave(chat, s, owner) : undefined
+  }
+  if (text === "✍️ Qo'lda kiritish") {
+    await drop(chat, m.message_id)
+    return manualInput(chat, s)
+  }
+  if (text === '✅ Rasmlar tayyor') {
+    await drop(chat, m.message_id)
+    return photosDone(chat, s)
   }
   // Savollarga yozilgan javob kartochkada ko'rinadi — xabarning o'zi o'chiriladi (chat toza turadi).
   if (QA_STEPS.includes(s.step)) await drop(chat, m.message_id)
   let patch: Partial<Session> | null = null
   switch (s.step) {
-    case 'photos': return say(chat, 'Rasmlarni yuborib bo\'lgach pastdagi "✅ Rasmlar tayyor" ni bosing.', PHOTO_KB)
+    case 'photos': {
+      await drop(chat, m.message_id)
+      return
+    }
     case 'packs': { const n = parseInt(text); patch = n > 0 && n < 500 ? { packsPerPhoto: n } : null; break }
     case 'brand':
     case 'brand_new': patch = text.length >= 2 ? { brand: text.replace(/\s+/g, ' ') } : null; break
@@ -1270,8 +1445,11 @@ async function onUpdate(u: Update) {
     }
     case 'cost': { const v = parseSum(text); patch = v ? { cost: v } : null; break }
     case 'price': { const v = parseSum(text); patch = v ? { price: v } : null; break }
-    case 'confirm': return say(chat, 'Pastdagi tugmalardan birini bosing: ✅ Tasdiqlash yoki ❌ Bekor qilish.', CONFIRM_KB)
-    case 'saving': return say(chat, '⏳ Saqlanmoqda, biroz kuting…')
+    case 'confirm':
+    case 'saving': {
+      await drop(chat, m.message_id)
+      return
+    }
   }
   if (!patch) return ask(chat, s, `🤔 «${esc(text.slice(0, 30))}» — tushunmadim, qaytadan yozing.`)
   const step: Step = s.step === 'packs' ? 'brand' : next(s)
@@ -1297,15 +1475,14 @@ async function manualInput(chat: number, s: Session) {
   return ask(chat, s, '✍️ Javobni yozib yuboring:')
 }
 
-/** Bekor qilish: kartochka ham olib tashlanadi. */
-async function cancelFlow(chat: number, s: Session | null, MENU: Record<string, unknown>) {
-  if (s?.cardId) await drop(chat, s.cardId)
-  await endSession(chat)
-  return say(chat, "❌ Bekor qilindi. Yangi kirim: 📦 Yuk qo'shish", MENU)
+/** Kirimni bekor qilish: kartochka va rasmlar olib tashlanadi, asosiy menyuga qaytiladi. */
+async function cancelFlow(chat: number, s: Session | null, owner: boolean) {
+  await db(`bot_photos?chat_id=eq.${chat}`, { method: 'DELETE' })
+  return homeScreen(chat, s, owner, '❌ Kirim bekor qilindi — hech narsa saqlanmadi.')
 }
 
 /** Tasdiqlash: saytga yozish va kanalga joylash (ikki marta bosilsa ham bir marta). */
-async function confirmSave(chat: number, s: Session, MENU: Record<string, unknown>) {
+async function confirmSave(chat: number, s: Session, owner: boolean) {
   const won = await db<unknown[]>(`bot_sessions?chat_id=eq.${chat}&data->>step=eq.confirm`, {
     method: 'PATCH', body: JSON.stringify({ data: { ...s, step: 'saving' } }),
   }, 'return=representation')
@@ -1314,7 +1491,7 @@ async function confirmSave(chat: number, s: Session, MENU: Record<string, unknow
   try {
     const result = await commit(chat, s)
     await drop(chat, wait)
-    return say(chat, result, MENU)
+    return homeScreen(chat, null, owner, result)
   } catch (e) {
     console.error(e)
     await drop(chat, wait)
@@ -1330,15 +1507,39 @@ const cors = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-/** Saytdan chaqiruv: faqat kirgan va staff ro'yxatidagi foydalanuvchi. */
-async function isStaffRequest(req: Request): Promise<boolean> {
+/** Saytdan chaqiruv: kirgan va staff ro'yxatidagi foydalanuvchi (bo'lmasa — null). */
+async function staffUser(req: Request): Promise<AuthUser | null> {
   const jwt = req.headers.get('Authorization')?.replace(/^Bearer\s+/i, '')
-  if (!jwt) return false
+  if (!jwt) return null
   const res = await fetch(`${SB()}/auth/v1/user`, { headers: { apikey: KEY(), Authorization: `Bearer ${jwt}` } })
-  if (!res.ok) return false
-  const user = await res.json()
+  if (!res.ok) return null
+  const user = await res.json() as AuthUser
   const rows = await db<unknown[]>(`staff?user_id=eq.${user.id}&select=user_id`)
-  return rows.length > 0
+  return rows.length ? user : null
+}
+
+const json = (x: unknown, status = 200) => new Response(JSON.stringify(x), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
+
+/** Kuzatuvchining shaxsiy PIN kodi (mini app va sayt shu orqali tekshiradi). */
+async function pinRequest(req: Request, op?: string, pin?: string): Promise<Response> {
+  const who = await staffUser(req)
+  if (!who) return json({ error: 'Ruxsat yo\'q' }, 403)
+  // Eng so'nggi holat (urinishlar, qulf) — bazadan.
+  const u = await auth<AuthUser>(`admin/users/${who.id}`)
+  if (normRole(u.app_metadata?.role) !== 'stats') return json({ error: 'PIN faqat kuzatuvchi hisobda' }, 400)
+  const has = Boolean(u.app_metadata?.pin)
+  if (op === 'status') return json({ hasPin: has })
+  if (op === 'set') {
+    if (has) return json({ error: 'PIN allaqachon bor — botda /changepass bilan almashtiring' })
+    if (!PIN_RE.test(pin ?? '')) return json({ error: '4 dan 6 tagacha raqam' })
+    await pinSet(u, pin!)
+    return json({ ok: true })
+  }
+  if (op === 'check') {
+    const err = await pinCheck(u, String(pin ?? ''))
+    return json(err ? { error: err } : { ok: true })
+  }
+  return json({ error: 'op' }, 400)
 }
 
 export async function handle(req: Request): Promise<Response> {
@@ -1376,13 +1577,14 @@ export async function handle(req: Request): Promise<Response> {
 
   // Sayt: sotuvdan keyin kanalni yangilash
   if (req.method === 'POST') {
-    const body = await req.clone().json().catch(() => ({})) as { action?: string; initData?: string }
+    const body = await req.clone().json().catch(() => ({})) as { action?: string; initData?: string; op?: string; pin?: string }
     // Mini app: Telegram orqali kirish
     if (body.action === 'tg-auth') {
       const r = await tgAuth(String(body.initData ?? '')).catch((e) => ({ error: String((e as Error).message ?? e) }))
       return new Response(JSON.stringify(r), { headers: { ...cors, 'Content-Type': 'application/json' } })
     }
-    if (!(await isStaffRequest(req))) return new Response('forbidden', { status: 403, headers: cors })
+    if (body.action === 'pin') return pinRequest(req, body.op, body.pin)
+    if (!(await staffUser(req))) return new Response('forbidden', { status: 403, headers: cors })
     const r = await syncSold()
     return new Response(JSON.stringify(r), { headers: { ...cors, 'Content-Type': 'application/json' } })
   }

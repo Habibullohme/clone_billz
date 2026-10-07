@@ -318,3 +318,18 @@ export async function sessionRole(): Promise<PanelRole> {
 export async function signOutLocal() {
   await supabase?.auth.signOut({ scope: 'local' })
 }
+
+/**
+ * Kuzatuvchi hisobning shaxsiy PIN kodi: bot (server) saqlaydi va tekshiradi —
+ * brauzerga PIN ham, uning izi ham berilmaydi; noto'g'ri urinishlar sanaladi.
+ */
+async function pinCall(op: 'status' | 'set' | 'check', pin?: string): Promise<{ hasPin?: boolean; error?: string }> {
+  const { data, error } = await supabase!.functions.invoke('bot', { body: { action: 'pin', op, pin } })
+  if (error) return { error: "Internetga ulanib bo'lmadi" }
+  return data as { hasPin?: boolean; error?: string }
+}
+export const userPin = {
+  hasPin: async () => Boolean((await pinCall('status')).hasPin),
+  check: async (pin: string) => (await pinCall('check', pin)).error ?? null,
+  create: async (pin: string) => (await pinCall('set', pin)).error ?? null,
+}
