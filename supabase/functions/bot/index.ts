@@ -374,7 +374,7 @@ async function card(s: Session, note?: string): Promise<{ text: string; rows: Bt
       break
     }
   }
-  return { text: [head, ...(done.length ? ['', ...done] : []), '', ...(note ? [`<i>${note}</i>`] : []), q].join('\n'), rows }
+  return { text: [head, quote(done), ...(note ? [quote([`<i>${note}</i>`])] : []), q].filter(Boolean).join('\n'), rows }
 }
 
 /** Kirim savollari bitta xabarda — u har javobdan keyin tahrirlanadi (chat to'lib ketmaydi). */
@@ -393,16 +393,16 @@ async function confirmCard(chat: number, s: Session, note?: string) {
   await drop(chat, s.kbId)
   const m = await say(chat, [
     '📋 <b>Tekshiring</b>',
-    '',
-    `👟 ${esc(s.brand!)} ${esc(s.model!)}`,
-    `📏 ${esc(s.size || '—')} · 🎨 ${esc(s.color || '—')} · ${s.packSize} juftlik`,
-    `📷 ${s.photoCount} ta rasm → <b>${total} pachka</b> (${pairs} juft)`,
-    `💵 Kelish: ${formatSum(s.cost!)} · 💰 Sotuv: <b>${formatSum(s.price!)}</b> (1 juft)`,
-    `📈 Foyda: <b>${formatSum((s.price! - s.cost!) * s.packSize!)}</b> (1 pachka)`,
-    ...(note ? ['', `⚠️ ${note}`] : []),
-    '',
-    'Tasdiqlasangiz — saytga tushadi va kanalga chiqadi.',
-  ].join('\n'), CONFIRM_KB) as { message_id?: number }
+    quote([
+      `👟 <b>${esc(s.brand!)} ${esc(s.model!)}</b>`,
+      `📏 ${esc(s.size || '—')} · 🎨 ${esc(s.color || '—')} · ${s.packSize} juftlik`,
+      `📷 ${s.photoCount} ta rasm → <b>${total} pachka</b> (${pairs} juft)`,
+      `💵 Kelish: ${formatSum(s.cost!)} · 💰 Sotuv: <b>${formatSum(s.price!)}</b> (1 juft)`,
+      `📈 Foyda: <b>${formatSum((s.price! - s.cost!) * s.packSize!)}</b> (1 pachka)`,
+    ]),
+    note ? quote([`⚠️ ${note}`]) : '',
+    '<i>Tasdiqlasangiz — saytga tushadi va kanalga chiqadi.</i>',
+  ].filter(Boolean).join('\n'), CONFIRM_KB) as { message_id?: number }
   await setSession(chat, { ...s, cardId: m?.message_id, kbId: undefined, kbKey: undefined })
 }
 
@@ -510,10 +510,11 @@ async function commit(chat: number, s: Session): Promise<string> {
   const first = products[0].name as string, lastName = products[products.length - 1].name as string
   return [
     `✅ <b>Kirim №${number}</b> saqlandi`,
-    `👟 ${esc(d.brand)} · ${total} pachka · kodlar: ${esc(codeOf(first) ?? '')}–${esc(codeOf(lastName) ?? '')}`,
-    channel ? `📣 Kanalga: ${posted}/${groups.length} ta post` : "📣 Kanal ulanmagan — ⚙️ Sozlamalar → 📣 Kanallar",
-    '',
-    "🏷 Etiketkalarni saytdan chiqaring: Etiketkalar → Kirim №" + number,
+    quote([
+      `👟 ${esc(d.brand)} · ${total} pachka · kodlar: ${esc(codeOf(first) ?? '')}–${esc(codeOf(lastName) ?? '')}`,
+      channel ? `📣 Kanalga: ${posted}/${groups.length} ta post` : '📣 Kanal ulanmagan — ⚙️ Sozlamalar → 📣 Kanallar',
+      `🏷 Etiketka: saytda Etiketkalar → Kirim №${number}`,
+    ]),
   ].join('\n')
 }
 
@@ -742,7 +743,7 @@ async function resetChat(tgId: number, note: string) {
   await tg('setChatMenuButton', { chat_id: tgId, menu_button: { type: 'default' } }).catch(() => {})
   await tg('deleteMyCommands', { scope: { type: 'chat', chat_id: tgId } }).catch(() => {})
   const s = await getSession(tgId).catch(() => null)
-  await screen(tgId, s, { step: 'auth_idle', guard: s?.guard }, `${note}\n\n${welcomeText()}`, LOGIN_KEYS).catch(() => {})
+  await screen(tgId, s, { step: 'auth_idle', guard: s?.guard }, `${quote([note])}\n${welcomeText()}`, LOGIN_KEYS).catch(() => {})
 }
 
 /**
@@ -845,9 +846,25 @@ async function screen(chat: number, prev: Session | null, next: Session, text: s
   await setSession(chat, { ...next, cardId: id, kbKey, kbId: undefined })
 }
 
-/** Ekran matni: tepada (bo'lsa) natija/xato, keyin sarlavha va qatorlar. */
-const page = (note: string | undefined, ...lines: (string | false | null | undefined)[]) =>
-  [...(note ? [note, ''] : []), ...lines.filter((x) => x !== false && x !== null && x !== undefined)].join('\n')
+/** Telegram iqtibosi (chap chiziqli blok) — xabar ichidagi ma'lumot ajralib, bilinib turadi. Bo'sh chetlar olinadi. */
+function quote(lines: string[]): string {
+  const l = [...lines]
+  while (l.length && !l[0].trim()) l.shift()
+  while (l.length && !l[l.length - 1].trim()) l.pop()
+  return l.length ? `<blockquote>${l.join('\n')}</blockquote>` : ''
+}
+
+/**
+ * Ekran matni: tepada (bo'lsa) natija/xato — iqtibosda, keyin sarlavha (birinchi qator),
+ * ma'lumotlar — iqtibos ichida, oxiridagi kursiv izoh (<i>…</i>) — iqtibosdan tashqarida.
+ */
+function page(note: string | undefined, ...lines: (string | false | null | undefined)[]): string {
+  const ls = lines.filter((x): x is string => x !== false && x !== null && x !== undefined)
+  const [title = '', ...rest] = ls
+  while (rest.length && !rest[rest.length - 1].trim()) rest.pop()
+  const tail = rest.length && /^<i>[\s\S]*<\/i>$/.test(rest[rest.length - 1]) ? rest.pop()! : ''
+  return [note ? quote([note]) : '', title, quote(rest), tail].filter(Boolean).join('\n')
+}
 
 /** Rasm yig'ish paytidagi pastki tugmalar (100–200 ta rasmdan keyin ham ko'rinib turadi). */
 const PHOTO_KEYS = keys(['✅ Rasmlar tayyor'], ['❌ Bekor qilish'])
@@ -1144,15 +1161,17 @@ const loginPassScreen = (chat: number, prev: Session | null, next: Session, note
 
 const loginCard = (login: string, password: string, role: Role) => [
   `🔐 <b>Kirish ma'lumoti</b>`,
-  '',
-  `👤 Login:  <code>${login}</code>`,
-  `🔑 Parol:  <code>${esc(password)}</code>`,
-  `🏷 Turi:  ${ROLE_NAME[role]}`,
-  '',
-  `Botda: /start → 🔐 Kirish`,
-  `Saytda: ${siteUrl()}`,
-  role === 'stats' ? "Birinchi kirishda o'z PIN kodingizni yaratasiz." : '',
-].filter((x, i, a) => x || i < a.length - 1).join('\n')
+  quote([
+    `👤 Login:  <code>${login}</code>`,
+    `🔑 Parol:  <code>${esc(password)}</code>`,
+    `🏷 Turi:  ${ROLE_NAME[role]}`,
+  ]),
+  quote([
+    `🤖 Botda: /start → 🔐 Kirish`,
+    `💻 Saytda: ${siteUrl()}`,
+    ...(role === 'stats' ? ["🔢 Birinchi kirishda o'z PIN kodingizni yaratasiz."] : []),
+  ]),
+].join('\n')
 
 /** Login yaratish yoki parolini almashtirish. Kirish ma'lumoti alohida xabar (egasiga yuborish uchun). */
 async function finishLogin(chat: number, s: Session, password: string) {
@@ -1166,7 +1185,7 @@ async function finishLogin(chat: number, s: Session, password: string) {
         // Email hisob (masalan egasining gmail'i): o'sha hisob qoladi, parol o'zgaradi, saytdagi qurilmalar chiqariladi.
         await auth(`admin/users/${acc.id}`, { method: 'PUT', body: JSON.stringify({ password }) })
         await revokeDevices(acc.id)
-        await say(chat, `🔐 <b>Yangi parol</b>\n\n📧 ${esc(acc.label)}\n🔑 <code>${esc(password)}</code>`)
+        await say(chat, `🔐 <b>Yangi parol</b>\n${quote([`📧 ${esc(acc.label)}`, `🔑 <code>${esc(password)}</code>`])}`)
         return loginScreen(chat, { ...s, cardId: undefined }, acc, "✅ Parol almashtirildi — saytdagi hamma qurilmalardan chiqarildi. Yangi parol yuqorida.")
       }
       const old = await ourUser(s.userId)
@@ -1198,9 +1217,7 @@ const roleKeys = (role: Role) => keys(
 
 const welcomeText = (name?: string) => [
   `👋 <b>Assalomu alaykum${name ? `, ${name}` : ''}!</b>`,
-  '',
-  "Bu do'kon boti. Ishlash uchun do'kon egasi bergan <b>login va parol</b> bilan kiring.",
-  '',
+  quote(["Bu do'kon boti. Ishlash uchun do'kon egasi bergan <b>login va parol</b> bilan kiring."]),
   '👇 <b>🔐 Kirish</b> tugmasini bosing.',
 ].join('\n')
 
@@ -1310,11 +1327,12 @@ async function guestUpdate(u: Update, from: From, chat: number) {
     if (owner) {
       await say(owner, [
         '⚠️ <b>Shubhali urinish</b>',
-        '',
-        ...whoLines(from),
-        s?.login ? `👤 Login:  <code>${esc(s.login)}</code>` : '',
-        `❌ ${MAX_TRIES} marta noto'g'ri — ${lockMinutes(locks)} daqiqaga to'xtatildi`,
-      ].filter(Boolean).join('\n')).catch(() => {})
+        quote([
+          ...whoLines(from),
+          ...(s?.login ? [`👤 Login:  <code>${esc(s.login)}</code>`] : []),
+          `❌ ${MAX_TRIES} marta noto'g'ri — ${lockMinutes(locks)} daqiqaga to'xtatildi`,
+        ]),
+      ].join('\n')).catch(() => {})
     }
   }
 
@@ -1343,7 +1361,7 @@ async function guestUpdate(u: Update, from: From, chat: number) {
     ])
     const owner = admins()[0]
     if (owner && owner !== from.id) {
-      await say(owner, ['🔐 <b>Botga kirish</b>', '', `👤 Login:  <code>${user.login}</code> · ${ROLE_NAME[user.role]}`, ...whoLines(from)].join('\n')).catch(() => {})
+      await say(owner, ['🔐 <b>Botga kirish</b>', quote([`👤 Login:  <code>${user.login}</code> · ${ROLE_NAME[user.role]}`, ...whoLines(from)])].join('\n')).catch(() => {})
     }
     return roleHome(chat, s, { ...user, tg: from.id }, name, `✅ <b>Xush kelibsiz, ${name}!</b>`)
   }

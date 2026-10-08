@@ -145,17 +145,6 @@ export function LabelsPage({ batchId }: { batchId: string | null }) {
               </button>
             )}
           </div>
-          <div className="label">Kirimlar</div>
-          {batches.length === 0 && <p className="muted small">Hali kirim yo'q.</p>}
-          {batches.slice(0, 12).map((b) => (
-            <button key={b.id} className={`batch${batch?.id === b.id ? ' on' : ''}`} onClick={() => chooseBatch(b)}>
-              <b>Kirim №{b.number}</b>
-              <span className="muted small">
-                {new Date(b.createdAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} ·{' '}
-                {b.productIds.length} ta tovar
-              </span>
-            </button>
-          ))}
           <div className="label">Tovar qo'shish</div>
           <div className="search">
             <input className="input" placeholder="Nom yoki kod" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -170,6 +159,17 @@ export function LabelsPage({ batchId }: { batchId: string | null }) {
               </ul>
             )}
           </div>
+          <div className="label">Kirimlar</div>
+          {batches.length === 0 && <p className="muted small">Hali kirim yo'q.</p>}
+          {batches.slice(0, 12).map((b) => (
+            <button key={b.id} className={`batch${batch?.id === b.id ? ' on' : ''}`} onClick={() => chooseBatch(b)}>
+              <b>Kirim №{b.number}</b>
+              <span className="muted small">
+                {new Date(b.createdAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} ·{' '}
+                {b.productIds.length} ta tovar
+              </span>
+            </button>
+          ))}
         </div>
 
         <div className="labels-main">

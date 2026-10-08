@@ -203,6 +203,8 @@ describe('sozlamalar', () => {
     await handle(text('⚙️ Sozlamalar'))
     expect(lastText()).toContain('44-45-46')
     expect(lastText()).toContain('zamish')
+    // sarlavha — alohida, ma'lumotlar — iqtibos ichida, izoh — iqtibosdan tashqarida
+    expect(lastText()).toMatch(/^⚙️ <b>Bot sozlamalari<\/b>\n<blockquote>📏 Razmerlar:[\s\S]*<\/blockquote>\n<i>/)
     expect(keyTexts()).toContain('⬅️ Orqaga')
     await handle(text('📏 Razmerlar'))
     expect(lastText()).toContain('Razmerlarni vergul')
