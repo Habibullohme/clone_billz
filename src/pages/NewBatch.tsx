@@ -20,6 +20,23 @@ interface FormState {
 const CART_KEY = 'dk.kirimCart'
 const emptyColors = () => [{ color: '', packs: 1 }]
 const packsOf = (it: Pick<CartItem, 'colors'>) => it.colors.reduce((a, r) => a + r.packs, 0)
+const FORM_ID = '__form'
+
+/** Kodlar oralig'i: ["A21","A22","A23"] → "A21–A23". */
+const span = (list: string[]) => (list.length ? (list.length > 1 ? `${list[0]}–${list[list.length - 1]}` : list[0]) : '')
+
+/** Etiketka kodlari: har rang uchun oraliq ("qora A21–A25 · jigar A26–A30"). */
+function CodeLine({ rows, colors }: { rows?: string[][]; colors: { color: string; packs: number }[] }) {
+  if (!rows?.length) return null
+  const shown = colors.filter((r) => r.packs > 0)
+  const all = rows.flat()
+  return (
+    <span className="nb-codes">
+      🏷 <b className="code-chip">{span(all)}</b>
+      {shown.length > 1 && <span className="muted small"> {shown.map((r, i) => `${r.color || 'rangsiz'} ${span(rows[i] ?? [])}`).join(' · ')}</span>}
+    </span>
+  )
+}
 
 function loadCart(): { items: CartItem[]; form: FormState | null } {
   try {
@@ -63,7 +80,8 @@ export function NewBatchSheet({
   const [newBrand, setNewBrand] = useState(false)
   const [editing, setEditing] = useState<string | null>(null)
   const [step, setStep] = useState<'fill' | 'confirm'>('fill')
-  const [codes, setCodes] = useState<Record<string, [string, string]>>({})
+  /** Har model uchun oldindan ko'rsatiladigan kodlar (har rang — alohida ro'yxat). */
+  const [codes, setCodes] = useState<Record<string, string[][]>>({})
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [flash, setFlash] = useState<string | null>(null)
@@ -98,6 +116,34 @@ export function NewBatchSheet({
     !(formPacks > 0) && 'pachka soni',
   ].filter(Boolean) as string[]
   const formValid = problems.length === 0
+
+  // Kodlar jonli hisoblanadi: savatdagilar tartibida, keyin formadagi (tahrirda — o'z joyida).
+  useEffect(() => {
+    let alive = true
+    const formItem = form.brand.trim() && formPacks > 0
+      ? { id: editing ?? FORM_ID, brand: form.brand, colors: form.colors } : null
+    const list = items.map((it) => (formItem && it.id === editing ? formItem : it))
+    if (formItem && !editing) list.push(formItem)
+    const t = setTimeout(async () => {
+      const need = new Map<string, { brand: string; n: number }>()
+      for (const it of list) {
+        const k = it.brand.trim().toLowerCase()
+        need.set(k, { brand: it.brand, n: (need.get(k)?.n ?? 0) + packsOf(it) })
+      }
+      const pool = new Map<string, string[]>()
+      for (const [k, { brand, n }] of need) pool.set(k, await previewCodes(brand, Math.min(n, 2000)))
+      const out: Record<string, string[][]> = {}
+      for (const it of list) {
+        const free = pool.get(it.brand.trim().toLowerCase()) ?? []
+        out[it.id] = it.colors.filter((r) => r.packs > 0).map((r) => free.splice(0, r.packs))
+      }
+      if (alive) setCodes(out)
+    }, 150)
+    return () => {
+      alive = false
+      clearTimeout(t)
+    }
+  }, [items, form.brand, form.colors, editing, formPacks])
 
   const buildItem = (): CartItem => ({
     id: editing ?? Math.random().toString(36).slice(2),
@@ -177,17 +223,6 @@ export function NewBatchSheet({
       setError("Savat bo'sh — avval tovar qo'shing.")
       return
     }
-    // Kodlar oldindan ko'rsatiladi: har brend uchun ketma-ket.
-    const byBrand = new Map<string, number>()
-    for (const it of list) byBrand.set(it.brand, (byBrand.get(it.brand) ?? 0) + packsOf(it))
-    const pool = new Map<string, string[]>()
-    for (const [b, n] of byBrand) pool.set(b, await previewCodes(b, Math.min(n, 2000)))
-    const out: Record<string, [string, string]> = {}
-    for (const it of list) {
-      const taken = (pool.get(it.brand) ?? []).splice(0, packsOf(it))
-      if (taken.length) out[it.id] = [taken[0], taken[taken.length - 1]]
-    }
-    setCodes(out)
     setStep('confirm')
   }
 
@@ -287,6 +322,12 @@ export function NewBatchSheet({
                 ))}
                 <button className="link small left" onClick={() => set('colors', [...form.colors, { color: '', packs: 1 }])}>+ yana rang</button>
               </div>
+              {formPacks > 0 && form.brand.trim() && (
+                <div className="nb-form-codes">
+                  <span className="muted small">Etiketka kodlari:</span>
+                  <CodeLine rows={codes[editing ?? FORM_ID]} colors={form.colors} />
+                </div>
+              )}
               {c > 0 && sp > 0 && (
                 <div className="muted small">
                   {formPacks} pachka · bir pachkadan foyda <b className={sp < c ? 'error' : 'ok'}>{formatSum((sp - c) * form.packSize)}</b>
@@ -326,6 +367,7 @@ export function NewBatchSheet({
                         <span className="small">
                           {formatSum(it.cost)} → <b>{formatSum(it.sale)}</b> · foyda {formatSum((it.sale - it.cost) * it.packSize)}/pachka
                         </span>
+                        {editing !== it.id && <CodeLine rows={codes[it.id]} colors={it.colors} />}
                       </div>
                       <div className="nb-item-side">
                         <b>{packsOf(it)}</b><span className="muted small">pachka</span>
@@ -363,7 +405,7 @@ export function NewBatchSheet({
                       <td className="num"><b>{packsOf(it)}</b></td>
                       <td className="num">{formatSum(it.cost)}</td>
                       <td className="num"><b>{formatSum(it.sale)}</b></td>
-                      <td>{codes[it.id] && <span className="code-chip">{codes[it.id][0]}{codes[it.id][0] !== codes[it.id][1] && `–${codes[it.id][1]}`}</span>}</td>
+                      <td><CodeLine rows={codes[it.id]} colors={it.colors} /></td>
                     </tr>
                   ))}
                 </tbody>

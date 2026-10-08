@@ -1341,3 +1341,9 @@ input:not([type=checkbox]):not([type=range]):not([type=file]), textarea {
 .photo-actions .btn { white-space: nowrap; }
 .photo-actions .ghost { flex: none; }
 .photo-actions .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* Kirim: etiketka kodlari oldindan */
+.nb-codes { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px; }
+.nb-codes .code-chip { font-size: 13px; }
+.nb-form-codes { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; padding: 8px 10px; border: 1px dashed var(--line); border-radius: 10px; background: var(--sunken); }
+.nb-form-codes .code-chip { font-size: 15px; }
