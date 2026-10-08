@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { brandCode, codeOf, defaultCfg, handle, learnPackSize, makeBarcode, parseSum, postCaption, refreshPosts, splitPhones, tgAuth, verifyInitData, soldCaption, tashkentStamp } from './index'
+import { brandCode, codeOf, defaultCfg, handle, learnPackSize, makeBarcode, parseSum, postCaption, refreshPosts, splitPhones, attachPhoto, tgAuth, verifyInitData, soldCaption, tashkentStamp } from './index'
 import * as site from '../../../src/lib/codes'
 
 // ---------- Soxta Supabase (PostgREST) va Telegram ----------
@@ -25,6 +25,10 @@ function match(row: Row, key: string, cond: string): boolean {
   if (op === 'ilike') {
     const re = new RegExp('^' + v.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$', 'i')
     return re.test(String(field))
+  }
+  if (op === 'ov') {
+    const want = v.slice(1, -1).split(',').map((x) => x.replace(/"/g, ''))
+    return (field as string[]).some((x) => want.includes(x))
   }
   if (op === 'cs') {
     const want = JSON.parse(v)
@@ -75,12 +79,16 @@ function fakeAuth(path: string, method: string, body: any): Response {
 
 async function fakeFetch(input: any, init: any = {}) {
   const url = new URL(String(input))
-  const body = init.body ? JSON.parse(init.body) : undefined
+  // Fayl bilan so'rov (multipart): maydonlar, fayl o'rniga — hajmi.
+  const body = init.body instanceof FormData
+    ? Object.fromEntries([...init.body].map(([k, v]) => [k, typeof v === 'string' ? v : { size: (v as Blob).size }]))
+    : init.body ? JSON.parse(init.body) : undefined
   if (url.pathname.startsWith('/auth/v1/')) return fakeAuth(url.pathname.slice(9) + url.search, init.method ?? 'GET', body)
   if (url.host === 'api.telegram.org') {
     const method = url.pathname.split('/').pop()!
     sent.push({ method, body })
-    const result = method === 'sendPhoto' ? { message_id: ++msgId, photo: [{ file_id: body.photo + '_ch' }] }
+    const result = method === 'sendPhoto' ? { message_id: ++msgId, photo: [{ file_id: (typeof body.photo === 'string' ? body.photo : 'up') + '_ch' }] }
+      : method === 'editMessageMedia' ? { message_id: Number(body.message_id), photo: [{ file_id: 'new_ch' }] }
       : method === 'sendMessage' ? { message_id: ++msgId }
       : method === 'copyMessage' ? { message_id: ++msgId }
       : method === 'getMe' ? { id: 999, username: 'test_bot' }
@@ -818,5 +826,43 @@ describe('kanallarni botdan ulash', () => {
     await handle(text('@yangi_kanal'))
     expect(lastText()).toContain('admin emas')
     expect(tables.settings.find((r) => r.id === 'bot')?.data.channelId).toBeUndefined()
+  })
+})
+
+describe("qo'ldagi tovarga rasm (sayt / mini app)", () => {
+  const prod = (id: string, name: string, stock = 5) => ({ id, brand: 'Little', name, size: '36-40', color: 'qora', pack_size: 5, sale_price: 105000, cost_price: 90000, stock, batch_id: 'b1' })
+  it('yangi post: bir nechta pachka bitta postda; keyin rasm almashtiriladi', async () => {
+    tables.products = [prod('p1', 'Little 01 A1'), prod('p2', 'Little 01 A2'), prod('p3', 'Little 01 A3', 0)]
+    const jpeg = new Uint8Array(5000)
+    expect(await attachPhoto(['p1', 'p2', 'p3'], jpeg)).toEqual({ ok: true, replaced: false })
+    const post = sent.find((x) => x.method === 'sendPhoto')!.body
+    expect(post.chat_id).toBe('-100')
+    expect(post.photo).toEqual({ size: 5000 })
+    expect(post.caption).toContain('Kod: <b>A1–A3</b>')
+    expect(post.caption).toContain('Mavjud: 2 pachka')
+    expect(post.caption).toContain('Little 01')
+    expect(tables.channel_posts).toHaveLength(1)
+    expect(tables.channel_posts[0].product_ids).toEqual(['p1', 'p2', 'p3'])
+    expect(tables.channel_posts[0].left_packs).toBe(2)
+
+    // kanalda bor — rasm almashtiriladi, yangi post chiqmaydi
+    sent = []
+    expect(await attachPhoto(['p1'], jpeg)).toEqual({ ok: true, replaced: true })
+    expect(sent.map((x) => x.method)).toEqual(['editMessageMedia'])
+    expect(JSON.parse(sent[0].body.media).caption).toContain('A1–A3')
+    expect(tables.channel_posts).toHaveLength(1)
+    expect(tables.channel_posts[0].file_id).toBe('new_ch')
+  })
+  it("kuzatuvchi rasm qo'sha olmaydi; kichik fayl rad etiladi", async () => {
+    tables.products = [prod('p1', 'Little 01 A1')]
+    expect(await attachPhoto(['p1'], new Uint8Array(10))).toEqual({ error: "Rasm noto'g'ri yoki juda katta" })
+    users.push({ id: '55555555-5555-5555-5555-555555555555', email: 'kuz@richmen.netlify.app', created_at: '', app_metadata: { role: 'stats' } })
+    tables.staff.push({ user_id: '55555555-5555-5555-5555-555555555555' })
+    jwtUser = '55555555-5555-5555-5555-555555555555'
+    const res = await handle(new Request('https://x/functions/v1/bot', {
+      method: 'POST', headers: { Authorization: 'Bearer jwt' }, body: JSON.stringify({ action: 'photo', productIds: ['p1'], image: 'AAAA' }),
+    }))
+    expect(res.status).toBe(403)
+    expect(sent.some((x) => x.method === 'sendPhoto')).toBe(false)
   })
 })

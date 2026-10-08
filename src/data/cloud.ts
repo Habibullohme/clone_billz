@@ -358,3 +358,26 @@ export async function botUsername(): Promise<string | null> {
     return null
   }
 }
+
+/** Kanaldagi ochiq postlar: tovar id → post id (rasmi bor tovarlar). */
+export async function postedProducts(): Promise<Map<string, number>> {
+  const out = new Map<string, number>()
+  if (!supabase) return out
+  const { data } = await supabase.from('channel_posts').select('id,product_ids').is('archived_at', null)
+  for (const r of (data ?? []) as { id: number; product_ids: string[] }[]) for (const id of r.product_ids) out.set(id, r.id)
+  return out
+}
+
+/**
+ * Qo'ldagi tovarga rasm: bot kanalga post qiladi (yoki postdagi rasmni almashtiradi).
+ * Xato bo'lsa — matni, bo'lmasa — null.
+ */
+export async function attachPhoto(productIds: string[], dataUrl: string): Promise<{ error?: string; replaced?: boolean }> {
+  if (!supabase) return { error: "Baza ulanmagan (sinov rejimi) — rasm kanalga chiqmaydi" }
+  const { data, error } = await supabase.functions.invoke('bot', { body: { action: 'photo', productIds, image: dataUrl } })
+  if (error) {
+    const body = await (error as { context?: Response }).context?.json?.().catch(() => null)
+    return { error: body?.error ?? "Internetga ulanib bo'lmadi" }
+  }
+  return data as { error?: string; replaced?: boolean }
+}

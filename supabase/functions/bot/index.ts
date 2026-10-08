@@ -1791,6 +1791,88 @@ async function confirmSave(chat: number, s: Session, owner: boolean) {
   }
 }
 
+// ---------- Qo'ldagi tovarga rasm (sayt / mini app'dan) ----------
+
+/** Telegram'ga fayl bilan so'rov (multipart). */
+async function tgForm<T = unknown>(method: string, form: FormData): Promise<T> {
+  const res = await fetch(`https://api.telegram.org/bot${env('BOT_TOKEN')}/${method}`, { method: 'POST', body: form })
+  const j = await res.json()
+  if (!j.ok) throw new Error(`TG ${method}: ${j.description}`)
+  return j.result as T
+}
+
+type PhotoProduct = { id: string; brand: string; name: string; size: string; color: string; pack_size: number; sale_price: number; stock: number; batch_id: string | null }
+
+/** Bir nechta pachka (bitta model) uchun post matni: kod oralig'i, "Mavjud: N pachka". */
+async function photoCaption(list: PhotoProduct[]): Promise<string> {
+  const { shop, cfg } = await currentShop()
+  const p = list[0]
+  const codes = list.map((x) => codeOf(x.name)).filter((x): x is string => Boolean(x))
+  const code = codes.length > 1 ? `${codes[0]}–${codes[codes.length - 1]}` : codes[0] ?? ''
+  const own = codeOf(p.name)
+  const model = own ? p.name.slice(0, -own.length).trim() : p.name
+  const d: Draft = { brand: p.brand, model, size: p.size, color: p.color, packSize: p.pack_size, cost: 0, price: Number(p.sale_price) }
+  return postCaption(d, code, shop, list.length, list.filter((x) => x.stock > 0).length, cfg.showPrice)
+}
+
+/**
+ * Qo'ldagi (etiketkasi yopishtirilgan) tovarga rasm: kanalga post bo'lib chiqadi.
+ * Tovarlar allaqachon ochiq postda bo'lsa — o'sha postdagi rasm almashtiriladi.
+ */
+export async function attachPhoto(productIds: string[], jpeg: Uint8Array): Promise<{ ok: true; replaced: boolean } | { error: string }> {
+  const ids = [...new Set(productIds)].filter((x) => /^[\w-]{1,64}$/.test(x)).slice(0, 200)
+  if (!ids.length) return { error: 'Tovar tanlanmagan' }
+  if (jpeg.length < 1000 || jpeg.length > 9_000_000) return { error: "Rasm noto'g'ri yoki juda katta" }
+  const list = (await db<PhotoProduct[]>(`products?select=id,brand,name,size,color,pack_size,sale_price,stock,batch_id&id=in.(${ids.map((x) => `"${x}"`).join(',')})`))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+  if (!list.length) return { error: 'Tovar topilmadi' }
+  const open = await db<Post[]>(`channel_posts?archived_at=is.null&select=id,product_ids,chat_id,message_id,caption,packs,left_packs&product_ids=ov.{${ids.map((x) => `"${x}"`).join(',')}}`)
+  const blob = new Blob([jpeg as Uint8Array<ArrayBuffer>], { type: 'image/jpeg' })
+
+  // Kanalda bor — rasmni almashtiramiz (matn o'sha qoladi).
+  if (open.length) {
+    const post = open[0]
+    if (!ids.every((id) => post.product_ids.includes(id))) return { error: "Bu tovarlar kanalda boshqa-boshqa postlarda — bittalab tanlang" }
+    const form = new FormData()
+    form.append('chat_id', String(post.chat_id))
+    form.append('message_id', String(post.message_id))
+    form.append('media', JSON.stringify({ type: 'photo', media: 'attach://p', caption: post.caption, parse_mode: 'HTML' }))
+    form.append('p', blob, 'photo.jpg')
+    const m = await tgForm<{ photo?: { file_id: string }[] }>('editMessageMedia', form)
+    await db(`channel_posts?id=eq.${post.id}`, { method: 'PATCH', body: JSON.stringify({ file_id: m.photo?.at(-1)?.file_id ?? '' }) })
+    return { ok: true, replaced: true }
+  }
+
+  const channel = (await channelIds()).main
+  if (!channel) return { error: 'Kanal ulanmagan — botda ⚙️ Sozlamalar → 📣 Kanallar' }
+  const caption = await photoCaption(list)
+  const form = new FormData()
+  form.append('chat_id', String(channel))
+  form.append('caption', caption)
+  form.append('parse_mode', 'HTML')
+  form.append('photo', blob, 'photo.jpg')
+  const m = await tgForm<{ message_id: number; photo: { file_id: string }[] }>('sendPhoto', form)
+  await db('channel_posts', { method: 'POST', body: JSON.stringify({
+    product_ids: list.map((x) => x.id), chat_id: channel, message_id: m.message_id, file_id: m.photo.at(-1)?.file_id ?? '',
+    caption, batch_id: list[0].batch_id, packs: list.length, left_packs: list.filter((x) => x.stock > 0).length,
+  }) })
+  return { ok: true, replaced: false }
+}
+
+/** Saytdan: rasm (base64 JPEG) va tovarlar. Kuzatuvchi rasm qo'sha olmaydi. */
+async function photoRequest(req: Request, body: { productIds?: string[]; image?: string }): Promise<Response> {
+  const who = await staffUser(req)
+  if (!who) return json({ error: "Ruxsat yo'q" }, 403)
+  if (normRole(who.app_metadata?.role) === 'stats') return json({ error: "Kuzatuvchi rasm qo'sha olmaydi" }, 403)
+  try {
+    const b64 = String(body.image ?? '').replace(/^data:image\/\w+;base64,/, '')
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+    return json(await attachPhoto(Array.isArray(body.productIds) ? body.productIds.map(String) : [], bytes))
+  } catch (e) {
+    return json({ error: String((e as Error).message ?? e).slice(0, 200) })
+  }
+}
+
 // ---------- HTTP kirish nuqtasi ----------
 
 const cors = {
@@ -1875,13 +1957,14 @@ export async function handle(req: Request): Promise<Response> {
 
   // Sayt: sotuvdan keyin kanalni yangilash
   if (req.method === 'POST') {
-    const body = await req.clone().json().catch(() => ({})) as { action?: string; initData?: string; op?: string; pin?: string }
+    const body = await req.clone().json().catch(() => ({})) as { action?: string; initData?: string; op?: string; pin?: string; productIds?: string[]; image?: string }
     // Mini app: Telegram orqali kirish
     if (body.action === 'tg-auth') {
       const r = await tgAuth(String(body.initData ?? '')).catch((e) => ({ error: String((e as Error).message ?? e) }))
       return new Response(JSON.stringify(r), { headers: { ...cors, 'Content-Type': 'application/json' } })
     }
     if (body.action === 'pin') return pinRequest(req, body.op, body.pin)
+    if (body.action === 'photo') return photoRequest(req, body as { productIds?: string[]; image?: string })
     if (!(await staffUser(req))) return new Response('forbidden', { status: 403, headers: cors })
     const r = await syncSold()
     return new Response(JSON.stringify(r), { headers: { ...cors, 'Content-Type': 'application/json' } })

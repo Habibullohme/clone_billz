@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { NewBatchSheet } from './NewBatch'
+import { PhotoSheet } from './PhotoSheet'
 import type { ImportBatch, Product, ProductInput, Sale } from '../types'
 import {
   nameConflict,
@@ -76,6 +77,7 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
   const [toast, setToast] = useState('')
   const [editing, setEditing] = useState<Product | null>(null)
   const [adding, setAdding] = useState(false)
+  const [photos, setPhotos] = useState(false)
   const [preview, setPreview] = useState<{ items: ParsedRow[]; missing: string[]; file: string } | null>(null)
   const [imported, setImported] = useState<ImportBatch | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -169,6 +171,7 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
         <div className="head-actions">
           <button className="btn ghost" onClick={() => downloadTemplate()}>Shablon</button>
           <button className="btn ghost" onClick={() => fileRef.current?.click()}>Excel'dan import</button>
+          <button className="btn ghost" onClick={() => setPhotos(true)}>📷 Rasm</button>
           <button className="btn primary" onClick={() => setAdding(true)}>+ Yangi kirim</button>
           <input
             ref={fileRef}
@@ -394,6 +397,8 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
           </div>
         </Modal>
       )}
+
+      {photos && <PhotoSheet onClose={() => setPhotos(false)} />}
 
       {adding && (
         <NewBatchSheet
