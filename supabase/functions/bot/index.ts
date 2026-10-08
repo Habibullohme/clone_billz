@@ -389,6 +389,11 @@ async function ask(chat: number, s: Session, note?: string) {
 async function confirmCard(chat: number, s: Session, note?: string) {
   const total = (s.photoCount ?? 0) * (s.packsPerPhoto ?? 1)
   const pairs = total * s.packSize!
+  const codes = await previewCodes(s.brand!, s.model!, Math.min(total, 2000)).catch(() => [] as string[])
+  const per = s.packsPerPhoto ?? 1
+  const perPhoto = (s.photoCount ?? 0) > 1 && (s.photoCount ?? 0) <= 10
+    ? Array.from({ length: s.photoCount! }, (_, i) => `   📷${i + 1}: ${codeSpan(codes.slice(i * per, (i + 1) * per))}`)
+    : []
   await drop(chat, s.cardId)
   await drop(chat, s.kbId)
   const m = await say(chat, [
@@ -399,6 +404,7 @@ async function confirmCard(chat: number, s: Session, note?: string) {
       `📷 ${s.photoCount} ta rasm → <b>${total} pachka</b> (${pairs} juft)`,
       `💵 Kelish: ${formatSum(s.cost!)} · 💰 Sotuv: <b>${formatSum(s.price!)}</b> (1 juft)`,
       `📈 Foyda: <b>${formatSum((s.price! - s.cost!) * s.packSize!)}</b> (1 pachka)`,
+      ...(codes.length ? ['', `🏷 Etiketka kodlari: <b>${codeSpan(codes)}</b>`, ...perPhoto] : []),
     ]),
     note ? quote([`⚠️ ${note}`]) : '',
     '<i>Tasdiqlasangiz — saytga tushadi va kanalga chiqadi.</i>',
@@ -428,6 +434,36 @@ function next(s: Session): Step {
 
 // ---------- Kirim: bazaga yozish va kanalga joylash ----------
 
+/** Band kodlar va nomlar (saytdagi qoida: kod brend ichida, nom umuman takrorlanmaydi). */
+async function takenFor(d: Pick<Draft, 'brand' | 'model'>) {
+  const bk = d.brand.trim().toLowerCase()
+  const like = (v: string) => encodeURIComponent(v.trim().replace(/[%_*]/g, ''))
+  const same = [
+    ...await db<{ name: string; brand: string }[]>(`products?select=name,brand&brand=ilike.${like(d.brand)}`),
+    ...await db<{ name: string; brand: string }[]>(`products?select=name,brand&name=ilike.${like(d.model)}%20*`),
+  ]
+  return {
+    takenCodes: new Set(same.filter((p) => p.brand.toLowerCase() === bk).map((p) => codeOf(p.name)).filter(Boolean)),
+    takenNames: new Set(same.map((p) => p.name.toLowerCase())),
+  }
+}
+
+/** Saqlanganda beriladigan kodlar — oldindan ko'rsatish uchun (hisoblagich o'zgarmaydi). */
+export async function previewCodes(brand: string, model: string, count: number): Promise<string[]> {
+  const bk = brand.trim().toLowerCase()
+  const row = await db<{ value: number }[]>(`counters?name=eq.${encodeURIComponent('brand:' + bk)}&select=value`).catch(() => [])
+  let n = Number(row[0]?.value ?? 0)
+  const { takenCodes, takenNames } = await takenFor({ brand, model })
+  const out: string[] = []
+  while (out.length < count) {
+    const code = brandCode(++n)
+    if (!takenCodes.has(code) && !takenNames.has(`${model.trim()} ${code}`.toLowerCase())) out.push(code)
+  }
+  return out
+}
+
+const codeSpan = (list: string[]) => (list.length > 1 ? `${list[0]}–${list[list.length - 1]}` : list[0] ?? '')
+
 async function commit(chat: number, s: Session): Promise<string> {
   const photos = await db<{ file_id: string }[]>(`bot_photos?chat_id=eq.${chat}&select=file_id&order=id`)
   const per = s.packsPerPhoto ?? 1
@@ -436,14 +472,7 @@ async function commit(chat: number, s: Session): Promise<string> {
   const d: Draft = { brand: s.brand!.trim(), model: s.model!.trim(), size: s.size ?? '', color: s.color ?? '', packSize: s.packSize!, cost: s.cost!, price: s.price! }
   const bk = d.brand.toLowerCase()
 
-  // Band kodlar va nomlar (saytdagi qoida: kod brend ichida, nom umuman takrorlanmaydi).
-  const like = (v: string) => encodeURIComponent(v.replace(/[%_*]/g, ''))
-  const same = [
-    ...await db<{ name: string; brand: string }[]>(`products?select=name,brand&brand=ilike.${like(d.brand)}`),
-    ...await db<{ name: string; brand: string }[]>(`products?select=name,brand&name=ilike.${like(d.model)}%20*`),
-  ]
-  const takenCodes = new Set(same.filter((p) => p.brand.toLowerCase() === bk).map((p) => codeOf(p.name)).filter(Boolean))
-  const takenNames = new Set(same.map((p) => p.name.toLowerCase()))
+  const { takenCodes, takenNames } = await takenFor(d)
 
   let seq = (await takeSeq('product', total)) - total
   let last = await takeSeq('brand:' + bk, total)
@@ -492,7 +521,7 @@ async function commit(chat: number, s: Session): Promise<string> {
   const channel = (await channelIds()).main
   let posted = 0
   for (const g of channel ? groups : []) {
-    const code = g.codes.length > 1 ? `${g.codes[0]}–${g.codes[g.codes.length - 1]}` : g.codes[0]
+    const code = codeSpan(g.codes)
     const caption = postCaption(d, code, shop, g.ids.length, g.ids.length, cfg.showPrice)
     try {
       const m = await tg<{ message_id: number; photo: { file_id: string }[] }>('sendPhoto', { chat_id: channel, photo: g.fileId, caption, parse_mode: 'HTML' })
@@ -511,7 +540,7 @@ async function commit(chat: number, s: Session): Promise<string> {
   return [
     `✅ <b>Kirim №${number}</b> saqlandi`,
     quote([
-      `👟 ${esc(d.brand)} · ${total} pachka · kodlar: ${esc(codeOf(first) ?? '')}–${esc(codeOf(lastName) ?? '')}`,
+      `👟 ${esc(d.brand)} · ${total} pachka · 🏷 kodlar: <b>${esc(codeSpan([codeOf(first) ?? '', codeOf(lastName) ?? ''].filter((x, i, a) => x && a.indexOf(x) === i)))}</b>`,
       channel ? `📣 Kanalga: ${posted}/${groups.length} ta post` : '📣 Kanal ulanmagan — ⚙️ Sozlamalar → 📣 Kanallar',
       `🏷 Etiketka: saytda Etiketkalar → Kirim №${number}`,
     ]),

@@ -102,6 +102,7 @@ async function fakeFetch(input: any, init: any = {}) {
     counters[body.p_name] = (counters[body.p_name] ?? 0) + body.p_count
     return new Response(JSON.stringify(counters[body.p_name]))
   }
+  if (path === 'counters') tables.counters = Object.entries(counters).map(([name, value]) => ({ name, value }))
   const t = (tables[path] ??= [])
   const filters = [...url.searchParams].filter(([k]) => !['select', 'order', 'limit', 'on_conflict'].includes(k))
   const sel = () => t.filter((r) => filters.every(([k, c]) => match(r, k, c)))
@@ -261,7 +262,13 @@ describe('sozlamalar', () => {
     await handle(text('150000'))
     await handle(text('170000'))
     expect(keyTexts()).toEqual(['✅ Tasdiqlash', '❌ Bekor qilish'])
+    // Kodlar tasdiqdan oldin ko'rinadi (hisoblagich 20 da — keyingilari A21, A22).
+    expect(lastText()).toContain('Etiketka kodlari: <b>A21–A22</b>')
+    expect(lastText()).toContain('📷1: A21')
+    expect(counters['brand:velton']).toBe(20)
     await handle(text('✅ Tasdiqlash'))
+    expect(tables.products.map((p: any) => p.name)).toEqual(['klassik A21', 'klassik A22'])
+    expect(lastText()).toContain('kodlar: <b>A21–A22</b>')
     const post = sent.find((x) => x.method === 'sendPhoto')!.body.caption
     expect(post).toContain('38-42')
     expect(post).toContain('karesh')
