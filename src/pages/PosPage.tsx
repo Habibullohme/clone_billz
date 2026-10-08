@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CartLine, HeldCart, Payment, Product, Sale } from '../types'
 import {
-  findByBarcode, getHeld, getProducts, getSettings, holdCart, saveSale, saveSettings,
+  balanceOf, findByBarcode, getCustomers, getHeld, getProducts, getSettings, holdCart, saveSale, saveSettings,
   searchProducts, takeHeld, type Settings,
 } from '../data/store'
 import { addProduct, distributeTotal, lineTotal, subtotal } from '../lib/cart'
@@ -35,6 +35,8 @@ export function PosPage() {
   const [toast, setToast] = useState<{ text: string; bad?: boolean } | null>(null)
   const [paying, setPaying] = useState(false)
   const [done, setDone] = useState<Sale | null>(null)
+  /** Nasiyaga sotilganda — mijozning umumiy qarzi (chekda chiqadi). */
+  const [doneDebt, setDoneDebt] = useState<number | undefined>(undefined)
   const [receipts, setReceipts] = useState(false)
   const [held, setHeld] = useState<HeldCart[]>([])
   const searchRef = useRef<HTMLInputElement>(null)
@@ -197,6 +199,11 @@ export function PosPage() {
       saveSettings(s)
     }
     setPaying(false)
+    setDoneDebt(undefined)
+    if (sale.payment.debt > 0 && sale.customerName) {
+      const c = (await getCustomers()).find((x) => x.name.toLowerCase() === sale.customerName.trim().toLowerCase())
+      if (c) setDoneDebt(balanceOf(c))
+    }
     setDone(sale)
     reset()
     getProducts().then(setProducts)
@@ -429,7 +436,7 @@ export function PosPage() {
               {done.change > 0 && <span className="change">Qaytim {formatSum(done.change)}</span>}
             </div>
             <div className="print-area">
-              <Receipt sale={done} settings={settings} />
+              <Receipt sale={done} settings={settings} debtTotal={doneDebt} />
             </div>
             <div className="modal-actions">
               <button className="btn ghost" onClick={() => window.print()}>Chek chiqarish <kbd>Space</kbd></button>

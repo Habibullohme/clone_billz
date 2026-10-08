@@ -1108,7 +1108,7 @@ input:not([type=checkbox]):not([type=range]):not([type=file]), textarea {
 .debt-total.owe { background: var(--bad-soft); color: var(--bad); }
 .debt-actions { display: flex; gap: 10px; margin: 14px 0 6px; }
 .ledger { display: flex; flex-direction: column; max-height: 46vh; overflow: auto; border: 1px solid var(--line); border-radius: 14px; }
-.ledger-row { display: grid; grid-template-columns: 74px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.ledger-row { display: grid; grid-template-columns: 74px minmax(0, 1fr) auto auto auto; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
 .ledger-row:last-child { border-bottom: 0; }
 .ledger-date { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
 .ledger-what { display: flex; flex-direction: column; min-width: 0; }
@@ -1120,8 +1120,8 @@ input:not([type=checkbox]):not([type=range]):not([type=file]), textarea {
   .debt-row { padding: 10px 12px; gap: 10px; }
   .debt-bal { font-size: 15px; }
   .debt-total { width: 100%; flex-direction: row; justify-content: space-between; align-items: center; }
-  .ledger-row { grid-template-columns: 62px minmax(0, 1fr) auto; }
-  .ledger-row > :last-child { grid-column: 3; }
+  .ledger-row { grid-template-columns: 62px minmax(0, 1fr) auto auto; }
+  .ledger-row > :last-child { grid-column: 4; }
   .debt-actions { flex-direction: column; }
 }
 
@@ -1302,3 +1302,16 @@ input:not([type=checkbox]):not([type=range]):not([type=file]), textarea {
 /* Panel: egasi uchun "🛠 Admin" (to'liq sayt) va statistikaga qaytish */
 .boss-site { padding: 8px 12px; white-space: nowrap; }
 .boss-back { position: fixed; left: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 60; border: 0; border-radius: 999px; padding: 10px 16px; background: var(--fg); color: var(--bg); font: inherit; font-weight: 600; font-size: 13px; box-shadow: 0 6px 20px rgb(0 0 0 / 0.25); cursor: pointer; }
+
+/* Nasiya cheki */
+.r-sign { display: flex; gap: 6px; align-items: flex-end; margin: 10px 0 6px; }
+.r-sign-line { flex: 1; border-bottom: 1px solid currentColor; height: 14px; }
+.debt-receipt { display: flex; justify-content: center; background: #fff; border-radius: 10px; padding: 10px; overflow: auto; }
+.ledger-sum { display: flex; flex-direction: column; align-items: flex-end; }
+.ledger-sum small { font-size: 11.5px; font-weight: 500; }
+.boss-kpi.wide { grid-column: 1 / -1; }
+.boss-row.debt-debt .num b, .boss-kpi b.bad { color: var(--bad); }
+.boss-row.debt-payment .num b, .boss-kpi b.ok { color: var(--ok); }
+.boss-kpis:has(> :nth-child(3):last-child) > .boss-kpi.bad:first-child { grid-column: 1 / -1; }
+/* PIN: 5- va 6-doiracha ixtiyoriy — xiraroq, uzuq chiziqli. */
+.pin-dots span.opt { opacity: 0.35; border-style: dashed; transform: scale(0.85); }

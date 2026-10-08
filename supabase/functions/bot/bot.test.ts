@@ -682,9 +682,10 @@ describe('botga login/parol bilan kirish', () => {
     await handle(text('🔢 PIN reset'))
     expect(await call('status')).toEqual({ hasPin: false })
 
-    // Admin hisobga PIN tegishli emas
+    // Admin hisobga shaxsiy PIN kerak emas
     users[0].app_metadata.role = 'admin'
-    expect((await call('status')).error).toBeTruthy()
+    expect(await call('status')).toEqual({ skip: true })
+    expect((await call('set', '1234')).error).toBeTruthy()
   })
 })
 

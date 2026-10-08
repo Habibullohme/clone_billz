@@ -14,6 +14,7 @@ import { hueStyle } from '../lib/colors'
 import { formatSum, shortSum } from '../lib/money'
 import { inPeriod, type Period } from '../lib/period'
 import { applyTheme } from '../lib/theme'
+import { ledgerRows } from '../lib/debt'
 import { loadTelegram, type TgWebApp } from '../lib/telegram'
 import { App } from '../App'
 
@@ -224,7 +225,7 @@ function Dashboard({ tg, role, onSite }: { tg: TgWebApp | null; role: PanelRole;
     >
       {tab === 'sales' && d.settings && <SalesView sales={d.sales} settings={d.settings} tg={tg} />}
       {tab === 'stock' && <StockView products={d.products} />}
-      {tab === 'debts' && <DebtsView customers={d.customers} />}
+      {tab === 'debts' && <DebtsView customers={d.customers} tg={tg} />}
     </PanelShell>
   )
 }
@@ -366,7 +367,8 @@ function StockView({ products }: { products: Product[] }) {
       <div className="boss-kpis">
         <div className="boss-kpi main"><span>Omborda</span><b>{+total((p) => p.stock / (p.packSize || 1)).toFixed(1)} pachka</b><small className="muted">{total((p) => p.stock)} juft</small></div>
         <div className="boss-kpi"><span>Tannarxi</span><b>{shortSum(total((p) => p.stock * p.costPrice))}</b></div>
-        <div className="boss-kpi ok"><span>Sotuv narxida</span><b>{shortSum(total((p) => p.stock * p.salePrice))}</b></div>
+        <div className="boss-kpi"><span>Sotuv narxida</span><b>{shortSum(total((p) => p.stock * p.salePrice))}</b></div>
+        <div className="boss-kpi ok wide"><span>Kutilayotgan foyda</span><b>{formatSum(total((p) => p.stock * (p.salePrice - p.costPrice)))}</b><small className="muted">hammasi sotilsa</small></div>
       </div>
       <section className="boss-card">
         <h2>Brendlar bo'yicha</h2>
@@ -382,12 +384,17 @@ function StockView({ products }: { products: Product[] }) {
   )
 }
 
-function DebtsView({ customers }: { customers: Customer[] }) {
+function DebtsView({ customers, tg }: { customers: Customer[]; tg: TgWebApp | null }) {
+  const [openId, setOpenId] = useState<string | null>(null)
+  const close = useMemo(() => (openId ? () => setOpenId(null) : null), [openId])
+  useTgBack(tg, close)
   const rows = customers
     .map((c) => ({ c, balance: balanceOf(c) }))
     .filter((x) => x.balance > 0)
     .sort((a, b) => b.balance - a.balance)
   const total = rows.reduce((a, x) => a + x.balance, 0)
+  const open = customers.find((c) => c.id === openId)
+  if (open) return <DebtHistory c={open} onBack={() => setOpenId(null)} />
   return (
     <>
       <div className="boss-kpis">
@@ -398,12 +405,53 @@ function DebtsView({ customers }: { customers: Customer[] }) {
         <h2>Kim qancha qarz</h2>
         {rows.length === 0 && <p className="muted">Nasiya yo'q.</p>}
         {rows.map(({ c, balance }) => (
-          <div key={c.id} className="boss-row static">
+          <button key={c.id} className="boss-row" onClick={() => setOpenId(c.id)}>
             <span className="grow">
               {c.name}
-              {c.phone && <small><a href={`tel:${c.phone.replace(/[^\d+]/g, '')}`}>{c.phone}</a></small>}
+              {c.phone && <small className="muted">{c.phone}</small>}
             </span>
             <b className="bad">{formatSum(balance)}</b>
+            <span className="muted">›</span>
+          </button>
+        ))}
+      </section>
+    </>
+  )
+}
+
+/** Bitta mijozning nasiya tarixi: + nasiya oldi, − to'ladi, har biridan keyin qolgan qarz. */
+function DebtHistory({ c, onBack }: { c: Customer; onBack: () => void }) {
+  const rows = [...ledgerRows(c)].reverse()
+  const balance = balanceOf(c)
+  const took = rows.filter((r) => r.kind === 'debt').reduce((a, r) => a + r.amount, 0)
+  const paid = rows.filter((r) => r.kind === 'payment').reduce((a, r) => a + r.amount, 0)
+  return (
+    <>
+      <button className="link small left" onClick={onBack}>← Qarzdorlar</button>
+      <section className="boss-card">
+        <h2>{c.name}</h2>
+        {c.phone && <a className="small" href={`tel:${c.phone.replace(/[^\d+]/g, '')}`}>📞 {c.phone}</a>}
+      </section>
+      <div className="boss-kpis">
+        <div className="boss-kpi bad"><span>{balance >= 0 ? 'Qarzi' : "Ortiqcha to'lagan"}</span><b>{formatSum(Math.abs(balance))}</b></div>
+        <div className="boss-kpi"><span>Jami oldi</span><b className="bad">+{formatSum(took)}</b></div>
+        <div className="boss-kpi"><span>Jami to'ladi</span><b className="ok">−{formatSum(paid)}</b></div>
+      </div>
+      <section className="boss-card">
+        <h2>Tarix</h2>
+        {rows.length === 0 && <p className="muted">Yozuv yo'q.</p>}
+        {rows.map((r) => (
+          <div key={r.id} className={`boss-row static debt-${r.kind}`}>
+            <span className="grow">
+              {r.kind === 'debt' ? '➕ Nasiya oldi' : "➖ To'ladi"}
+              <small className="muted">
+                {[new Date(r.date).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' }), r.saleNumber && `chek №${r.saleNumber}`, r.note].filter(Boolean).join(' · ')}
+              </small>
+            </span>
+            <span className="num">
+              <b>{r.kind === 'debt' ? '+' : '−'}{formatSum(r.amount)}</b>
+              <small className="muted">qoldi {formatSum(r.after)}</small>
+            </span>
           </div>
         ))}
       </section>

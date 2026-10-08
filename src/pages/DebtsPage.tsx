@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Customer, LedgerEntry } from '../types'
-import { addLedgerEntry, balanceOf, deleteLedgerEntry, getCustomers, syncSaleDebts, updateCustomer } from '../data/store'
+import { addLedgerEntry, balanceOf, deleteLedgerEntry, getCustomers, getSettings, syncSaleDebts, updateCustomer, type Settings } from '../data/store'
+import { ledgerRows, type LedgerRow } from '../lib/debt'
+import { DebtReceipt } from '../components/DebtReceipt'
 import { formatSum, parseSum } from '../lib/money'
 import { hueStyle } from '../lib/colors'
 import { CustomerInput } from '../components/CustomerInput'
@@ -19,6 +21,8 @@ export function DebtsPage() {
   const [filter, setFilter] = useState<Filter>('debtors')
   const [openId, setOpenId] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
+  /** Hozirgina qo'shilgan yozuv — mijoz kartasi ochilganda chek oynasi ham chiqadi. */
+  const [fresh, setFresh] = useState<string | null>(null)
 
   const reload = () => getCustomers().then(setCustomers)
   useEffect(() => {
@@ -96,18 +100,29 @@ export function DebtsPage() {
             const c = await addLedgerEntry(name, phone, e)
             setAdding(false)
             await reload()
+            setFresh(newestEntry(c))
             setOpenId(c.id)
           }}
         />
       )}
 
-      {open && <CustomerCard c={open} onClose={() => setOpenId(null)} onChanged={reload} />}
+      {open && <CustomerCard c={open} receiptOf={fresh} onClose={() => { setOpenId(null); setFresh(null) }} onChanged={reload} />}
     </div>
   )
 }
 
-/** Bitta mijozning daftari: qoldiq, tarix, to'lov qabul qilish. */
-function CustomerCard({ c, onClose, onChanged }: { c: Customer; onClose: () => void; onChanged: () => Promise<unknown> }) {
+/** Eng oxirgi qo'shilgan yozuv id si. */
+const newestEntry = (c: Customer) => [...(c.ledger ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]?.id ?? null
+
+/** Bitta mijozning daftari: qoldiq, tarix, to'lov qabul qilish; har yozuvga chek. */
+function CustomerCard({ c, receiptOf, onClose, onChanged }: { c: Customer; receiptOf?: string | null; onClose: () => void; onChanged: () => Promise<unknown> }) {
+  const [settings, setSettings] = useState<Settings | null>(null)
+  const [receipt, setReceipt] = useState<string | null>(receiptOf ?? null)
+  useEffect(() => {
+    getSettings().then(setSettings)
+  }, [])
+  const rows = ledgerRows(c)
+  const receiptRow = rows.find((r) => r.id === receipt) ?? null
   const [entry, setEntry] = useState<'debt' | 'payment' | null>(null)
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(c.name)
@@ -115,7 +130,7 @@ function CustomerCard({ c, onClose, onChanged }: { c: Customer; onClose: () => v
   const [error, setError] = useState('')
   const [confirmDel, setConfirmDel] = useState<string | null>(null)
   const balance = balanceOf(c)
-  const history = [...(c.ledger ?? [])].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt))
+  const history: LedgerRow[] = [...rows].reverse()
 
   return (
     <Modal title="Nasiya daftari" onClose={onClose} wide>
@@ -169,7 +184,11 @@ function CustomerCard({ c, onClose, onChanged }: { c: Customer; onClose: () => v
               <b>{e.kind === 'debt' ? 'Nasiya oldi' : "Pul to'ladi"}</b>
               <span className="muted small">{[e.saleNumber && `Chek №${e.saleNumber}`, e.note].filter(Boolean).join(' · ')}</span>
             </span>
-            <span className="ledger-sum">{e.kind === 'debt' ? '+' : '−'}{formatSum(e.amount)}</span>
+            <span className="ledger-sum">
+              {e.kind === 'debt' ? '+' : '−'}{formatSum(e.amount)}
+              <small className="muted">qoldi {formatSum(e.after)}</small>
+            </span>
+            <button className="icon" aria-label="Chek" title="Chek chiqarish" onClick={() => setReceipt(e.id)}>🧾</button>
             {confirmDel === e.id ? (
               <button
                 className="btn danger small"
@@ -195,11 +214,23 @@ function CustomerCard({ c, onClose, onChanged }: { c: Customer; onClose: () => v
           defaultAmount={entry === 'payment' && balance > 0 ? balance : undefined}
           onClose={() => setEntry(null)}
           onSave={async (_n, _p, e) => {
-            await addLedgerEntry(c.name, undefined, e)
+            const nc = await addLedgerEntry(c.name, undefined, e)
             setEntry(null)
-            onChanged()
+            await onChanged()
+            // Nasiya berilganda yoki to'langanda — darhol chek.
+            setReceipt(newestEntry(nc))
           }}
         />
+      )}
+
+      {receiptRow && settings && (
+        <Modal title={receiptRow.kind === 'debt' ? 'Nasiya cheki' : "To'lov cheki"} onClose={() => setReceipt(null)} center>
+          <div className="print-area debt-receipt"><DebtReceipt row={receiptRow} name={c.name} phone={c.phone} settings={settings} /></div>
+          <div className="modal-actions">
+            <button className="btn ghost" onClick={() => setReceipt(null)}>Yopish</button>
+            <button className="btn primary grow" onClick={() => window.print()}>🧾 Chek chiqarish</button>
+          </div>
+        </Modal>
       )}
     </Modal>
   )

@@ -5,7 +5,8 @@ import type { Settings } from '../data/store'
 import { formatSum } from '../lib/money'
 import { groupReceiptLines } from '../lib/receipt'
 
-export function Receipt({ sale, settings }: { sale: Sale; settings: Settings }) {
+/** debtTotal — nasiyaga sotilganda mijozning shu sotuvdan keyingi umumiy qarzi. */
+export function Receipt({ sale, settings, debtTotal }: { sale: Sale; settings: Settings; debtTotal?: number }) {
   const d = new Date(sale.createdAt)
   const p = sale.payment
   const groups = groupReceiptLines(sale.lines)
@@ -53,6 +54,10 @@ export function Receipt({ sale, settings }: { sale: Sale; settings: Settings }) 
       {p.card > 0 && <div className="r-kv"><span>Karta</span><span>{formatSum(p.card)}</span></div>}
       {sale.change > 0 && <div className="r-kv"><span>Qaytim</span><span>{formatSum(sale.change)}</span></div>}
       {p.debt > 0 && <div className="r-kv"><b>Nasiya</b><b>{formatSum(p.debt)}</b></div>}
+      {p.debt > 0 && debtTotal !== undefined && debtTotal > p.debt && (
+        <div className="r-kv"><span>Umumiy qarzi</span><b>{formatSum(debtTotal)}</b></div>
+      )}
+      {p.debt > 0 && <div className="r-sign"><span>Imzo:</span><span className="r-sign-line" /></div>}
       {sale.note && <><div className="r-line" /><div>{sale.note}</div></>}
       <div className="r-line" />
       <div className="r-center">{settings.receiptFooter}</div>

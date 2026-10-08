@@ -1526,7 +1526,8 @@ async function pinRequest(req: Request, op?: string, pin?: string): Promise<Resp
   if (!who) return json({ error: 'Ruxsat yo\'q' }, 403)
   // Eng so'nggi holat (urinishlar, qulf) — bazadan.
   const u = await auth<AuthUser>(`admin/users/${who.id}`)
-  if (normRole(u.app_metadata?.role) !== 'stats') return json({ error: 'PIN faqat kuzatuvchi hisobda' }, 400)
+  // Shaxsiy PIN faqat kuzatuvchida; boshqalarga kerak emas.
+  if (normRole(u.app_metadata?.role) !== 'stats') return op === 'status' ? json({ skip: true }) : json({ error: 'PIN faqat kuzatuvchi hisobda' }, 400)
   const has = Boolean(u.app_metadata?.pin)
   if (op === 'status') return json({ hasPin: has })
   if (op === 'set') {

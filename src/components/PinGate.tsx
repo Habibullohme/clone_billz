@@ -9,7 +9,8 @@ const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'back', '0', 'ok'] as
  * Xato bo'lsa — xabar matni, to'g'ri bo'lsa — null.
  */
 export interface PinBackend {
-  hasPin(): Promise<boolean>
+  /** 'skip' — bu hisobga shaxsiy PIN kerak emas. */
+  hasPin(): Promise<boolean | 'skip'>
   check(pin: string): Promise<string | null>
   create(pin: string): Promise<string | null>
 }
@@ -32,7 +33,11 @@ export function PinGate({ onOk, onCancel, backend }: { onOk: () => void; onCance
   useBackClose(onCancel)
 
   useEffect(() => {
-    if (backend) backend.hasPin().then((h) => setMode(h ? 'check' : 'create')).catch(() => setError("Internetga ulanib bo'lmadi"))
+    if (backend) {
+      backend.hasPin()
+        .then((h) => (h === 'skip' ? onOk() : setMode(h ? 'check' : 'create')))
+        .catch((e) => setError(String((e as Error).message || "Internetga ulanib bo'lmadi")))
+    }
     else getSettings().then((s) => {
       setPin(s.ownerPin)
       setMode(s.ownerPin ? 'local' : 'create')
@@ -40,7 +45,8 @@ export function PinGate({ onOk, onCancel, backend }: { onOk: () => void; onCance
   }, [])
 
   const creating = mode === 'create'
-  const length = mode === 'local' ? pin.length : Math.max(4, value.length)
+  // Do'kon PIN kodi — aniq uzunlik; yangi yoki shaxsiy PIN — 6 ta doiracha: 4 tasi majburiy, 5–6 xira (ixtiyoriy).
+  const length = mode === 'local' ? pin.length : 6
 
   const fail = (msg: string) => {
     setError(msg)
@@ -114,8 +120,8 @@ export function PinGate({ onOk, onCancel, backend }: { onOk: () => void; onCance
 
   const title = creating ? (first === null ? 'PIN kod yarating' : 'PIN kodni takrorlang') : 'PIN kodni kiriting'
   const hint = backend
-    ? creating ? "4–6 ta raqam. Keyin botda /changepass bilan o'zgartirasiz." : 'Shaxsiy PIN kodingiz'
-    : creating ? "4–6 ta raqam. Sotuvchi faqat kassani ko'radi." : "Boshqaruv bo'limlari uchun egasining PIN kodi"
+    ? creating ? "4–6 ta raqam, keyin ✓. Botda /changepass bilan o'zgartirasiz." : 'Shaxsiy PIN kodingiz, keyin ✓'
+    : creating ? "4–6 ta raqam, keyin ✓. Sotuvchi faqat kassani ko'radi." : "Boshqaruv bo'limlari uchun egasining PIN kodi"
 
   return (
     <div className="modal-bg center pin-bg" onMouseDown={onCancel}>
@@ -127,7 +133,9 @@ export function PinGate({ onOk, onCancel, backend }: { onOk: () => void; onCance
         <h2>{title}</h2>
         <p className="muted small">{hint}</p>
         <div key={shake} className={`pin-dots${error ? ' bad' : ''}${shake ? ' shake' : ''}`} aria-live="polite">
-          {Array.from({ length }, (_, i) => <span key={i} className={i < value.length ? 'on' : ''} />)}
+          {Array.from({ length }, (_, i) => (
+            <span key={i} className={i < value.length ? 'on' : mode !== 'local' && i >= 4 ? 'opt' : ''} />
+          ))}
         </div>
         <div className="pin-msg">{busy ? 'Tekshirilmoqda…' : error}</div>
         <div className="pin-pad">

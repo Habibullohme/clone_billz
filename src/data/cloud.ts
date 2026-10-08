@@ -323,13 +323,21 @@ export async function signOutLocal() {
  * Kuzatuvchi hisobning shaxsiy PIN kodi: bot (server) saqlaydi va tekshiradi —
  * brauzerga PIN ham, uning izi ham berilmaydi; noto'g'ri urinishlar sanaladi.
  */
-async function pinCall(op: 'status' | 'set' | 'check', pin?: string): Promise<{ hasPin?: boolean; error?: string }> {
+async function pinCall(op: 'status' | 'set' | 'check', pin?: string): Promise<{ hasPin?: boolean; skip?: boolean; error?: string }> {
   const { data, error } = await supabase!.functions.invoke('bot', { body: { action: 'pin', op, pin } })
-  if (error) return { error: "Internetga ulanib bo'lmadi" }
-  return data as { hasPin?: boolean; error?: string }
+  if (error) {
+    // Bot javob bergan bo'lsa — uning xato matni (masalan "Ruxsat yo'q"), aks holda — internet.
+    const body = await (error as { context?: Response }).context?.json?.().catch(() => null)
+    return { error: body?.error ?? "Internetga ulanib bo'lmadi" }
+  }
+  return data as { hasPin?: boolean; skip?: boolean; error?: string }
 }
 export const userPin = {
-  hasPin: async () => Boolean((await pinCall('status')).hasPin),
+  hasPin: async (): Promise<boolean | 'skip'> => {
+    const r = await pinCall('status')
+    if (r.error) throw new Error(r.error)
+    return r.skip ? 'skip' : Boolean(r.hasPin)
+  },
   check: async (pin: string) => (await pinCall('check', pin)).error ?? null,
   create: async (pin: string) => (await pinCall('set', pin)).error ?? null,
 }
