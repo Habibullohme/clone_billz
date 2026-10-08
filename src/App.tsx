@@ -45,8 +45,11 @@ function Clock() {
 
 type Boot = 'loading' | 'login' | 'denied' | 'offline' | 'ready'
 
-/** Kirish va ma'lumot yuklanishini kutadi, keyin ilovani ochadi. */
-export function App() {
+/**
+ * Kirish va ma'lumot yuklanishini kutadi, keyin ilovani ochadi.
+ * onStats — panelda (bot egasi uchun): "📊 Statistika" ga qaytish tugmasi.
+ */
+export function App({ onStats }: { onStats?: () => void } = {}) {
   const [boot, setBoot] = useState<Boot>('loading')
 
   const start = async () => {
@@ -83,7 +86,7 @@ export function App() {
     return () => sub?.data.subscription.unsubscribe()
   }, [])
 
-  if (boot === 'ready') return <Shop />
+  if (boot === 'ready') return <Shop onStats={onStats} />
   if (boot === 'login') return <LoginPage onDone={start} />
   return (
     <div className="login">
@@ -148,7 +151,7 @@ function initHistory(tab: Tab) {
   }
 }
 
-function Shop() {
+function Shop({ onStats }: { onStats?: () => void }) {
   const [tab, setTabState] = useState<Tab>(initialTab)
   const [exitAsk, setExitAsk] = useState(false)
   const [menu, setMenu] = useState(false)
@@ -309,6 +312,7 @@ function Shop() {
           {shop}
           <span className="grow" />
           <Clock />
+          {onStats && <button className="hbtn stats-btn" onClick={onStats} title="Statistika">📊</button>}
           {themeBtn}
           <button className="hbtn" onClick={() => setMenu(true)} aria-label="Menyu" title="Menyu">
             <span className="burger-lines"><span /><span /><span /></span>
@@ -326,6 +330,7 @@ function Shop() {
             ))}
           </nav>
           <div className="nav-right">
+            {onStats && <button className="hbtn stats-btn" onClick={onStats} title="Statistika">📊</button>}
             {themeBtn}
             <button className="btn primary to-pos" onClick={() => setTab('pos')}>
               <IconCashbox />
@@ -368,6 +373,15 @@ function Shop() {
               <button className="icon" onClick={() => setMenu(false)} aria-label="Yopish">✕</button>
             </div>
             <nav className="drawer-nav">
+              {onStats && (
+                <button onClick={() => { setMenu(false); onStats() }}>
+                  <span className="dn-icon">📊</span>
+                  <span className="dn-text">
+                    <b>Statistika</b>
+                    <span className="muted small">Kuzatuvchi paneliga qaytish</span>
+                  </span>
+                </button>
+              )}
               {ownerTabs.map(([id, label, hint, Icon]) => (
                 <button key={id} onClick={() => open(id)}>
                   <span className="dn-icon"><Icon /></span>

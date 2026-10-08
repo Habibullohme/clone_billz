@@ -1,5 +1,9 @@
-import { useState } from 'react'
-import { signIn } from '../data/cloud'
+import { useEffect, useState } from 'react'
+import { botUsername, signIn } from '../data/cloud'
+import { isBossMode } from '../lib/telegram'
+
+/** Telefon (yoki planshet) brauzeri — u yerda bot orqali ishlash qulayroq. */
+const isPhone = () => /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
 import { cachedBrand } from '../lib/brand'
 import { ShopMark } from '../components/ShopMark'
 
@@ -11,6 +15,31 @@ export function LoginPage({ onDone, subtitle = 'Kassa va boshqaruv' }: { onDone:
   const [show, setShow] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  // Telefonda: avval "Telegram botda oching" taklifi (sayt asosan kompyuter uchun).
+  const phone = isPhone() && !isBossMode()
+  const [bot, setBot] = useState<string | null>(null)
+  const [here, setHere] = useState(!phone)
+  useEffect(() => {
+    if (phone) botUsername().then(setBot)
+  }, [])
+
+  if (!here && bot) {
+    return (
+      <div className="login">
+        <div className="login-glow" aria-hidden="true" />
+        <div className="login-card">
+          <ShopMark brand={brand} big />
+          <div className="login-head">
+            <h1>{brand.name}</h1>
+            <p className="muted">Telefonda — Telegram bot orqali</p>
+          </div>
+          <p className="muted small">Telefonda sayt Telegram ichida ochiladi: login bir marta botda kiritiladi, keyin parol so'ralmaydi.</p>
+          <a className="btn primary big" href={`https://t.me/${bot}`}>📱 Telegram botda ochish</a>
+          <button className="link small" onClick={() => setHere(true)}>Baribir shu brauzerda kirish</button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="login">

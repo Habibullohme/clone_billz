@@ -190,7 +190,13 @@ export function deviceId(): string {
   }
 }
 
-/** "Windows · Chrome", "Android · Chrome", "iPhone · Safari". */
+let devicePrefix = ''
+/** Mini app ichida: qurilma ro'yxatda "Telegram · Android" bo'lib ko'rinsin. */
+export const markTelegramDevice = () => {
+  devicePrefix = 'Telegram · '
+}
+
+/** "Windows · Chrome", "Android · Chrome", "iPhone · Safari" (Telegram ichida — "Telegram · Android"). */
 export function deviceName(ua = navigator.userAgent): string {
   const os = /Android/i.test(ua) ? 'Android'
     : /iPhone/i.test(ua) ? 'iPhone'
@@ -204,7 +210,7 @@ export function deviceName(ua = navigator.userAgent): string {
     : /Firefox|FxiOS/i.test(ua) ? 'Firefox'
     : /Chrome|CriOS/i.test(ua) ? 'Chrome'
     : /Safari/i.test(ua) ? 'Safari' : 'Brauzer'
-  return `${os} · ${browser}`
+  return devicePrefix ? `${devicePrefix}${os}` : `${os} · ${browser}`
 }
 
 /**
@@ -340,4 +346,15 @@ export const userPin = {
   },
   check: async (pin: string) => (await pinCall('check', pin)).error ?? null,
   create: async (pin: string) => (await pinCall('set', pin)).error ?? null,
+}
+
+/** Telegram bot nomi (kirish sahifasida "botda oching" uchun). Topilmasa — null. */
+export async function botUsername(): Promise<string | null> {
+  if (!url) return null
+  try {
+    const r = await fetch(`${url}/functions/v1/bot?info=1`, { headers: { apikey: key! } })
+    return ((await r.json()) as { bot?: string | null }).bot ?? null
+  } catch {
+    return null
+  }
 }

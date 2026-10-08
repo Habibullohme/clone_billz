@@ -13,8 +13,22 @@ declare global {
   interface Window { Telegram?: { WebApp?: TgWebApp } }
 }
 
-/** Boss panel rejimi: sayt manzili "?boss" bilan ochilgan. */
-export const isBossMode = () => new URLSearchParams(location.search).has('boss')
+/**
+ * Panel (mini app) rejimi: manzilda "?boss" bor yoki sahifa Telegram ichida ochilgan
+ * (Telegram manzil oxiriga #tgWebAppData=… qo'shadi — masalan BotFather'dagi "Open" tugmasi "?boss"siz ochsa ham).
+ * Sahifa yangilansa ham shu rejimda qoladi.
+ */
+export function isBossMode(): boolean {
+  const KEY = 'dk.panel'
+  let on = new URLSearchParams(location.search).has('boss') || /tgWebApp(Data|Version|Platform)=/.test(location.hash)
+  try {
+    if (on) sessionStorage.setItem(KEY, '1')
+    else on = sessionStorage.getItem(KEY) === '1'
+  } catch {
+    // Xotira yopiq — faqat manzilga qaraymiz.
+  }
+  return on
+}
 
 let loading: Promise<TgWebApp | null> | null = null
 

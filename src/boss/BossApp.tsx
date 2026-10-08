@@ -3,7 +3,7 @@ import type { Customer, Product, Sale } from '../types'
 import {
   activeSales, balanceOf, getCustomers, getProducts, getSales, getSettings, initStore, refresh, type Settings,
 } from '../data/store'
-import { cloudEnabled, getSession, isStaff, sessionRole, signOut, signOutLocal, supabase, telegramSignIn, touchDevice, userPin, type PanelRole } from '../data/cloud'
+import { cloudEnabled, getSession, isStaff, markTelegramDevice, sessionRole, signOut, signOutLocal, supabase, telegramSignIn, touchDevice, userPin, type PanelRole } from '../data/cloud'
 import { LoginPage } from '../pages/LoginPage'
 import { PinGate } from '../components/PinGate'
 import { ShopMark } from '../components/ShopMark'
@@ -38,7 +38,10 @@ export function BossApp() {
     try {
       const app = await loadTelegram()
       setTg(app)
-      if (app) applyTheme(app.colorScheme)
+      if (app) {
+        applyTheme(app.colorScheme)
+        markTelegramDevice()
+      }
       let r: PanelRole = 'owner'
       if (cloudEnabled) {
         if (app) {
@@ -58,8 +61,9 @@ export function BossApp() {
         }
         if (!(await isStaff())) return setBoot('denied')
         if (!(await touchDevice())) {
+          // Bu qurilma egasi tomonidan chiqarilgan: Telegram ichida — botda qayta kirish kerak.
           await signOut()
-          return setBoot('login')
+          return setBoot(app ? 'unbound' : 'login')
         }
       }
       // Sinov rejimi (baza ulanmagan): ?boss=admin yoki ?boss=stats — o'sha panelni ko'rish.
@@ -238,8 +242,7 @@ function SiteView({ tg, onBack }: { tg: TgWebApp | null; onBack?: () => void }) 
   useTgBack(tg, onBack ?? null)
   return (
     <>
-      <App />
-      {onBack && !tg && <button className="boss-back" onClick={onBack}>📊 Statistika</button>}
+      <App onStats={onBack} />
     </>
   )
 }

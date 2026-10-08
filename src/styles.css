@@ -1315,3 +1315,4 @@ input:not([type=checkbox]):not([type=range]):not([type=file]), textarea {
 .boss-kpis:has(> :nth-child(3):last-child) > .boss-kpi.bad:first-child { grid-column: 1 / -1; }
 /* PIN: 5- va 6-doiracha ixtiyoriy — xiraroq, uzuq chiziqli. */
 .pin-dots span.opt { opacity: 0.35; border-style: dashed; transform: scale(0.85); }
+.stats-btn { font-size: 18px; }

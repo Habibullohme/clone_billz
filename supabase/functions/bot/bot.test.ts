@@ -83,7 +83,10 @@ async function fakeFetch(input: any, init: any = {}) {
     const result = method === 'sendPhoto' ? { message_id: ++msgId, photo: [{ file_id: body.photo + '_ch' }] }
       : method === 'sendMessage' ? { message_id: ++msgId }
       : method === 'copyMessage' ? { message_id: ++msgId }
-      : method === 'getMe' ? { username: 'test_bot' } : true
+      : method === 'getMe' ? { id: 999, username: 'test_bot' }
+      : method === 'getChat' ? (String(body.chat_id).startsWith('@') || Number(body.chat_id) < 0 ? { id: body.chat_id === '@yangi_kanal' ? -1005 : Number(body.chat_id), title: 'Yangi kanal', type: 'channel' } : { id: body.chat_id, type: 'private' })
+      : method === 'getChatMember' ? { status: 'administrator', can_post_messages: true, can_edit_messages: true, can_delete_messages: true }
+      : true
     return new Response(JSON.stringify({ ok: true, result }))
   }
   const path = url.pathname.replace('/rest/v1/', '')
@@ -446,7 +449,15 @@ describe('loginlar (asosiy admin)', () => {
     expect(lastText()).toContain('👤 <b>ali</b>')
     expect(lastText()).toContain('PIN:  hali yaratilmagan')
     expect(keyTexts()).toContain('🔢 PIN reset')
+    expect(keyTexts()).toContain('📱 Qurilmalar')
+    // turini almashtirish — tasdiq bilan
     await handle(text('🔁 Turini almashtirish'))
+    expect(lastText()).toContain('Yangi:  🛠 Admin')
+    expect(users[0].app_metadata.role).toBe('stats')
+    await handle(text('⬅️ Orqaga'))
+    expect(users[0].app_metadata.role).toBe('stats')
+    await handle(text('🔁 Turini almashtirish'))
+    await handle(text('✅ Ha, 🛠 Admin qilish'))
     expect(users[0].app_metadata.role).toBe('admin')
     expect(keyTexts()).not.toContain('🔢 PIN reset')
 
@@ -469,19 +480,67 @@ describe('loginlar (asosiy admin)', () => {
     expect(lastText()).toContain("o'chirildi")
   })
 
-  it("boshqa admin loginlarni boshqara olmaydi; begona hisob ro'yxatda yo'q", async () => {
+  it("boshqa admin hisoblarni boshqara olmaydi; email va bot admin hisoblari ham ro'yxatda", async () => {
     ENV.ADMIN_IDS = '7,8'
     try {
       await handle(text('👥 Loginlar', 8))
       expect(lastText()).toContain('faqat asosiy admin')
-      users.push({ id: '11111111-1111-1111-1111-111111111111', email: 'egasi@gmail.com', created_at: '' })
+      users.push({ id: '11111111-1111-1111-1111-111111111111', email: 'egasi@gmail.com', password: 'eski1234', created_at: '', app_metadata: {} })
+      users.push({ id: '33333333-3333-3333-3333-333333333333', email: 'tg-8@richmen.netlify.app', created_at: '', app_metadata: {} })
+      tables.staff.push({ user_id: '11111111-1111-1111-1111-111111111111' })
       await handle(text('👥 Loginlar'))
-      await handle(text('👤 egasi'))
-      expect(lastText()).toContain('Loginlar') // karta ochilmadi
-      expect(users).toHaveLength(1)
+      expect(lastText()).toContain('egasi@gmail.com')
+      expect(lastText()).toContain('Bot adminlari')
+      expect(keyTexts()).toEqual(['📧 egasi@gmail.com', '🤖 8', '➕ Yangi login', '⬅️ Orqaga'])
+      // email hisob: o'chirish yo'q, parol va qurilmalar bor
+      await handle(text('📧 egasi@gmail.com'))
+      expect(lastText()).toContain("Email hisob — to'liq kirish")
+      expect(keyTexts()).toEqual(['🔑 Parolni almashtirish', '📱 Qurilmalar', '⬅️ Orqaga'])
+      await handle(text("🗑 O'chirish"))
+      expect(users).toHaveLength(2)
+      // email hisob paroli — o'sha hisob qoladi, qurilmalar chiqariladi
+      tables.devices = [{ id: 'd1', user_id: '11111111-1111-1111-1111-111111111111', name: 'Windows · Chrome', last_seen: '2026-10-08T05:00:00Z', created_at: '', revoked: false }]
+      await handle(text('🔑 Parolni almashtirish'))
+      await handle(text('Yashil2026'))
+      expect(users[0].id).toBe('11111111-1111-1111-1111-111111111111')
+      expect(users[0].password).toBe('Yashil2026')
+      expect(tables.devices[0].revoked).toBe(true)
+      // bot admini: faqat qurilmalar
+      await handle(text('⬅️ Orqaga'))
+      await handle(text('🤖 8'))
+      expect(keyTexts()).toEqual(['📱 Qurilmalar', '⬅️ Orqaga'])
     } finally {
       ENV.ADMIN_IDS = '7'
     }
+  })
+
+  it("qurilmalar: ro'yxat, bittasini chiqarish (tasdiq bilan), Telegramdan uzish", async () => {
+    users.push({ id: '44444444-4444-4444-4444-444444444444', email: 'kassir@richmen.netlify.app', password: 'kassa2026', created_at: '', app_metadata: { role: 'admin', login: 'kassir', tg: 77 } })
+    tables.staff.push({ user_id: '44444444-4444-4444-4444-444444444444' })
+    tables.devices = [
+      { id: 'd1', user_id: '44444444-4444-4444-4444-444444444444', name: 'Windows · Chrome', last_seen: '2026-10-08T05:00:00Z', created_at: '', revoked: false },
+      { id: 'd2', user_id: '44444444-4444-4444-4444-444444444444', name: 'Telegram · Android', last_seen: '2026-10-08T04:00:00Z', created_at: '', revoked: false },
+    ]
+    await handle(text('👥 Loginlar'))
+    await handle(text('👤 kassir'))
+    expect(lastText()).toContain('Qurilmalar:  2 ta')
+    await handle(text('📱 Qurilmalar'))
+    expect(lastText()).toContain('1. 💻 <b>Windows · Chrome</b>')
+    expect(lastText()).toContain('2. 📱 <b>Telegram · Android</b>')
+    expect(lastText()).toContain('Telegram bot</b> — ulangan')
+    expect(keyTexts()).toEqual(['🚪 Telegramdan uzish', '🚪 1', '🚪 2', '🚪 Hammasidan chiqarish', '⬅️ Orqaga'])
+    await handle(text('🚪 1'))
+    expect(lastText()).toContain('«Windows · Chrome» dan chiqarilsinmi')
+    expect(tables.devices[0].revoked).toBe(false)
+    await handle(text('✅ Ha, chiqarish'))
+    expect(tables.devices[0].revoked).toBe(true)
+    expect(lastText()).toContain('✅ Chiqarildi')
+    // Telegram ichidagi qurilma — Telegram bog'lanishi ham uziladi
+    await handle(text('🚪 1'))
+    await handle(text('✅ Ha, chiqarish'))
+    expect(tables.devices[1].revoked).toBe(true)
+    expect(users.find((u) => u.id.startsWith('4444'))!.app_metadata.tg).toBeNull()
+    expect(sent.some((x) => x.method === 'sendMessage' && x.body.chat_id === 77 && x.body.text.includes('chiqarildingiz'))).toBe(true)
   })
 
   it('menyuda Panel (mini app), egasida Loginlar', async () => {
@@ -709,5 +768,53 @@ describe('rasmlar tugmalari va tasdiq', () => {
     expect(tables.bot_sessions.find((r) => r.chat_id === 7)!.data.step).toBe('home')
     expect(lastText()).toContain('Kirim bekor qilindi')
     expect(tables.bot_photos).toHaveLength(0)
+  })
+})
+
+describe('kanallarni botdan ulash', () => {
+  it('forward qilingan xabar yoki @nom bilan; bot admin ekani tekshiriladi; kirim shu kanalga chiqadi', async () => {
+    await handle(text('⚙️ Sozlamalar'))
+    await handle(text('📣 Kanallar'))
+    expect(lastText()).toContain('Asosiy kanal')
+    await handle(text('📣 Asosiy kanal'))
+    expect(lastText()).toContain('forward')
+    // kanaldan forward qilingan (rasmli) xabar — kirim boshlanmaydi
+    await handle(tgReq({ message: { message_id: 60, chat: { id: 7 }, from: { id: 7 }, photo: [{ file_id: 'x' }], forward_origin: { type: 'channel', chat: { id: -1009, title: 'Richmen' } } } }))
+    expect(lastText()).toContain('Ulandi')
+    expect(tables.settings.find((r) => r.id === 'bot')!.data.channelId).toBe(-1009)
+    expect(tables.bot_photos ?? []).toHaveLength(0)
+    await handle(text('✅ Sotilganlar kanali'))
+    await handle(text('salom'))
+    expect(lastText()).toContain('forward qiling yoki @kanal_nomi')
+    await handle(text('@yangi_kanal'))
+    expect(tables.settings.find((r) => r.id === 'bot')!.data.soldChannelId).toBe(-1005)
+
+    // kirim yangi kanalga
+    await handle(text('/start'))
+    await handle(text("📦 Yuk qo'shish"))
+    await handle(photo('k1'))
+    await handle(photo('k2'))
+    await handle(text('✅ Rasmlar tayyor'))
+    await handle(press('brand:Velton'))
+    await handle(text('klassik'))
+    await handle(press('size:39-43'))
+    await handle(press('color:qora'))
+    await handle(press('packSize:6'))
+    await handle(text('150000'))
+    await handle(text('170000'))
+    await handle(text('✅ Tasdiqlash'))
+    expect(sent.find((x) => x.method === 'sendPhoto')!.body.chat_id).toBe(-1009)
+  })
+  it("bot admin bo'lmasa — ulanmaydi", async () => {
+    vi.stubGlobal('fetch', async (input: any, init: any) => {
+      if (String(input).includes('/getChatMember')) return new Response(JSON.stringify({ ok: true, result: { status: 'left' } }))
+      return fakeFetch(input, init)
+    })
+    await handle(text('⚙️ Sozlamalar'))
+    await handle(text('📣 Kanallar'))
+    await handle(text('📣 Asosiy kanal'))
+    await handle(text('@yangi_kanal'))
+    expect(lastText()).toContain('admin emas')
+    expect(tables.settings.find((r) => r.id === 'bot')?.data.channelId).toBeUndefined()
   })
 })

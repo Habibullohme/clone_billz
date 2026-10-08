@@ -164,6 +164,9 @@ export interface BotCfg {
   address: string | null
   /** Pachka sonlari necha marta tanlangani (ko'p ishlatilgani tugmaga chiqadi). */
   packUsage: Record<string, number>
+  /** Botdan ulangan kanallar (bo'lmasa — Supabase Secrets'dagi CHANNEL_ID / SOLD_CHANNEL_ID). */
+  channelId?: number | null
+  soldChannelId?: number | null
 }
 
 export const defaultCfg: BotCfg = {
@@ -216,6 +219,42 @@ const SET_PROMPTS: Record<string, string> = {
   address: "📍 Kanalga yoziladigan manzilni yozing.\n<code>-</code> — ko'rsatmaslik, <code>sayt</code> — saytdagini olish.",
 }
 
+/** Kanallar: avval botdan ulangani, bo'lmasa — Secrets'dagi. */
+async function channelIds(): Promise<{ main: number | null; sold: number | null }> {
+  const c = await getCfg()
+  return {
+    main: c.channelId || Number(env('CHANNEL_ID')) || null,
+    sold: c.soldChannelId || Number(env('SOLD_CHANNEL_ID')) || null,
+  }
+}
+
+/** Kanal nomi (bot ko'ra olsa), aks holda id. */
+async function channelTitle(id: number | null): Promise<string> {
+  if (!id) return "<i>ulanmagan</i>"
+  const c = await tg<{ title?: string; username?: string }>('getChat', { chat_id: id }).catch(() => null)
+  return c ? `<b>${esc(c.title ?? '')}</b>${c.username ? ` (@${esc(c.username)})` : ''}` : `<code>${id}</code> <i>(bot ko'ra olmayapti)</i>`
+}
+
+/**
+ * Kanalni ulash: bot shu kanalda admin bo'lishi va post yoza olishi kerak (asosiy kanalda — o'chira ham olishi).
+ * Natija: kanal (id, nom) yoki xato matni.
+ */
+export async function checkChannel(ref: number | string, needDelete: boolean): Promise<{ id: number; title: string } | string> {
+  const chat = await tg<{ id: number; title?: string; type: string }>('getChat', { chat_id: ref }).catch(() => null)
+  if (!chat) return "Kanal topilmadi. Botni kanalga admin qilib qo'shing va qaytadan urinib ko'ring."
+  if (chat.type !== 'channel') return "Bu kanal emas. Kanaldan xabar forward qiling."
+  const me = await tg<{ id: number }>('getMe', {})
+  const m = await tg<{ status: string; can_post_messages?: boolean; can_edit_messages?: boolean; can_delete_messages?: boolean }>(
+    'getChatMember', { chat_id: chat.id, user_id: me.id },
+  ).catch(() => null)
+  if (!m || (m.status !== 'administrator' && m.status !== 'creator')) return `Bot «${chat.title}» kanalida admin emas. Avval botni kanalga admin qiling.`
+  if (m.status === 'administrator' && !m.can_post_messages) return "Botga kanalda «xabar joylash» huquqini bering."
+  if (needDelete && m.status === 'administrator' && (!m.can_delete_messages || !m.can_edit_messages)) {
+    return "Botga kanalda «tahrirlash» va «o'chirish» huquqlarini ham bering (sotilgan postlar shu bilan olinadi)."
+  }
+  return { id: chat.id, title: chat.title ?? String(chat.id) }
+}
+
 /** Sozlamaga javob matnini saqlaydi. Noto'g'ri bo'lsa — false. */
 async function applySetting(key: string, text: string): Promise<boolean> {
   const c = await getCfg()
@@ -237,7 +276,8 @@ async function applySetting(key: string, text: string): Promise<boolean> {
 // ---------- Suhbat holati ----------
 
 type Step = 'photos' | 'packs' | 'brand' | 'brand_new' | 'model' | 'size' | 'color' | 'packSize' | 'cost' | 'price' | 'confirm' | 'saving' | 'setting'
-  | 'home' | 'm_settings' | 'm_logins' | 'm_login' | 'm_login_del' | 'login_type' | 'login_name' | 'login_pass'
+  | 'home' | 'm_settings' | 'm_channels' | 'm_channel_set' | 'm_logins' | 'm_login' | 'm_login_del' | 'm_login_role' | 'm_devices' | 'm_device_del'
+  | 'login_type' | 'login_name' | 'login_pass'
   | 'auth_idle' | 'auth_login' | 'auth_pass' | 'pin_old' | 'pin_new' | 'pin_new2'
 interface Session extends Partial<Draft> {
   step: Step; packsPerPhoto?: number; photoCount?: number; setting?: string
@@ -249,6 +289,8 @@ interface Session extends Partial<Draft> {
   kbId?: number
   /** PIN almashtirishda: yangi PIN izi (ikkinchi marta tekshirish uchun). */
   pinNew?: string
+  /** Qurilmani chiqarishda: qurilma id ('tg' — Telegram, '*' — hammasi). */
+  deviceId?: string
   /** Noto'g'ri parollar hisobi (botga kirishda). */
   guard?: { fails?: number; locks?: number; lockUntil?: number }
 }
@@ -447,9 +489,9 @@ async function commit(chat: number, s: Session): Promise<string> {
 
   // Kanalga: har rasm — alohida post.
   const { shop, cfg } = await currentShop()
-  const channel = Number(env('CHANNEL_ID'))
+  const channel = (await channelIds()).main
   let posted = 0
-  for (const g of groups) {
+  for (const g of channel ? groups : []) {
     const code = g.codes.length > 1 ? `${g.codes[0]}–${g.codes[g.codes.length - 1]}` : g.codes[0]
     const caption = postCaption(d, code, shop, g.ids.length, g.ids.length, cfg.showPrice)
     try {
@@ -469,7 +511,7 @@ async function commit(chat: number, s: Session): Promise<string> {
   return [
     `✅ <b>Kirim №${number}</b> saqlandi`,
     `👟 ${esc(d.brand)} · ${total} pachka · kodlar: ${esc(codeOf(first) ?? '')}–${esc(codeOf(lastName) ?? '')}`,
-    `📣 Kanalga: ${posted}/${groups.length} ta post`,
+    channel ? `📣 Kanalga: ${posted}/${groups.length} ta post` : "📣 Kanal ulanmagan — ⚙️ Sozlamalar → 📣 Kanallar",
     '',
     "🏷 Etiketkalarni saytdan chiqaring: Etiketkalar → Kirim №" + number,
   ].join('\n')
@@ -489,7 +531,7 @@ export async function syncSold(): Promise<{ archived: number; updated: number }>
     const rows = await db<{ id: string; stock: number }[]>(`products?select=id,stock&id=in.(${part.map((x) => `"${x}"`).join(',')})`)
     rows.forEach((r) => stock.set(r.id, r.stock))
   }
-  const sold = Number(env('SOLD_CHANNEL_ID'))
+  const sold = (await channelIds()).sold
   let archived = 0, updated = 0
   for (const p of posts) {
     const present = p.product_ids.filter((id) => stock.has(id))
@@ -867,43 +909,211 @@ async function settingsScreen(chat: number, prev: Session | null, note?: string)
     `💰 Kanalda narx:  <b>${c.showPrice ? "ko'rsatiladi" : 'yashirilgan'}</b>`,
     `📞 Telefon:  ${show(c.phone, shop.shopPhone)}`,
     `📍 Manzil:  ${show(c.address, shop.shopAddress)}`,
+    `📣 Kanal:  ${await channelTitle((await channelIds()).main)}`,
     '',
     "<i>O'zgartirish uchun pastdagi tugmani bosing.</i>",
-  ), keys(['📏 Razmerlar', '🎨 Ranglar', '📦 Pachka'], [c.showPrice ? PRICE_OFF : PRICE_ON, '📞 Telefon', '📍 Manzil'], [REFRESH], [BACK]))
+  ), keys(['📏 Razmerlar', '🎨 Ranglar', '📦 Pachka'], [c.showPrice ? PRICE_OFF : PRICE_ON, '📞 Telefon', '📍 Manzil'], [CHANNELS, REFRESH], [BACK]))
 }
+
+const CHANNELS = '📣 Kanallar'
+const CH_MAIN = '📣 Asosiy kanal'
+const CH_SOLD = '✅ Sotilganlar kanali'
+
+async function channelsScreen(chat: number, prev: Session | null, note?: string) {
+  const ch = await channelIds()
+  return screen(chat, prev, { step: 'm_channels' }, page(note,
+    '📣 <b>Kanallar</b>',
+    '',
+    `📣 Asosiy kanal:  ${await channelTitle(ch.main)}`,
+    '      <i>yangi yuk shu yerga post bo\'lib chiqadi</i>',
+    `✅ Sotilganlar:  ${await channelTitle(ch.sold)}`,
+    '      <i>sotilgan post shu yerga ko\'chadi</i>',
+    '',
+    "<i>O'zgartirish uchun tugmani bosing.</i>",
+  ), keys([CH_MAIN, CH_SOLD], [BACK]))
+}
+
+const channelAsk = (chat: number, prev: Session | null, which: 'main' | 'sold', note?: string) =>
+  screen(chat, prev, { step: 'm_channel_set', setting: which }, page(note,
+    which === 'main' ? '📣 <b>Asosiy kanal</b>' : '✅ <b>Sotilganlar kanali</b>',
+    '',
+    "1️⃣ Botni kanalga <b>admin</b> qiling (xabar joylash, tahrirlash, o'chirish huquqlari bilan).",
+    "2️⃣ Kanaldagi istalgan xabarni shu yerga <b>forward</b> qiling.",
+    '<i>Yoki kanal manzilini yozing: @kanal_nomi</i>',
+  ), keys(['🚫 Kanalni uzish'], [BACK]))
+
+/** Forward qilingan xabardan yoki yozilgan @nom / -100… dan kanal. */
+function channelRef(m: NonNullable<Update['message']>): number | string | null {
+  const f = m.forward_origin?.type === 'channel' ? m.forward_origin.chat?.id : m.forward_from_chat?.id
+  if (f) return f
+  const t = m.text?.trim() ?? ''
+  if (/^@[A-Za-z0-9_]{4,}$/.test(t)) return t
+  if (/^-100\d{5,}$/.test(t)) return Number(t)
+  const link = t.match(/^(?:https?:\/\/)?t\.me\/([A-Za-z0-9_]{4,})\/?$/)
+  return link ? `@${link[1]}` : null
+}
+
+// ---------- Hisoblar ro'yxati: loginlar, email hisoblar, bot adminlari ----------
+
+/**
+ * Hisob turlari ro'yxatda:
+ * - login — bot bergan login (🛠 Admin yoki 📊 Kuzatuvchi);
+ * - email — saytda email bilan kiradigan hisob (Supabase'da qo'lda yaratilgan, masalan egasining gmail'i) — to'liq kirish;
+ * - tg — bot admini (ADMIN_IDS) mini app'ga kirganda o'zi yaratiladigan "tg-<id>" hisob.
+ */
+type Kind = 'login' | 'email' | 'tg'
+interface Account extends AuthUser { kind: Kind; label: string; icon: string; login: string; role: Role | null; tg: number | null; staff: boolean }
+
+function asAccount(u: AuthUser, staff: Set<string>): Account {
+  const base = { staff: staff.has(u.id) }
+  const l = asLogin(u)
+  if (l) return { ...l, ...base, kind: 'login', label: l.login, icon: '👤' }
+  const [name, domain] = (u.email ?? '').split('@')
+  if (domain === loginDomain() && /^tg-\d+$/.test(name)) {
+    return { ...u, ...base, kind: 'tg', label: name.slice(3), icon: '🤖', login: name, role: null, tg: Number(name.slice(3)) }
+  }
+  return { ...u, ...base, kind: 'email', label: u.email ?? u.id, icon: '📧', login: u.email ?? u.id, role: null, tg: null }
+}
+
+async function listAccounts(): Promise<Account[]> {
+  const [r, staffRows] = await Promise.all([
+    auth<{ users: AuthUser[] }>('admin/users?per_page=1000'),
+    db<{ user_id: string }[]>('staff?select=user_id'),
+  ])
+  const staff = new Set(staffRows.map((x) => x.user_id))
+  const order: Record<Kind, number> = { email: 0, tg: 1, login: 2 }
+  return r.users.map((u) => asAccount(u, staff)).sort((a, b) => order[a.kind] - order[b.kind] || a.label.localeCompare(b.label))
+}
+
+async function accountById(id: string): Promise<Account | null> {
+  if (!/^[0-9a-f-]{36}$/.test(id)) return null
+  const u = await auth<AuthUser>(`admin/users/${id}`).catch(() => null)
+  if (!u) return null
+  const staff = await db<{ user_id: string }[]>(`staff?user_id=eq.${id}&select=user_id`)
+  return asAccount(u, new Set(staff.map((x) => x.user_id)))
+}
+
+const kindName = (a: Account) =>
+  a.kind === 'login' ? (a.role ? ROLE_NAME[a.role] : '⚠️ turi tanlanmagan')
+    : a.kind === 'email' ? "👑 Email hisob — to'liq kirish"
+      : '🤖 Bot admini (Telegram orqali)'
+
+const accButton = (a: Account) => `${a.icon} ${a.label}`
 
 async function loginsScreen(chat: number, prev: Session | null, note?: string) {
-  const list = await listLogins()
-  const rows = list.map((u) => [
-    `👤 <b>${u.login}</b> — ${u.role ? ROLE_NAME[u.role] : '⚠️ turi tanlanmagan'}`,
-    `      ${u.tg ? '📱 Telegram ulangan' : '📵 Telegram ulanmagan'} · 🕓 ${fmtDay(u.last_sign_in_at)}`,
-  ].join('\n'))
+  const list = await listAccounts()
+  const block = (title: string, items: Account[], line: (a: Account) => string) =>
+    items.length ? [title, ...items.map(line), ''] : []
   return screen(chat, prev, { step: 'm_logins' }, page(note,
-    `👥 <b>Loginlar</b> · ${list.length} ta`,
+    `👥 <b>Hisoblar</b> · ${list.length} ta`,
     '',
-    rows.length ? rows.join('\n\n') : "<i>Hali login yo'q.</i>",
+    ...block('📧 <b>Email hisoblar</b> (saytga email bilan)', list.filter((a) => a.kind === 'email'),
+      (a) => `   ${esc(a.label)}${a.staff ? '' : ' · ⛔ ruxsatsiz'} · 🕓 ${fmtDay(a.last_sign_in_at)}`),
+    ...block('🤖 <b>Bot adminlari</b> (Telegram orqali)', list.filter((a) => a.kind === 'tg'),
+      (a) => `   ID ${a.label} · 🕓 ${fmtDay(a.last_sign_in_at)}`),
+    ...block('👤 <b>Loginlar</b> (bot bergan)', list.filter((a) => a.kind === 'login'),
+      (a) => `   <b>${a.label}</b> — ${kindName(a)} · ${a.tg ? '📱 ulangan' : '📵 ulanmagan'}`),
+    list.some((a) => a.kind === 'login') ? '' : "<i>Hali login yo'q.</i>\n",
+    `${ROLE_NAME.admin} — to'liq sayt telefonda · ${ROLE_NAME.stats} — faqat statistika`,
     '',
-    `${ROLE_NAME.admin} — to'liq sayt telefonda`,
-    `${ROLE_NAME.stats} — faqat statistika (o'z PIN kodi bilan)`,
-    '',
-    "<i>Loginni tanlang yoki yangisini qo'shing.</i>",
-  ), keys(...chunk(list.map((u) => `👤 ${u.login}`), 2), ['➕ Yangi login'], [BACK]))
+    "<i>Hisobni tanlang yoki yangi login qo'shing.</i>",
+  ), keys(...chunk(list.map(accButton), 2), ['➕ Yangi login'], [BACK]))
 }
 
-async function loginScreen(chat: number, prev: Session | null, u: Login, note?: string) {
-  return screen(chat, prev, { step: 'm_login', userId: u.id, login: u.login }, page(note,
-    `👤 <b>${u.login}</b>`,
+async function loginScreen(chat: number, prev: Session | null, a: Account, note?: string) {
+  const devices = await activeDevices(a.id)
+  return screen(chat, prev, { step: 'm_login', userId: a.id, login: a.login }, page(note,
+    `${a.icon} <b>${esc(a.label)}</b>`,
     '',
-    `🏷 Turi:  ${u.role ? ROLE_NAME[u.role] : '⚠️ tanlanmagan'}`,
-    `📱 Telegram:  ${u.tg ? 'ulangan' : 'ulanmagan'}`,
-    u.role === 'stats' && `🔢 PIN:  ${u.app_metadata?.pin ? "o'rnatilgan" : 'hali yaratilmagan'}`,
-    `🕓 Oxirgi kirish:  ${fmtDay(u.last_sign_in_at)}`,
-    `📅 Yaratilgan:  ${fmtDay(u.created_at)}`,
+    `🏷 Turi:  ${kindName(a)}`,
+    a.kind === 'login' && `📱 Telegram:  ${a.tg ? `ulangan (ID ${a.tg})` : 'ulanmagan'}`,
+    a.role === 'stats' && `🔢 PIN:  ${a.app_metadata?.pin ? "o'rnatilgan" : 'hali yaratilmagan'}`,
+    `💻 Qurilmalar:  ${devices.length} ta`,
+    !a.staff && "⛔ Do'konga ruxsati yo'q",
+    `🕓 Oxirgi kirish:  ${fmtDay(a.last_sign_in_at)}`,
+    `📅 Yaratilgan:  ${fmtDay(a.created_at)}`,
+  ), a.kind === 'login'
+    ? keys(['🔑 Parolni almashtirish', '🔁 Turini almashtirish'], ['📱 Qurilmalar', ...(a.role === 'stats' ? ['🔢 PIN reset'] : [])], ["🗑 O'chirish"], [BACK])
+    : a.kind === 'email'
+      ? keys(['🔑 Parolni almashtirish', '📱 Qurilmalar'], [BACK])
+      : keys(['📱 Qurilmalar'], [BACK]))
+}
+
+// ---------- Qurilmalar (sayt va mini app ochilgan joylar) ----------
+
+interface DeviceRow { id: string; name: string; last_seen: string; created_at: string }
+
+const activeDevices = (userId: string) =>
+  db<DeviceRow[]>(`devices?user_id=eq.${userId}&revoked=eq.false&select=id,name,last_seen,created_at&order=last_seen.desc`).catch(() => [] as DeviceRow[])
+
+/** Qurilmani chiqarish: sayt uni ko'rib (darhol yoki 15 soniyada) hisobdan chiqadi. */
+const revokeDevices = (userId: string, deviceId?: string) =>
+  db(`devices?user_id=eq.${userId}${deviceId ? `&id=eq.${encodeURIComponent(deviceId)}` : ''}`, { method: 'PATCH', body: JSON.stringify({ revoked: true }) })
+
+async function devicesScreen(chat: number, prev: Session | null, a: Account, note?: string) {
+  const list = await activeDevices(a.id)
+  const tgBound = Boolean(a.kind === 'login' && a.tg)
+  return screen(chat, prev, { step: 'm_devices', userId: a.id, login: a.login }, page(note,
+    `📱 <b>Qurilmalar</b> · ${a.icon} ${esc(a.label)}`,
+    '',
+    tgBound && `🤖 <b>Telegram bot</b> — ulangan (ID ${a.tg})`,
+    tgBound && '',
+    ...(list.length
+      ? list.map((d, i) => `${i + 1}. ${/telegram/i.test(d.name) ? '📱' : '💻'} <b>${esc(d.name)}</b>\n      🕓 oxirgi faollik: ${tashkentStamp(d.last_seen).split(', ')[1]}`)
+      : ["<i>Saytda ochiq qurilma yo'q.</i>"]),
+    '',
+    "<i>Chiqarilgan qurilma darhol hisobdan chiqadi.</i>",
   ), keys(
-    ['🔑 Parolni almashtirish', '🔁 Turini almashtirish'],
-    [...(u.role === 'stats' ? ['🔢 PIN reset'] : []), "🗑 O'chirish"],
+    tgBound ? ['🚪 Telegramdan uzish'] : [],
+    ...chunk(list.map((_, i) => `🚪 ${i + 1}`), 4),
+    list.length + (tgBound ? 1 : 0) > 1 ? ['🚪 Hammasidan chiqarish'] : [],
     [BACK],
   ))
+}
+
+/** Chiqarishni tasdiqlash ekrani. deviceId: qurilma id, 'tg' — Telegram, '*' — hammasi. */
+async function deviceAskScreen(chat: number, prev: Session | null, a: Account, deviceId: string) {
+  const list = await activeDevices(a.id)
+  const what = deviceId === '*' ? 'hamma qurilmadan' + (a.kind === 'login' && a.tg ? ' va Telegramdan' : '')
+    : deviceId === 'tg' ? 'Telegram botdan'
+      : `«${esc(list.find((d) => d.id === deviceId)?.name ?? 'qurilma')}» dan`
+  return screen(chat, prev, { step: 'm_device_del', userId: a.id, login: a.login, deviceId }, page(undefined,
+    `🚪 <b>${esc(a.label)}</b> ${what} chiqarilsinmi?`,
+    '',
+    deviceId === 'tg' || deviceId === '*' ? "<i>Botda qayta kirish uchun login va parol kerak bo'ladi.</i>" : '<i>U yerda qayta kirish uchun parol kerak bo\'ladi.</i>',
+  ), keys(['✅ Ha, chiqarish'], [BACK]))
+}
+
+async function doRevoke(a: Account, deviceId: string) {
+  if (deviceId === 'tg' || deviceId === '*') {
+    if (a.kind === 'login' && a.tg) {
+      await setMeta(a, { tg: null })
+      await resetChat(a.tg, '🚪 Hisobingizdan chiqarildingiz.')
+    }
+  }
+  if (deviceId === '*') return revokeDevices(a.id)
+  if (deviceId !== 'tg') {
+    // Telegram ichidagi qurilma (mini app) — login bo'lsa Telegram bog'lanishi ham uziladi, aks holda u yana kirib qoladi.
+    const d = (await activeDevices(a.id)).find((x) => x.id === deviceId)
+    if (d && /telegram/i.test(d.name) && a.kind === 'login' && a.tg) {
+      await setMeta(a, { tg: null })
+      await resetChat(a.tg, '🚪 Hisobingizdan chiqarildingiz.')
+    }
+    return revokeDevices(a.id, deviceId)
+  }
+}
+
+const roleAskScreen = (chat: number, prev: Session | null, a: Account) => {
+  const next: Role = a.role === 'admin' ? 'stats' : 'admin'
+  return screen(chat, prev, { step: 'm_login_role', userId: a.id, login: a.login }, page(undefined,
+    `🔁 <b>${a.label}</b> — turini almashtirish`,
+    '',
+    `Hozir:  ${a.role ? ROLE_NAME[a.role] : '—'}`,
+    `Yangi:  ${ROLE_NAME[next]}`,
+    '',
+    next === 'admin' ? "🛠 Admin — to'liq sayt (kassa, tovarlar, kirim) telefonda." : '📊 Kuzatuvchi — faqat statistika, kassaga kira olmaydi.',
+    "<i>U botda qayta kirishi kerak bo'ladi.</i>",
+  ), keys([`✅ Ha, ${ROLE_NAME[next]} qilish`], [BACK]))
 }
 
 const loginTypeScreen = (chat: number, prev: Session | null) =>
@@ -925,9 +1135,9 @@ const loginNameScreen = (chat: number, prev: Session | null, role: Role, note?: 
 
 const loginPassScreen = (chat: number, prev: Session | null, next: Session, note?: string) =>
   screen(chat, prev, { ...next, step: 'login_pass' }, page(note,
-    next.userId ? `🔑 <b>${next.login}</b> — yangi parol` : `➕ <b>Yangi login</b> · ${ROLE_NAME[next.role!]}`,
+    next.userId ? `🔑 <b>${esc(next.login ?? '')}</b> — yangi parol` : `➕ <b>Yangi login</b> · ${ROLE_NAME[next.role!]}`,
     '',
-    `👤 Login:  <code>${next.login}</code>`,
+    `👤 Login:  <code>${esc(next.login ?? '')}</code>`,
     '🔑 Parol yozing (kamida 8 belgi, harf va raqam) yoki 🎲 bosing.',
     next.userId ? '<i>Eski parol bilan ochilgan hamma joydan chiqariladi.</i>' : '',
   ), keys(['🎲 Parol yaratish'], [BACK]))
@@ -946,15 +1156,27 @@ const loginCard = (login: string, password: string, role: Role) => [
 
 /** Login yaratish yoki parolini almashtirish. Kirish ma'lumoti alohida xabar (egasiga yuborish uchun). */
 async function finishLogin(chat: number, s: Session, password: string) {
-  const weak = weakPassword(password, s.login!)
+  const weak = weakPassword(password, s.login!.split('@')[0])
   if (weak) return loginPassScreen(chat, s, s, `⚠️ Parol ${weak}. Qaytadan yozing yoki 🎲 bosing.`)
   try {
     if (s.userId) {
+      const acc = await accountById(s.userId)
+      if (!acc) throw new Error('hisob topilmadi')
+      if (acc.kind === 'email') {
+        // Email hisob (masalan egasining gmail'i): o'sha hisob qoladi, parol o'zgaradi, saytdagi qurilmalar chiqariladi.
+        await auth(`admin/users/${acc.id}`, { method: 'PUT', body: JSON.stringify({ password }) })
+        await revokeDevices(acc.id)
+        await say(chat, `🔐 <b>Yangi parol</b>\n\n📧 ${esc(acc.label)}\n🔑 <code>${esc(password)}</code>`)
+        return loginScreen(chat, { ...s, cardId: undefined }, acc, "✅ Parol almashtirildi — saytdagi hamma qurilmalardan chiqarildi. Yangi parol yuqorida.")
+      }
       const old = await ourUser(s.userId)
       if (!old) throw new Error('login topilmadi')
       const u = await resetPassword(old, password)
       await say(chat, loginCard(u.login, password, u.role!))
-      return loginScreen(chat, { ...s, cardId: undefined }, u, '✅ Parol almashtirildi — eski kirishlar bekor qilindi. Yangi ma\'lumot yuqorida.')
+      const nu = await accountById(u.id)
+      return nu
+        ? loginScreen(chat, { ...s, cardId: undefined }, nu, '✅ Parol almashtirildi — eski kirishlar bekor qilindi. Yangi ma\'lumot yuqorida.')
+        : loginsScreen(chat, { ...s, cardId: undefined })
     }
     await createLogin(s.login!, password, s.role!)
     await say(chat, loginCard(s.login!, password, s.role!))
@@ -1186,7 +1408,12 @@ export async function tgAuth(initData: string): Promise<{ token_hash?: string; r
 // ---------- Telegram yangilanishlari ----------
 
 interface Update {
-  message?: { message_id?: number; chat: { id: number; type?: string }; from?: From; text?: string; photo?: { file_id: string }[]; media_group_id?: string }
+  message?: {
+    message_id?: number; chat: { id: number; type?: string }; from?: From; text?: string; photo?: { file_id: string }[]; media_group_id?: string
+    /** Kanaldan forward qilingan xabar (kanalni ulash uchun). */
+    forward_origin?: { type: string; chat?: { id: number; title?: string } }
+    forward_from_chat?: { id: number; title?: string; type?: string }
+  }
   callback_query?: { id: string; from: From; data?: string; message?: { chat: { id: number }; message_id: number } }
 }
 
@@ -1269,6 +1496,17 @@ async function onPhoto(m: NonNullable<Update['message']>, chat: number, s: Sessi
 async function adminMessage(m: NonNullable<Update['message']>, chat: number, owner: boolean) {
   const text = m.text?.trim() ?? ''
   const s = await getSession(chat)
+  if (s?.step === 'm_channel_set' && text !== BACK && text !== '🚫 Kanalni uzish' && !text.startsWith('/')) {
+    await drop(chat, m.message_id)
+    const which = s.setting === 'sold' ? 'sold' : 'main'
+    const ref = channelRef(m)
+    if (!ref) return channelAsk(chat, s, which, '🤔 Kanaldan xabar forward qiling yoki @kanal_nomi yozing.')
+    const r = await checkChannel(ref, which === 'main')
+    if (typeof r === 'string') return channelAsk(chat, s, which, `⚠️ ${r}`)
+    const c = await getCfg()
+    await saveCfg(which === 'main' ? { ...c, channelId: r.id } : { ...c, soldChannelId: r.id })
+    return channelsScreen(chat, s, `✅ Ulandi: <b>${esc(r.title)}</b>`)
+  }
   if (m.photo?.length) return onPhoto(m, chat, s)
 
   // Hamma joyda ishlaydigan buyruqlar.
@@ -1310,24 +1548,35 @@ async function adminMessage(m: NonNullable<Update['message']>, chat: number, own
   const step = s?.step
   if (text === BACK) {
     switch (step) {
-      case 'setting': return settingsScreen(chat, s)
+      case 'setting': case 'm_channels': return settingsScreen(chat, s)
+      case 'm_channel_set': return channelsScreen(chat, s)
       case 'm_login': case 'login_type': return loginsScreen(chat, s)
       case 'login_name': return loginTypeScreen(chat, s)
-      case 'login_pass': {
+      case 'login_pass': case 'm_login_del': case 'm_login_role': case 'm_devices': case 'm_device_del': {
         if (!s!.userId) return loginNameScreen(chat, s, s!.role ?? 'stats')
-        const u = await ourUser(s!.userId)
-        return u ? loginScreen(chat, s, u) : loginsScreen(chat, s)
-      }
-      case 'm_login_del': {
-        const u = await ourUser(s!.userId ?? '')
-        return u ? loginScreen(chat, s, u) : loginsScreen(chat, s)
+        const a = await accountById(s!.userId)
+        if (!a) return loginsScreen(chat, s)
+        return step === 'm_device_del' ? devicesScreen(chat, s, a) : loginScreen(chat, s, a)
       }
       default: return homeScreen(chat, s, owner)
     }
   }
 
+  // Kanallar
+  if (step === 'm_channels') {
+    if (text === CH_MAIN) return channelAsk(chat, s, 'main')
+    if (text === CH_SOLD) return channelAsk(chat, s, 'sold')
+    return channelsScreen(chat, s)
+  }
+  if (step === 'm_channel_set' && text === '🚫 Kanalni uzish') {
+    const c = await getCfg()
+    await saveCfg(s!.setting === 'sold' ? { ...c, soldChannelId: null } : { ...c, channelId: null })
+    return channelsScreen(chat, s, '✅ Uzildi.')
+  }
+
   // Sozlamalar
   if (step === 'm_settings') {
+    if (text === CHANNELS) return channelsScreen(chat, s)
     const key = SETTING_BTN[text]
     if (key) return screen(chat, s, { step: 'setting', setting: key }, SET_PROMPTS[key], keys([BACK]))
     if (text === PRICE_ON || text === PRICE_OFF) {
@@ -1350,13 +1599,13 @@ async function adminMessage(m: NonNullable<Update['message']>, chat: number, own
     return screen(chat, s, { step: 'setting', setting: s!.setting }, page('🤔 Tushunmadim, qaytadan yozing.', SET_PROMPTS[s!.setting ?? ''] ?? ''), keys([BACK]))
   }
 
-  // Loginlar (faqat asosiy admin)
-  if (step?.startsWith('login_') || step?.startsWith('m_login')) {
+  // Hisoblar va loginlar (faqat asosiy admin)
+  if (step?.startsWith('login_') || step?.startsWith('m_login') || step?.startsWith('m_device')) {
     if (!owner) return homeScreen(chat, s, owner)
     if (step === 'm_logins') {
       if (text === '➕ Yangi login') return loginTypeScreen(chat, s)
-      const u = text.startsWith('👤 ') ? (await listLogins()).find((x) => x.login === text.slice(3).trim()) : null
-      return u ? loginScreen(chat, s, u) : loginsScreen(chat, s)
+      const a = (await listAccounts()).find((x) => accButton(x) === text)
+      return a ? loginScreen(chat, s, a) : loginsScreen(chat, s)
     }
     if (step === 'login_type') {
       const role = text === ROLE_NAME.admin ? 'admin' : text === ROLE_NAME.stats ? 'stats' : null
@@ -1370,35 +1619,59 @@ async function adminMessage(m: NonNullable<Update['message']>, chat: number, own
       return loginPassScreen(chat, s, { step: 'login_pass', login, role })
     }
     if (step === 'login_pass') return finishLogin(chat, s!, text === '🎲 Parol yaratish' ? genPassword() : text)
-    const u = await ourUser(s!.userId ?? '')
-    if (!u) return loginsScreen(chat, s, 'Bu login topilmadi.')
+    const a = await accountById(s!.userId ?? '')
+    if (!a) return loginsScreen(chat, s, 'Bu hisob topilmadi.')
     if (step === 'm_login') {
-      if (text === '🔑 Parolni almashtirish') return loginPassScreen(chat, s, { step: 'login_pass', login: u.login, userId: u.id, role: u.role ?? 'stats' })
-      if (text === '🔁 Turini almashtirish') {
-        const role: Role = u.role === 'admin' ? 'stats' : 'admin'
-        await setMeta(u, { role, tg: null })
-        if (u.tg) await resetChat(u.tg, `🏷 Hisobingiz turi o'zgardi: ${ROLE_NAME[role]}. Qayta kiring.`)
-        return loginScreen(chat, s, { ...u, role, tg: null, app_metadata: { ...u.app_metadata, role } }, `✅ Endi ${ROLE_NAME[role]}.`)
+      if (text === '📱 Qurilmalar') return devicesScreen(chat, s, a)
+      if (text === '🔑 Parolni almashtirish' && a.kind !== 'tg') {
+        return loginPassScreen(chat, s, { step: 'login_pass', login: a.login, userId: a.id, role: a.role ?? 'stats' })
       }
-      if (text === '🔢 PIN reset' && u.role === 'stats') {
-        await setMeta(u, { pin: null, pinFails: 0, pinLock: 0 })
-        return loginScreen(chat, s, { ...u, app_metadata: { ...u.app_metadata, pin: null } }, "✅ PIN o'chirildi — keyingi kirishda o'zi yangisini yaratadi.")
+      if (a.kind !== 'login') return loginScreen(chat, s, a)
+      if (text === '🔁 Turini almashtirish') return roleAskScreen(chat, s, a)
+      if (text === '🔢 PIN reset' && a.role === 'stats') {
+        await setMeta(a, { pin: null, pinFails: 0, pinLock: 0 })
+        return loginScreen(chat, s, { ...a, app_metadata: { ...a.app_metadata, pin: null } }, "✅ PIN o'chirildi — keyingi kirishda o'zi yangisini yaratadi.")
       }
       if (text === "🗑 O'chirish") {
-        return screen(chat, s, { step: 'm_login_del', userId: u.id }, page(undefined,
-          `🗑 <b>${u.login}</b> o'chirilsinmi?`,
+        return screen(chat, s, { step: 'm_login_del', userId: a.id, login: a.login }, page(undefined,
+          `🗑 <b>${a.label}</b> o'chirilsinmi?`,
           '',
           "U saytdan ham, paneldan ham darhol chiqib ketadi.",
         ), keys(["✅ Ha, o'chirish"], [BACK]))
       }
-      return loginScreen(chat, s, u)
+      return loginScreen(chat, s, a)
+    }
+    if (step === 'm_login_role') {
+      if (a.kind === 'login' && text.startsWith('✅ Ha,')) {
+        const role: Role = a.role === 'admin' ? 'stats' : 'admin'
+        await setMeta(a, { role, tg: null })
+        if (a.tg) await resetChat(a.tg, `🏷 Hisobingiz turi o'zgardi: ${ROLE_NAME[role]}. Qayta kiring.`)
+        return loginScreen(chat, s, { ...a, role, tg: null, app_metadata: { ...a.app_metadata, role } }, `✅ <b>${a.label}</b> endi ${ROLE_NAME[role]}.`)
+      }
+      return loginScreen(chat, s, a)
     }
     if (step === 'm_login_del') {
-      if (text === "✅ Ha, o'chirish") {
-        await deleteLogin(u)
-        return loginsScreen(chat, s, `✅ <b>${u.login}</b> o'chirildi.`)
+      if (a.kind === 'login' && text === "✅ Ha, o'chirish") {
+        const u = await ourUser(a.id)
+        if (u) await deleteLogin(u)
+        return loginsScreen(chat, s, `✅ <b>${a.label}</b> o'chirildi.`)
       }
-      return loginScreen(chat, s, u)
+      return loginScreen(chat, s, a)
+    }
+    if (step === 'm_devices') {
+      if (text === '🚪 Telegramdan uzish') return deviceAskScreen(chat, s, a, 'tg')
+      if (text === '🚪 Hammasidan chiqarish') return deviceAskScreen(chat, s, a, '*')
+      const n = Number(text.match(/^🚪 (\d+)$/)?.[1])
+      const d = n ? (await activeDevices(a.id))[n - 1] : undefined
+      return d ? deviceAskScreen(chat, s, a, d.id) : devicesScreen(chat, s, a)
+    }
+    if (step === 'm_device_del') {
+      if (text === '✅ Ha, chiqarish' && s!.deviceId) {
+        await doRevoke(a, s!.deviceId)
+        const fresh = (await accountById(a.id)) ?? a
+        return devicesScreen(chat, s, fresh, '✅ Chiqarildi.')
+      }
+      return devicesScreen(chat, s, a)
     }
   }
   return homeScreen(chat, s, owner, text ? '👇 Pastdagi tugmalardan foydalaning.' : undefined)
@@ -1562,6 +1835,12 @@ export async function handle(req: Request): Promise<Response> {
     for (const id of admins()) await setupChat(id, '📊 Panel', ADMIN_COMMANDS(id === admins()[0])).catch(() => {})
     const me = await tg<{ username: string }>('getMe', {})
     return new Response(`✅ Tayyor! Bot @${me.username} ulandi (${JSON.stringify(r)}). Endi botga /start yozing.`, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
+  }
+
+  // Sayt (kirish sahifasi): telefonda "botda oching" tugmasi uchun bot nomi. Maxfiy narsa qaytmaydi.
+  if (req.method === 'GET' && url.searchParams.has('info')) {
+    const me = await tg<{ username: string }>('getMe', {}).catch(() => null)
+    return json({ bot: me?.username ?? null })
   }
 
   // Telegram

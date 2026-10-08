@@ -89,3 +89,19 @@ Kompyuterdagi eski bot shu token bilan ishlayotgan bo'lsa — uni to'xtating.
 - Kirim savollaridagi variantlar (brend, razmer, rang, narx) — xabar tagida; "✍️ Qo'lda kiritish", "❌ Bekor qilish", "✅ Tasdiqlash" — pastda.
 - **📊 Kuzatuvchi PIN kodi** — shaxsiy: birinchi marta panelni ochganda o'zi yaratadi, botda /changepass bilan o'zgartiradi,
   unutsa — asosiy admin 👥 Loginlar → login → 🔢 PIN reset. PIN o'zi saqlanmaydi (maxfiy kalit bilan imzolangan izi), 5 marta xato — 15 daqiqa.
+
+## Yangilanish: hisoblar, qurilmalar, kanallar
+
+- **👥 Loginlar** endi hamma hisoblarni ko'rsatadi: 📧 email hisoblar (masalan egasining gmail'i), 🤖 bot adminlari (Telegram orqali), 👤 loginlar.
+  Har hisobda **📱 Qurilmalar**: qayerda ochiq (sayt, Telegram) — tanlab yoki hammasidan chiqarish. Turini almashtirish — tasdiq bilan.
+- **📣 Kanallar** (⚙️ Sozlamalar ichida): botni kanalga admin qilib, kanaldan xabar forward qiling yoki @nom yozing.
+  Botdan ulangan kanal Secrets'dagi CHANNEL_ID / SOLD_CHANNEL_ID dan ustun turadi.
+- Mini app manzili `?boss`siz bo'lsa ham (BotFather "Open" tugmasi) panel hisob turiga qarab ochiladi.
+- Telefonda sayt ochilsa — "📱 Telegram botda ochish" taklifi chiqadi.
+
+### Asosiy botga ko'chirish
+1. @BotFather'da asosiy bot tokenini oling.
+2. Supabase → Edge Functions → Secrets: `BOT_TOKEN` ni yangisiga almashtiring (ADMIN_IDS, WEBHOOK_SECRET o'zgarmaydi).
+3. `...functions/v1/bot?setup=<WEBHOOK_SECRET>` ni oching (webhook asosiy botga o'tadi).
+4. Asosiy botni kanallarga admin qiling, botda ⚙️ Sozlamalar → 📣 Kanallar orqali ulang.
+5. BotFather'da asosiy bot uchun Main Mini App yoqing. Loginlar o'zgarmaydi; foydalanuvchilar yangi botda bir marta 🔐 Kirish qiladi.
