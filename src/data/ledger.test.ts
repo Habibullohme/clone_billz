@@ -62,3 +62,36 @@ describe('sotuvni arxivlash', () => {
     expect(balanceOf(await alisher())).toBe(balance)
   })
 })
+
+describe('chekdan tovar qaytarish', () => {
+  it("tanlangan pachka omborga qaytadi, chek va nasiya kamayadi; hammasi tanlansa — arxiv", async () => {
+    const { returnSaleLines, getSales, getProducts, getCustomers, balanceOf } = await import('./store')
+    const [p1, p2] = (await getProducts()).slice(1, 3)
+    const line = (p: typeof p1, total: number) => ({ productId: p.id, name: p.name, brand: p.brand, barcode: p.barcode, packSize: 5, pairs: 5, price: 100_000, costPrice: 80_000, total })
+    const sale = await saveSale({
+      customerName: 'Qaytarish Mijoz', note: '',
+      lines: [line(p1, 450_000), line(p2, 450_000)],
+      subtotal: 1_000_000, discount: 100_000, total: 900_000, profit: 100_000, change: 0,
+      payment: { cash: 700_000, usd: 0, usdRate: 12_000, card: 0, debt: 200_000 },
+    })
+    const stock = async (id: string) => (await getProducts()).find((p) => p.id === id)!.stock
+    const before = await stock(p1.id)
+    const ret = await returnSaleLines(sale.id, [0], 'adashib urilgan')
+    expect(ret).toMatchObject({ amount: 450_000, debtCut: 200_000, refund: 250_000, reason: 'adashib urilgan' })
+    expect(await stock(p1.id)).toBe(before + 5)
+    const s = (await getSales()).find((x) => x.id === sale.id)!
+    expect(s.archivedAt).toBeUndefined()
+    expect(s.lines.map((l) => l.productId)).toEqual([p2.id])
+    expect(s).toMatchObject({ total: 450_000, subtotal: 500_000, discount: 50_000, profit: 50_000 })
+    expect(s.payment).toMatchObject({ debt: 0, cash: 450_000 })
+    expect(s.returns).toHaveLength(1)
+    const c = (await getCustomers()).find((x) => x.name === 'Qaytarish Mijoz')!
+    expect(balanceOf(c)).toBe(0)
+
+    // Qolgan oxirgi qator ham qaytarilsa — chek butunlay bekor bo'ladi.
+    expect(await returnSaleLines(sale.id, [0], 'hammasi')).toBeNull()
+    const gone = (await getSales()).find((x) => x.id === sale.id)!
+    expect(gone.archivedAt).toBeTruthy()
+    expect(gone.archiveReason).toBe('Qaytarildi: hammasi')
+  })
+})

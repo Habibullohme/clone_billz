@@ -112,6 +112,8 @@ export interface Sale {
   archivedAt?: string
   archivedBy?: string
   archiveReason?: string
+  /** Chekdan qisman qaytarilgan tovarlar (chek summasi allaqachon kamaytirilgan). */
+  returns?: import('./lib/refund').SaleReturn[]
 }
 
 export interface HeldCart {

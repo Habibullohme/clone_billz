@@ -1347,3 +1347,14 @@ input:not([type=checkbox]):not([type=range]):not([type=file]), textarea {
 .nb-codes .code-chip { font-size: 13px; }
 .nb-form-codes { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; padding: 8px 10px; border: 1px dashed var(--line); border-radius: 10px; background: var(--sunken); }
 .nb-form-codes .code-chip { font-size: 15px; }
+
+/* Chekdan tovar qaytarish */
+.return-note { margin: 10px 0 0; padding: 8px 12px; border-radius: 10px; background: color-mix(in srgb, var(--warn, #d97706) 12%, transparent); font-size: 13px; }
+.return-panel { display: grid; gap: 8px; margin-top: 10px; }
+.return-panel p { margin: 0; }
+.return-head { display: flex; justify-content: space-between; align-items: center; }
+.return-lines { display: grid; gap: 6px; max-height: 38vh; overflow: auto; }
+.return-line { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
+.return-line.on { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 8%, transparent); }
+.return-line .grow { flex: 1; min-width: 0; }
+.tag.t-return { margin-left: 6px; background: color-mix(in srgb, var(--warn, #d97706) 15%, transparent); }

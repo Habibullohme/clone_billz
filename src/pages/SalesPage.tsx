@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { Sale } from '../types'
-import { activeSales, archiveSale, getSales, restoreSale, getSettings, type Settings } from '../data/store'
+import { activeSales, archiveSale, getSales, restoreSale, returnSaleLines, getSettings, type Settings } from '../data/store'
+import { applyReturn } from '../lib/refund'
 import { formatSum } from '../lib/money'
 import { Receipt } from '../components/Receipt'
 import { BackClose, Segmented } from '../components/ui'
@@ -12,12 +13,16 @@ export function SalesPage() {
   const [sales, setSales] = useState<Sale[]>([])
   const [settings, setSettings] = useState<Settings | null>(null)
   const [open, setOpenRaw] = useState<Sale | null>(null)
-  const [confirm, setConfirm] = useState(false)
+  /** Chek oynasidagi amal: arxivlash (butun chek) yoki tovar qaytarish (tanlangan qatorlar). */
+  const [mode, setMode] = useState<'none' | 'archive' | 'return'>('none')
+  const confirm = mode === 'archive'
+  const [picked, setPicked] = useState<Set<number>>(new Set())
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const setOpen = (s: Sale | null) => {
     setOpenRaw(s)
-    setConfirm(false)
+    setMode('none')
+    setPicked(new Set())
     setReason('')
   }
   const [period, setPeriod] = useState<Period>('today')
@@ -149,7 +154,7 @@ export function SalesPage() {
                   <tr key={s.id} onClick={() => setOpen(s)}>
                     <td className="muted">{s.number}</td>
                     <td>{when(s.createdAt)}</td>
-                    <td>{s.customerName || <span className="muted">—</span>}</td>
+                    <td>{s.customerName || <span className="muted">—</span>}{s.returns?.length ? <span className="tag t-return">↩️ qaytarish</span> : null}</td>
                     <td className="num"><b>{formatSum(s.total)}</b></td>
                     <td className="num ok">{formatSum(s.profit)}</td>
                     <td>
@@ -180,6 +185,49 @@ export function SalesPage() {
                 {open.archiveReason && <><br />Sabab: {open.archiveReason}</>}
               </p>
             )}
+            {open.returns?.map((r) => (
+              <p key={r.id} className="return-note">
+                ↩️ Qaytarildi {when(r.at)}{r.by && <> · {r.by}</>}: {r.lines.map((l) => l.name).join(', ')} — <b>{formatSum(r.amount)}</b>
+                {r.debtCut > 0 && <> (nasiyadan {formatSum(r.debtCut)})</>}
+                {r.reason && <><br />Sabab: {r.reason}</>}
+              </p>
+            ))}
+            {mode === 'return' && !open.archivedAt && (() => {
+              const all = picked.size === open.lines.length
+              const prev = picked.size ? applyReturn(open, [...picked], { id: '', at: '', by: '', reason: '' }).ret : null
+              const toggle = (i: number) => setPicked((x) => {
+                const n = new Set(x)
+                if (n.has(i)) n.delete(i)
+                else n.add(i)
+                return n
+              })
+              return (
+                <div className="return-panel">
+                  <div className="return-head">
+                    <b>Qaysi tovarlar qaytadi?</b>
+                    <button className="link small" onClick={() => setPicked(all ? new Set() : new Set(open.lines.map((_, i) => i)))}>{all ? 'Hech qaysi' : 'Hammasi'}</button>
+                  </div>
+                  <div className="return-lines">
+                    {open.lines.map((l, i) => (
+                      <label key={i} className={`return-line${picked.has(i) ? ' on' : ''}`}>
+                        <input type="checkbox" checked={picked.has(i)} onChange={() => toggle(i)} />
+                        <span className="grow">{l.brand} · <b>{l.name}</b><span className="muted small"> · {l.pairs} juft</span></span>
+                        <span className="num">{formatSum(l.total)}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <input className="input" placeholder="Sabab (masalan: adashib urilgan, razmer to'g'ri kelmadi)" value={reason} onChange={(e) => setReason(e.target.value)} />
+                  {prev && (
+                    <p className="muted small">
+                      Omborga qaytadi: <b>{prev.lines.length} pachka</b> · chekdan ayiriladi: <b>{formatSum(prev.amount)}</b>
+                      {prev.debtCut > 0 && <> · nasiyadan: <b>{formatSum(prev.debtCut)}</b></>}
+                      {prev.refund > 0 && <> · <span className="danger-text">mijozga qaytariladigan pul: <b>{formatSum(prev.refund)}</b></span></>}
+                      {all && <><br />Hammasi tanlandi — chek butunlay bekor qilinib, "Arxiv"ga o'tadi.</>}
+                    </p>
+                  )}
+                </div>
+              )
+            })()}
             {confirm && !open.archivedAt && (
               <div className="archive-confirm">
                 <input
@@ -202,16 +250,31 @@ export function SalesPage() {
                   {busy ? 'Qaytarilmoqda…' : 'Sotuvga qaytarish'}
                 </button>
               ) : confirm ? (
-                <button className="btn danger" disabled={busy} onClick={() => run(() => archiveSale(open.id, reason))}>
-                  {busy ? 'Arxivlanmoqda…' : 'Ha, arxivlash'}
-                </button>
+                <>
+                  <button className="btn ghost" disabled={busy} onClick={() => setMode('none')}>Bekor</button>
+                  <button className="btn danger" disabled={busy} onClick={() => run(() => archiveSale(open.id, reason))}>
+                    {busy ? 'Arxivlanmoqda…' : 'Ha, arxivlash'}
+                  </button>
+                </>
+              ) : mode === 'return' ? (
+                <>
+                  <button className="btn ghost" disabled={busy} onClick={() => { setMode('none'); setPicked(new Set()) }}>Bekor</button>
+                  <button className="btn danger" disabled={busy || !picked.size} onClick={() => run(async () => { await returnSaleLines(open.id, [...picked], reason) })}>
+                    {busy ? 'Qaytarilmoqda…' : `↩️ Qaytarish${picked.size ? ` · ${picked.size} pachka` : ''}`}
+                  </button>
+                </>
               ) : (
-                <button className="btn ghost danger-text" onClick={() => setConfirm(true)} title="Tovarlar omborga qaytadi, chek arxivda saqlanadi">
-                  Arxivlash
-                </button>
+                <>
+                  <button className="btn ghost" onClick={() => setMode('return')} title="Tanlangan tovarlar omborga qaytadi, chek summasi kamayadi">
+                    ↩️ Qaytarish
+                  </button>
+                  <button className="btn ghost danger-text" onClick={() => setMode('archive')} title="Butun chek bekor bo'ladi: tovarlar omborga qaytadi, chek arxivda saqlanadi">
+                    Arxivlash
+                  </button>
+                </>
               )}
-              <button className="btn ghost" onClick={() => window.print()}>Chek chiqarish</button>
-              <button className="btn primary grow" onClick={() => setOpen(null)}>Yopish</button>
+              {mode === 'none' && <button className="btn ghost" onClick={() => window.print()}>Chek chiqarish</button>}
+              {mode === 'none' && <button className="btn primary grow" onClick={() => setOpen(null)}>Yopish</button>}
             </div>
           </div>
         </div>

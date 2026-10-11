@@ -2,6 +2,7 @@
  * Ma'lumotlar qatlami. Baza (Supabase) ulangan bo'lsa — hammasi bazada, xotirada esa
  * tez o'qish uchun nusxasi turadi. Ulanmagan bo'lsa — brauzer xotirasida (sinov rejimi).
  */
+import { applyReturn, type SaleReturn } from '../lib/refund'
 import type { Customer, HeldCart, ImportBatch, LedgerEntry, Product, ProductInput, Sale } from '../types'
 import { brandCode, makeBarcode } from '../lib/codes'
 import { demoInputs } from './demo'
@@ -742,6 +743,52 @@ export async function restoreSale(id: string): Promise<void> {
   await setSaleArchived(id, {}, -1)
   await syncSaleDebts()
   await flush()
+}
+
+/**
+ * Chekdan tovar qaytarish: tanlangan qatorlar omborga qaytadi, chek summasi va foydasi kamayadi,
+ * nasiya bo'lsa — avval nasiyadan ayiriladi. Hamma qator tanlansa — chek butunlay bekor qilinadi (arxivga).
+ */
+export async function returnSaleLines(id: string, idx: number[], reason = ''): Promise<SaleReturn | null> {
+  const sales = await getSales()
+  const sale = sales.find((x) => x.id === id)
+  if (!sale || sale.archivedAt || !idx.length) return null
+  const why = reason.trim()
+  if (new Set(idx).size >= sale.lines.length) {
+    await archiveSale(id, why ? `Qaytarildi: ${why}` : 'Qaytarildi')
+    return null
+  }
+  const by = mode === 'cloud' ? await cloud.whoAmI() : ''
+  const { sale: next, ret } = applyReturn(sale, idx, { id: uid(), at: new Date().toISOString(), by, reason: why })
+
+  const products = await getProducts()
+  const touched: { id: string; stock: number }[] = []
+  for (const l of ret.lines) {
+    const p = products.find((x) => x.id === l.productId)
+    if (!p) continue
+    p.stock += l.pairs
+    touched.push({ id: p.id, stock: p.stock })
+  }
+  const list = sales.map((x) => (x.id === id ? next : x))
+  if (mode === 'cloud') {
+    await cloud.updateSaleRow(id, next, touched)
+    put(K.products, products)
+    put(K.sales, list)
+  } else {
+    write(K.products, products)
+    write(K.sales, list)
+  }
+  // Nasiya kamaydi — daftardagi shu chek yozuvi ham kamayadi.
+  if (ret.debtCut > 0) {
+    const customers = await getCustomers()
+    write(K.customers, customers.map((c) => ({
+      ...c,
+      ledger: c.ledger?.map((e) => (e.saleId === id && e.kind === 'debt' ? { ...e, amount: Math.max(0, e.amount - ret.debtCut) } : e))
+        .filter((e) => !(e.saleId === id && e.kind === 'debt' && e.amount === 0)),
+    })))
+  }
+  await flush()
+  return ret
 }
 
 // ---------- Kechiktirilgan savatlar ----------
