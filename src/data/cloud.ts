@@ -2,7 +2,7 @@
  * Supabase bilan aloqa. Sayt butun ma'lumotni kirishda bir marta yuklab oladi,
  * keyin har bir o'zgarishni (qo'shildi / o'zgardi / o'chdi) bazaga yozadi.
  */
-import { createClient, type Session } from '@supabase/supabase-js'
+import { createClient, processLock, type Session } from '@supabase/supabase-js'
 import type { Product } from '../types'
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
@@ -12,7 +12,11 @@ const key = import.meta.env.VITE_SUPABASE_KEY as string | undefined
 export const cloudEnabled = Boolean(url && key)
 
 export const supabase = cloudEnabled
-  ? createClient(url!, key!, { auth: { persistSession: true, autoRefreshToken: true, storageKey: 'dk.auth' } })
+  ? createClient(url!, key!, {
+      // processLock: brauzerning navigator.locks qulfi Telegram ichida (fonda uxlab qolgach) osilib qolishi mumkin —
+      // shunda hamma so'rov kutib qoladi va oyna "qotadi". Sahifa ichidagi oddiy qulf yetarli.
+      auth: { persistSession: true, autoRefreshToken: true, storageKey: 'dk.auth', lock: processLock },
+    })
   : null
 
 export async function getSession(): Promise<Session | null> {

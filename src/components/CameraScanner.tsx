@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { onHide } from '../lib/resume'
 import { useBackClose } from '../lib/nav'
 
 interface Detector { detect(src: CanvasImageSource): Promise<{ rawValue: string }[]> }
@@ -30,6 +31,8 @@ export function CameraScanner({ onScan, onClose }: { onScan: (code: string) => v
   const [last, setLast] = useState<{ code: string; n: number } | null>(null)
   const [flash, setFlash] = useState(0)
   useBackClose(onClose)
+  // Ekran o'chsa yoki Telegram bloklansa — kamera darhol bo'shatiladi (ochiq qolsa, qaytganda oyna qotishi mumkin).
+  useEffect(() => onHide(onClose), [onClose])
 
   useEffect(() => {
     let stream: MediaStream | null = null

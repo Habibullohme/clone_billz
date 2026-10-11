@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { onResume } from '../lib/resume'
 import type { Customer, Product, Sale } from '../types'
 import {
   activeSales, balanceOf, getCustomers, getProducts, getSales, getSettings, initStore, refresh, type Settings,
@@ -205,11 +206,10 @@ function useLiveData() {
   useEffect(() => {
     load()
     const t = setInterval(() => document.visibilityState === 'visible' && reload(), 30_000)
-    const onVis = () => document.visibilityState === 'visible' && reload()
-    document.addEventListener('visibilitychange', onVis)
+    const stop = onResume(() => reload())
     return () => {
       clearInterval(t)
-      document.removeEventListener('visibilitychange', onVis)
+      stop()
     }
   }, [])
   return { sales, products, customers, settings, updated, busy, reload }

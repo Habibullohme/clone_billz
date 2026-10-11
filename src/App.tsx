@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { onResume } from './lib/resume'
 import { PosPage } from './pages/PosPage'
 import { SalesPage } from './pages/SalesPage'
 import { ProductsPage } from './pages/ProductsPage'
@@ -237,14 +238,13 @@ function Shop({ onStats }: { onStats?: () => void }) {
 
   // Boshqa qurilmada qilingan o'zgarishlar: oynaga qaytganda bazadan yangilanadi.
   useEffect(() => {
-    const onFocus = () => {
+    const stopResume = onResume(() => {
       refresh().catch(() => {})
       if (cloudEnabled) touchDevice().then((ok) => { if (!ok) signOut() }).catch(() => {})
-    }
-    window.addEventListener('focus', onFocus)
-    // Qurilmalar ro'yxatidagi "oxirgi faollik" yangilanib tursin (har 5 daqiqada).
+    })
+    // Qurilmalar ro'yxatidagi "oxirgi faollik" yangilanib tursin (har 5 daqiqada, oyna ochiq bo'lsa).
     const t = setInterval(() => {
-      if (cloudEnabled) touchDevice().then((ok) => { if (!ok) signOut() }).catch(() => {})
+      if (cloudEnabled && document.visibilityState === 'visible') touchDevice().then((ok) => { if (!ok) signOut() }).catch(() => {})
     }, 5 * 60_000)
     // Boshqa qurilmadan "Chiqarish" bosilsa: darhol (Realtime) yoki ko'pi bilan 15 soniyada chiqib ketadi.
     const kick = () => {
@@ -255,7 +255,7 @@ function Shop({ onStats }: { onStats?: () => void }) {
       if (cloudEnabled && document.visibilityState === 'visible') isRevoked().then((r) => r && kick()).catch(() => {})
     }, 15_000)
     return () => {
-      window.removeEventListener('focus', onFocus)
+      stopResume()
       clearInterval(t)
       clearInterval(poll)
       stopWatch()

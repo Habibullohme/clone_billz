@@ -224,11 +224,27 @@ function localRead(key: string): unknown {
   }
 }
 
-/** Bazadan yangilab oladi (boshqa kassada qilingan sotuvlar, kirimlar ko'rinadi). */
-export async function refresh(): Promise<void> {
+let refreshing: Promise<void> | null = null
+
+/**
+ * Bazadan yangilab oladi (boshqa kassada qilingan sotuvlar, kirimlar ko'rinadi).
+ * Bir vaqtda bittasi ishlaydi (oynaga qaytganda bir necha joydan chaqirilsa ham); 25 soniyada javob kelmasa — tashlab yuboriladi.
+ */
+export function refresh(): Promise<void> {
+  refreshing ??= doRefresh().finally(() => {
+    refreshing = null
+  })
+  return refreshing
+}
+
+async function doRefresh(): Promise<void> {
   if (mode !== 'cloud' || pending.length) return
   const before = writeCount
-  const snap = await cloud.loadAll()
+  const snap = await Promise.race([
+    cloud.loadAll(),
+    new Promise<null>((r) => setTimeout(() => r(null), 25_000)),
+  ])
+  if (!snap) return
   // Yuklash davomida biror narsa yozilgan bo'lsa — bu ma'lumot eskirgan, tashlab yuboramiz.
   if (writeCount !== before || pending.length) return
   put(K.products, snap.products)
