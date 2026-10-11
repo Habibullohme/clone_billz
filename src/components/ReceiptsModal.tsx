@@ -3,18 +3,24 @@ import type { Sale } from '../types'
 import { activeSales, getSales, type Settings } from '../data/store'
 import { Receipt } from './Receipt'
 import { BackClose } from './ui'
+import { ReturnNotes, ReturnPanel } from './ReturnPanel'
 import { PeriodPicker } from './PeriodPicker'
 import { inPeriod, type Period } from '../lib/period'
 
 /**
  * Kassadagi "Cheklar": mijozga eski chekni ko'rsatish yoki qayta chiqarish uchun.
- * Ro'yxatda summa yo'q (chek ochilganda ko'rinadi). Tushum, foyda, arxivlash yo'q (ular Sotuvlar bo'limida, PIN bilan).
+ * Ro'yxatda summa yo'q (chek ochilganda ko'rinadi). Chekdan tovar qaytarish mumkin; tushum, foyda, arxivlash — Sotuvlar bo'limida (PIN bilan).
  */
 export function ReceiptsModal({ settings, onClose }: { settings: Settings; onClose: () => void }) {
   const [sales, setSales] = useState<Sale[]>([])
   const [day, setDay] = useState<Period>('today')
   const [q, setQ] = useState('')
-  const [open, setOpen] = useState<Sale | null>(null)
+  const [open, setOpenRaw] = useState<Sale | null>(null)
+  const [returning, setReturning] = useState(false)
+  const setOpen = (s: Sale | null) => {
+    setOpenRaw(s)
+    setReturning(false)
+  }
 
   useEffect(() => {
     getSales().then((l) => setSales(activeSales(l)))
@@ -35,10 +41,25 @@ export function ReceiptsModal({ settings, onClose }: { settings: Settings; onClo
         <BackClose onClose={() => setOpen(null)} />
         <div className="modal receipt-modal" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && setOpen(null)}>
           <div className="print-area"><Receipt sale={open} settings={settings} /></div>
-          <div className="modal-actions">
-            <button className="btn ghost" onClick={() => setOpen(null)}>← Cheklar</button>
-            <button className="btn primary" onClick={() => window.print()}>Chek chiqarish</button>
-          </div>
+          <ReturnNotes sale={open} />
+          {returning ? (
+            <ReturnPanel
+              sale={open}
+              onCancel={() => setReturning(false)}
+              onDone={async () => {
+                const l = await getSales()
+                setSales(activeSales(l))
+                // Qisman qaytarilgan chek yangilangan holda ochiq qoladi; butunlay qaytarilgani ro'yxatdan chiqadi.
+                setOpen(activeSales(l).find((s) => s.id === open.id) ?? null)
+              }}
+            />
+          ) : (
+            <div className="modal-actions">
+              <button className="btn ghost" onClick={() => setOpen(null)}>← Cheklar</button>
+              <button className="btn ghost" onClick={() => setReturning(true)}>↩️ Qaytarish</button>
+              <button className="btn primary grow" onClick={() => window.print()}>Chek chiqarish</button>
+            </div>
+          )}
         </div>
       </div>
     )
@@ -62,7 +83,7 @@ export function ReceiptsModal({ settings, onClose }: { settings: Settings; onClo
             list.map((s) => (
               <button key={s.id} className="receipt-item" onClick={() => setOpen(s)}>
                 <span className="muted">№{s.number}</span>
-                <span className="ri-name">{s.customerName || <span className="muted">Mijozsiz</span>}</span>
+                <span className="ri-name">{s.customerName || <span className="muted">Mijozsiz</span>}{s.returns?.length ? <span className="tag t-return">↩️</span> : null}</span>
                 <span className="muted small">{when(s.createdAt)}</span>
               </button>
             ))
