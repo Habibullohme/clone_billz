@@ -38,3 +38,13 @@ export function groupReceiptLines(lines: SaleLine[]): ReceiptGroup[] {
   }
   return [...groups.values()]
 }
+
+/**
+ * Chek printerining haqiqiy bosiladigan kengligi (mm): 58 mm lentada bosish kallagi 48 mm,
+ * 80 mm lentada — 72 mm. Chek qog'oz kengligida chizilsa, o'ng tomoni kesilib qoladi.
+ */
+export function printWidth(paper: number): number {
+  if (paper === 58) return 48
+  if (paper === 80) return 72
+  return Math.max(30, paper - 10)
+}

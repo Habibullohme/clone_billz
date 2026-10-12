@@ -435,8 +435,11 @@ kbd {
   body * { visibility: hidden; }
   .print-area, .print-area * { visibility: visible; }
   .print-area { position: absolute; left: 0; top: 0; }
-  .receipt { padding: 0; border-radius: 0; width: var(--rw, 58mm); max-width: none; }
-  @page { margin: 2mm; }
+  /* Bosiladigan kenglik (58 mm lentada 48 mm) — chek kesilmasin; uzun so'zlar keyingi qatorga o'tadi. */
+  .receipt { padding: 0; border-radius: 0; width: var(--pw, 48mm); max-width: none; font-size: 11px; overflow-wrap: anywhere; box-sizing: border-box; }
+  .receipt .r-shop, .receipt .r-total { font-size: 13px; }
+  .receipt .r-kv > :last-child { white-space: normal; text-align: right; }
+  @page { margin: 0; }
 
   /* Etiketka: sahifada faqat etiketkalar, har biri printer qog'ozini to'liq egallaydi. */
   body.print-labels > :not(.label-sheet) { display: none !important; }

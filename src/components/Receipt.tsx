@@ -3,7 +3,7 @@ import type React from 'react'
 import type { Sale } from '../types'
 import type { Settings } from '../data/store'
 import { formatSum } from '../lib/money'
-import { groupReceiptLines } from '../lib/receipt'
+import { groupReceiptLines, printWidth } from '../lib/receipt'
 
 /** debtTotal — nasiyaga sotilganda mijozning shu sotuvdan keyingi umumiy qarzi. */
 export function Receipt({ sale, settings, debtTotal }: { sale: Sale; settings: Settings; debtTotal?: number }) {
@@ -13,7 +13,7 @@ export function Receipt({ sale, settings, debtTotal }: { sale: Sale; settings: S
   const totalPacks = groups.reduce((s, g) => s + g.packs, 0)
   const totalPairs = groups.reduce((s, g) => s + g.pairs, 0)
   return (
-    <div className="receipt" style={{ '--rw': `${settings.receiptWidth}mm` } as React.CSSProperties}>
+    <div className="receipt" style={{ '--rw': `${settings.receiptWidth}mm`, '--pw': `${printWidth(settings.receiptWidth)}mm` } as React.CSSProperties}>
       <div className="r-center">
         {settings.receiptShowLogo && settings.shopLogo && <img className="r-logo" src={settings.shopLogo} alt="" />}
         <b className="r-shop">{settings.shopName}</b>

@@ -3,13 +3,14 @@ import type { Settings } from '../data/store'
 import type { LedgerRow } from '../lib/debt'
 import { formatSum } from '../lib/money'
 import { splitPhones } from '../lib/phones'
+import { printWidth } from '../lib/receipt'
 
 /** Nasiya cheki: nasiya berilganda yoki qarz to'langanda — oldingi va qolgan qarz bilan. */
 export function DebtReceipt({ row, name, phone, settings }: { row: LedgerRow; name: string; phone?: string; settings: Settings }) {
   const d = new Date(row.date)
   const debt = row.kind === 'debt'
   return (
-    <div className="receipt" style={{ '--rw': `${settings.receiptWidth}mm` } as React.CSSProperties}>
+    <div className="receipt" style={{ '--rw': `${settings.receiptWidth}mm`, '--pw': `${printWidth(settings.receiptWidth)}mm` } as React.CSSProperties}>
       <div className="r-center">
         {settings.receiptShowLogo && settings.shopLogo && <img className="r-logo" src={settings.shopLogo} alt="" />}
         <b className="r-shop">{settings.shopName}</b>
