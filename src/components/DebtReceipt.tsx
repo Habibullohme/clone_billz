@@ -10,7 +10,7 @@ export function DebtReceipt({ row, name, phone, settings }: { row: LedgerRow; na
   const d = new Date(row.date)
   const debt = row.kind === 'debt'
   return (
-    <div className="receipt" style={{ '--rw': `${settings.receiptWidth}mm`, '--pw': `${printWidth(settings.receiptWidth)}mm` } as React.CSSProperties}>
+    <div className="receipt" style={{ '--rw': `${settings.receiptWidth}mm`, '--pw': `${printWidth(settings.receiptWidth)}mm`, '--rf': `${settings.receiptFont ?? 13}px` } as React.CSSProperties}>
       <div className="r-center">
         {settings.receiptShowLogo && settings.shopLogo && <img className="r-logo" src={settings.shopLogo} alt="" />}
         <b className="r-shop">{settings.shopName}</b>

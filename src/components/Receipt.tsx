@@ -13,7 +13,7 @@ export function Receipt({ sale, settings, debtTotal }: { sale: Sale; settings: S
   const totalPacks = groups.reduce((s, g) => s + g.packs, 0)
   const totalPairs = groups.reduce((s, g) => s + g.pairs, 0)
   return (
-    <div className="receipt" style={{ '--rw': `${settings.receiptWidth}mm`, '--pw': `${printWidth(settings.receiptWidth)}mm` } as React.CSSProperties}>
+    <div className="receipt" style={{ '--rw': `${settings.receiptWidth}mm`, '--pw': `${printWidth(settings.receiptWidth)}mm`, '--rf': `${settings.receiptFont ?? 13}px` } as React.CSSProperties}>
       <div className="r-center">
         {settings.receiptShowLogo && settings.shopLogo && <img className="r-logo" src={settings.shopLogo} alt="" />}
         <b className="r-shop">{settings.shopName}</b>

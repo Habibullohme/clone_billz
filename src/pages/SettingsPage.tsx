@@ -212,6 +212,13 @@ export function SettingsPage() {
                     </div>
                   </div>
                 </Row>
+                <Row id="set-receiptFont" title="Chek shrifti" hint="Chop etilgan chekdagi yozuv kattaligi. «Eng katta» — printer kengligiga sig'adigan eng kattasi (undan kattasida summalar bo'linib ketadi)">
+                  <Segmented<number>
+                    value={s.receiptFont ?? 13}
+                    onChange={(v) => update('receiptFont', v)}
+                    options={s.receiptWidth >= 80 ? [[15, 'Kichik'], [17, "O'rta"], [19, 'Eng katta']] : [[11, 'Kichik'], [12, "O'rta"], [13, 'Eng katta']]}
+                  />
+                </Row>
                 <Row id="set-receiptShowLogo" title="Logotip">{toggle('receiptShowLogo')}</Row>
                 <Row id="set-receiptShowCustomer" title="Mijoz ismi">{toggle('receiptShowCustomer')}</Row>
                 <Row id="set-receiptShowPacks" title="Pachka sonini ko'rsatish" hint="Masalan: 2 pachka · 10 × 190 000">{toggle('receiptShowPacks')}</Row>

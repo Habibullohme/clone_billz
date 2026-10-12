@@ -37,7 +37,7 @@ export function printReceipt(): void {
     const pw = receipt ? getComputedStyle(receipt).getPropertyValue('--pw').trim() || '48mm' : '48mm'
     // Chop etish ko'rinishida chek balandligini o'lchab, sahifani shu uzunlikda qilamiz (+4 mm zaxira).
     const probe = doc.createElement('style')
-    probe.textContent = `.receipt { width: ${pw} !important; padding: 0 !important; font-size: 11px; overflow-wrap: anywhere; }`
+    probe.textContent = `.receipt { width: ${pw} !important; padding: 0 !important; max-width: none !important; font-size: var(--rf, 13px); line-height: 1.3; overflow-wrap: anywhere; }`
     doc.head.appendChild(probe)
     const mm = Math.ceil((receipt?.getBoundingClientRect().height ?? 600) / 3.7795) + 4
     const page = doc.createElement('style')

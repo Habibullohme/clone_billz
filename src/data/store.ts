@@ -23,6 +23,8 @@ export interface Settings {
   // Chek
   /** Chek lentasi kengligi, mm. */
   receiptWidth: number
+  /** Chop etilgan chek shrifti, px (58 mm lentada 13 — sig'adigan eng kattasi). */
+  receiptFont: number
   receiptFooter: string
   receiptShowCustomer: boolean
   receiptShowPacks: boolean
@@ -53,6 +55,7 @@ export const defaultSettings: Settings = {
   shopLogo: '',
   ownerPin: '',
   receiptWidth: 58,
+  receiptFont: 13,
   receiptFooter: 'Xaridingiz uchun rahmat!',
   receiptShowCustomer: true,
   receiptShowPacks: true,

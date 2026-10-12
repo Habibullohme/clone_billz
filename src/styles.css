@@ -436,8 +436,8 @@ kbd {
   .print-area, .print-area * { visibility: visible; }
   .print-area { position: absolute; left: 0; top: 0; }
   /* Bosiladigan kenglik (58 mm lentada 48 mm) — chek kesilmasin; uzun so'zlar keyingi qatorga o'tadi. */
-  .receipt { padding: 0; border-radius: 0; width: var(--pw, 48mm); max-width: none; font-size: 11px; overflow-wrap: anywhere; box-sizing: border-box; }
-  .receipt .r-shop, .receipt .r-total { font-size: 13px; }
+  .receipt { padding: 0; border-radius: 0; width: var(--pw, 48mm); max-width: none; font-size: var(--rf, 13px); line-height: 1.3; overflow-wrap: anywhere; box-sizing: border-box; }
+  .receipt .r-shop, .receipt .r-total { font-size: 1.2em; }
   .receipt .r-kv > :last-child { white-space: normal; text-align: right; }
   @page { margin: 0; }
 
