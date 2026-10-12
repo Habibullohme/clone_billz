@@ -12,7 +12,16 @@ export function printReceipt(): void {
   Object.assign(frame.style, { position: 'fixed', left: '-10000px', top: '0', width: '400px', height: '800px', border: '0' })
   document.body.appendChild(frame)
   const doc = frame.contentDocument!
-  const styles = [...document.querySelectorAll('link[rel="stylesheet"], style')].map((n) => n.outerHTML).join('')
+  // Uslublar matn ko'rinishida ko'chiriladi (fayl havolasi emas) — yuklanishini kutish shart emas,
+  // aks holda printer CSS kelmasidan oldin oddiy matnni chop etib yuboradi.
+  const css = [...document.styleSheets].map((sheet) => {
+    try {
+      return [...sheet.cssRules].map((r) => r.cssText).join('\n')
+    } catch {
+      return '' // boshqa domendagi (shrift) jadval — o'qib bo'lmaydi, kerak ham emas
+    }
+  }).join('\n')
+  const styles = `<style>${css.replace(/<\/style/gi, '<\\/style')}</style>`
   doc.open()
   doc.write(`<!doctype html><html><head><meta charset="utf-8">${styles}
     <style>
