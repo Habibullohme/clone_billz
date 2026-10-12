@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { printReceipt } from '../lib/printReceipt'
 import type { Sale } from '../types'
 import { activeSales, archiveSale, getSales, restoreSale, getSettings, type Settings } from '../data/store'
 import { ReturnNotes, ReturnPanel } from '../components/ReturnPanel'
@@ -229,7 +230,7 @@ export function SalesPage() {
                   </button>
                 </>
               )}
-              {mode === 'none' && <button className="btn ghost" onClick={() => window.print()}>Chek chiqarish</button>}
+              {mode === 'none' && <button className="btn ghost" onClick={() => printReceipt()}>Chek chiqarish</button>}
               {mode === 'none' && <button className="btn primary grow" onClick={() => setOpen(null)}>Yopish</button>}
             </div>}
           </div>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { printReceipt } from '../lib/printReceipt'
 import type { CartLine, HeldCart, Payment, Product, Sale } from '../types'
 import {
   balanceOf, findByBarcode, getCustomers, getHeld, getProducts, getSettings, holdCart, saveSale, saveSettings,
@@ -113,7 +114,7 @@ export function PosPage() {
         // Chek oynasi: Space — chop etish, Enter — yangi sotuv.
         if (e.code === 'Space') {
           e.preventDefault()
-          window.print()
+          printReceipt()
         } else if (e.key === 'Enter') {
           e.preventDefault()
           setDone(null)
@@ -439,7 +440,7 @@ export function PosPage() {
               <Receipt sale={done} settings={settings} debtTotal={doneDebt} />
             </div>
             <div className="modal-actions">
-              <button className="btn ghost" onClick={() => window.print()}>Chek chiqarish <kbd>Space</kbd></button>
+              <button className="btn ghost" onClick={() => printReceipt()}>Chek chiqarish <kbd>Space</kbd></button>
               <button className="btn primary grow" onClick={() => setDone(null)}>Yangi sotuv <kbd>Enter</kbd></button>
             </div>
           </div>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { printReceipt } from '../lib/printReceipt'
 import type { Customer, LedgerEntry } from '../types'
 import { addLedgerEntry, balanceOf, deleteLedgerEntry, getCustomers, getSettings, syncSaleDebts, updateCustomer, type Settings } from '../data/store'
 import { ledgerRows, type LedgerRow } from '../lib/debt'
@@ -228,7 +229,7 @@ function CustomerCard({ c, receiptOf, onClose, onChanged }: { c: Customer; recei
           <div className="print-area debt-receipt"><DebtReceipt row={receiptRow} name={c.name} phone={c.phone} settings={settings} /></div>
           <div className="modal-actions">
             <button className="btn ghost" onClick={() => setReceipt(null)}>Yopish</button>
-            <button className="btn primary grow" onClick={() => window.print()}>🧾 Chek chiqarish</button>
+            <button className="btn primary grow" onClick={() => printReceipt()}>🧾 Chek chiqarish</button>
           </div>
         </Modal>
       )}

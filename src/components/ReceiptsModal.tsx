@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { printReceipt } from '../lib/printReceipt'
 import type { Sale } from '../types'
 import { activeSales, getSales, type Settings } from '../data/store'
 import { Receipt } from './Receipt'
@@ -57,7 +58,7 @@ export function ReceiptsModal({ settings, onClose }: { settings: Settings; onClo
             <div className="modal-actions">
               <button className="btn ghost" onClick={() => setOpen(null)}>← Cheklar</button>
               <button className="btn ghost" onClick={() => setReturning(true)}>↩️ Qaytarish</button>
-              <button className="btn primary grow" onClick={() => window.print()}>Chek chiqarish</button>
+              <button className="btn primary grow" onClick={() => printReceipt()}>Chek chiqarish</button>
             </div>
           )}
         </div>
