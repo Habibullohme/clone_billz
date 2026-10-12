@@ -11,6 +11,11 @@ import { enableWheelHScroll } from './lib/hscroll'
 applyFavicon(cachedBrand())
 enableWheelHScroll()
 
+// Ilova qilib o'rnatish (Chrome: "Ilovani o'rnatish") uchun service worker. Telegram mini app ichida kerak emas.
+if (import.meta.env.PROD && 'serviceWorker' in navigator && !isBossMode()) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}))
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     {isBossMode() ? <BossApp /> : <App />}
