@@ -141,7 +141,8 @@ export function PosPage() {
     return () => window.removeEventListener('keydown', h, true)
   }, [lines.length, paying, done, receipts])
 
-  const hits = searchProducts(products, query)
+  // Qidiruvda faqat omborda bor tovarlar (sotilib tugaganlari chiqmaydi; skaner esa "qolmagan" deb ogohlantiradi).
+  const hits = searchProducts(products.filter((p) => p.stock > 0), query)
   const sub = subtotal(lines)
   const finalTotal = (() => {
     const v = parseSum(finalDraft)
