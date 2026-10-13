@@ -13,7 +13,7 @@ describe('nasiya daftari', () => {
     await addLedgerEntry('alisher aka qarshi', undefined, { kind: 'payment', amount: 100_000, note: '', date: new Date().toISOString() })
     await addLedgerEntry('Bobur Urgut', '+998901112233', { kind: 'debt', amount: 1_000_000, note: 'daftardan', date: '2026-09-01T00:00:00.000Z' })
     const list = await getCustomers()
-    const a = list.find((c) => c.name === 'Alisher aka Qarshi')!
+    const a = list.find((c) => c.name === 'Alisher Aka Qarshi')!
     expect(a.phone).toBe('+998901234567')
     expect(a.ledger).toHaveLength(2)
     expect(a.ledger![0].saleNumber).toBe(1)
@@ -30,7 +30,7 @@ describe('eski nasiya sotuvlari', () => {
     expect(await syncSaleDebts()).toBe(0)
     // Daftarsiz "eski" sotuvni taqlid qilamiz: yozuvni o'chiramiz → qaytmasligi kerak.
     const list = await getCustomers()
-    const a = list.find((c) => c.name === 'Alisher aka Qarshi')!
+    const a = list.find((c) => c.name === 'Alisher Aka Qarshi')!
     const fromSale = a.ledger!.find((e) => e.saleId === sales[0].id)!
     await deleteLedgerEntry(a.id, fromSale.id)
     expect(await syncSaleDebts()).toBe(0)
@@ -43,7 +43,7 @@ describe('sotuvni arxivlash', () => {
     const sale = (await getSales()).find((s) => s.payment.debt > 0)!
     const pid = sale.lines[0].productId
     const stock = async () => (await getProducts()).find((p) => p.id === pid)!.stock
-    const alisher = async () => (await getCustomers()).find((c) => c.name === 'Alisher aka Qarshi')!
+    const alisher = async () => (await getCustomers()).find((c) => c.name === 'Alisher Aka Qarshi')!
     const before = await stock()
     const balance = balanceOf(await alisher())
 

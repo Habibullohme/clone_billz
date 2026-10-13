@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { Customer } from '../types'
 import { getCustomers, matchCustomers } from '../data/store'
+import { capitalizeWords } from '../lib/names'
 
 interface Props {
   value: string
@@ -41,7 +42,15 @@ export function CustomerInput({ value, onChange, onPick, onEnter, id, autoFocus 
         autoFocus={autoFocus}
         autoComplete="off"
         onChange={(e) => {
-          onChange(e.target.value)
+          // Har so'z bosh harf bilan; kursor joyida qoladi.
+          const el = e.target
+          const v = capitalizeWords(el.value)
+          if (v !== el.value) {
+            const pos = el.selectionStart
+            el.value = v
+            if (pos !== null) el.setSelectionRange(pos, pos)
+          }
+          onChange(v)
           setOpen(true)
           setActive(0)
         }}

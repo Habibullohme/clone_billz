@@ -549,11 +549,80 @@ async function commit(chat: number, s: Session): Promise<string> {
 
 // ---------- Sotilganlarni kanaldan olish ----------
 
-interface Post { id: number; product_ids: string[]; chat_id: number; message_id: number; caption: string; packs: number; left_packs: number }
+interface Post { id: number; product_ids: string[]; chat_id: number; message_id: number; caption: string; packs: number; left_packs: number; sold_message_id?: number | null }
+
+/** Telegram xatosini tushunarli qilib beradi. */
+function tgReason(e: unknown): string {
+  const m = String((e as Error)?.message ?? e)
+  if (/not found/i.test(m)) return "post kanalda topilmadi (allaqachon o'chirilgan)"
+  if (/can't be deleted|not enough rights|CHAT_ADMIN_REQUIRED|have no rights/i.test(m)) {
+    return "botda kanalda «Xabarlarni o'chirish» huquqi yo'q (yoki post boshqa bot joylagan va 48 soatdan eski). Kanal → Adminlar → bot → «Delete messages» ni yoqing."
+  }
+  if (/protected|can't be copied|forward/i.test(m)) return "kanalda «Kontentni saqlashni cheklash» yoqilgan — Sotilganlar kanaliga ko'chirib bo'lmaydi. Kanal sozlamasida uni o'chiring."
+  return m.replace(/^TG \w+: /, '')
+}
+
+/** Asosiy egaga ogohlantirish (bir martalik xabar). */
+async function warnOwner(text: string) {
+  const owner = admins()[0]
+  if (owner) await say(owner, `⚠️ <b>Kanal</b>\n${quote([esc(text)])}`).catch(() => {})
+}
+
+/**
+ * Sotilgan postni "Sotilganlar" kanaliga ko'chiradi (bir marta) va asosiy kanaldan o'chiradi.
+ * Post allaqachon o'chgan bo'lsa ham "bajarildi" hisoblanadi.
+ */
+async function moveSold(p: Post, sold: number | null): Promise<{ ok: boolean; soldId: number | null; reason: string }> {
+  let soldId = p.sold_message_id && p.sold_message_id > 0 ? p.sold_message_id : null
+  let reason = ''
+  if (sold && !soldId) {
+    const info = await lastSale(p.product_ids)
+    const m = await tg<{ message_id: number }>('copyMessage', {
+      chat_id: sold, from_chat_id: p.chat_id, message_id: p.message_id,
+      caption: soldCaption(p.caption, info, p.packs), parse_mode: 'HTML',
+    }).catch((e) => {
+      console.error(e)
+      reason = tgReason(e)
+      return null
+    })
+    soldId = m?.message_id ?? null
+  }
+  try {
+    await tg('deleteMessage', { chat_id: p.chat_id, message_id: p.message_id })
+    return { ok: true, soldId, reason }
+  } catch (e) {
+    const why = tgReason(e)
+    if (/topilmadi/.test(why)) return { ok: true, soldId, reason }
+    return { ok: false, soldId, reason: [why, reason && `Ko'chirish: ${reason}`].filter(Boolean).join(' ') }
+  }
+}
+
+/**
+ * Eski postlarni tozalash: ilgari o'chira olmay "SOTILGAN" deb qoldirilgan postlar
+ * Sotilganlar kanaliga ko'chiriladi va asosiy kanaldan o'chiriladi.
+ */
+export async function cleanupSold(): Promise<{ done: number; failed: number; reason: string }> {
+  const posts = await db<Post[]>('channel_posts?archived_at=not.is.null&sold_message_id=is.null&select=id,product_ids,chat_id,message_id,caption,packs,left_packs,sold_message_id&limit=300')
+  const sold = (await channelIds()).sold
+  let done = 0, failed = 0, reason = ''
+  for (const p of posts) {
+    const r = await moveSold({ ...p, caption: p.caption.replace(/^❌ <b>SOTILGAN<\/b>\n\n/, '') }, sold)
+    if (r.ok) {
+      done++
+      // 0 — "tekshirildi" belgisi (qayta urinilmaydi).
+      await db(`channel_posts?id=eq.${p.id}`, { method: 'PATCH', body: JSON.stringify({ sold_message_id: r.soldId ?? 0 }) })
+    } else {
+      failed++
+      reason ||= r.reason
+    }
+    await new Promise((res) => setTimeout(res, 300))
+  }
+  return { done, failed, reason }
+}
 
 /** Ochiq postlarni tekshiradi: hammasi sotilgani — "Sotilganlar"ga, qisman — "qoldi: N". */
 export async function syncSold(): Promise<{ archived: number; updated: number }> {
-  const posts = await db<Post[]>('channel_posts?archived_at=is.null&select=id,product_ids,chat_id,message_id,caption,packs,left_packs&limit=500')
+  const posts = await db<Post[]>('channel_posts?archived_at=is.null&select=id,product_ids,chat_id,message_id,caption,packs,left_packs,sold_message_id&limit=500')
   if (!posts.length) return { archived: 0, updated: 0 }
   const ids = [...new Set(posts.flatMap((p) => p.product_ids))]
   const stock = new Map<string, number>()
@@ -581,21 +650,17 @@ export async function syncSold(): Promise<{ archived: number; updated: number }>
       }
       continue
     }
-    // Hammasi sotildi: oxirgi sotuv ma'lumoti bilan "Sotilganlar"ga.
-    const info = await lastSale(present)
-    let soldId: number | null = null
-    if (sold) {
-      const m = await tg<{ message_id: number }>('copyMessage', {
-        chat_id: sold, from_chat_id: p.chat_id, message_id: p.message_id,
-        caption: soldCaption(p.caption, info, p.packs), parse_mode: 'HTML',
-      }).catch((e) => (console.error(e), null))
-      soldId = m?.message_id ?? null
+    // Hammasi sotildi: oxirgi sotuv ma'lumoti bilan "Sotilganlar"ga ko'chadi, asosiy kanaldan o'chadi.
+    const r = await moveSold(p, sold)
+    if (!r.ok) {
+      // O'chirib bo'lmadi — post ochiq qoladi va keyingi tekshiruvda yana uriniladi ("SOTILGAN" deb qoldirilmaydi).
+      if (p.left_packs > 0 || r.soldId !== (p.sold_message_id ?? null)) {
+        await db(`channel_posts?id=eq.${p.id}`, { method: 'PATCH', body: JSON.stringify({ left_packs: 0, sold_message_id: r.soldId }) })
+      }
+      if (p.left_packs > 0) await warnOwner(`Sotilgan postni asosiy kanaldan o'chirib bo'lmadi: ${r.reason}`)
+      continue
     }
-    await tg('deleteMessage', { chat_id: p.chat_id, message_id: p.message_id }).catch(async () => {
-      // O'chira olmasa — hech bo'lmasa "SOTILDI" deb belgilaydi.
-      await tg('editMessageCaption', { chat_id: p.chat_id, message_id: p.message_id, caption: '❌ <b>SOTILGAN</b>\n\n' + p.caption, parse_mode: 'HTML' }).catch(() => {})
-    })
-    await db(`channel_posts?id=eq.${p.id}`, { method: 'PATCH', body: JSON.stringify({ archived_at: new Date().toISOString(), left_packs: 0, sold_message_id: soldId }) })
+    await db(`channel_posts?id=eq.${p.id}`, { method: 'PATCH', body: JSON.stringify({ archived_at: new Date().toISOString(), left_packs: 0, sold_message_id: r.soldId }) })
     archived++
   }
   return { archived, updated }
@@ -964,6 +1029,7 @@ async function settingsScreen(chat: number, prev: Session | null, note?: string)
 const CHANNELS = '📣 Kanallar'
 const CH_MAIN = '📣 Asosiy kanal'
 const CH_SOLD = '✅ Sotilganlar kanali'
+const CH_CLEAN = "🧹 «SOTILGAN» postlarni tozalash"
 
 async function channelsScreen(chat: number, prev: Session | null, note?: string) {
   const ch = await channelIds()
@@ -976,7 +1042,7 @@ async function channelsScreen(chat: number, prev: Session | null, note?: string)
     '      <i>sotilgan post shu yerga ko\'chadi</i>',
     '',
     "<i>O'zgartirish uchun tugmani bosing.</i>",
-  ), keys([CH_MAIN, CH_SOLD], [BACK]))
+  ), keys([CH_MAIN, CH_SOLD], [CH_CLEAN], [BACK]))
 }
 
 const channelAsk = (chat: number, prev: Session | null, which: 'main' | 'sold', note?: string) =>
@@ -1613,6 +1679,14 @@ async function adminMessage(m: NonNullable<Update['message']>, chat: number, own
   if (step === 'm_channels') {
     if (text === CH_MAIN) return channelAsk(chat, s, 'main')
     if (text === CH_SOLD) return channelAsk(chat, s, 'sold')
+    if (text === CH_CLEAN) {
+      const sr = await syncSold()
+      const r = await cleanupSold()
+      const total = r.done + sr.archived
+      return channelsScreen(chat, s, r.failed
+        ? `⚠️ ${total} ta tozalandi, ${r.failed} tasini o'chirib bo'lmadi: ${esc(r.reason)}`
+        : `✅ ${total} ta post asosiy kanaldan olindi${(await channelIds()).sold ? ' va Sotilganlarga ko\'chdi' : ''}.`)
+    }
     return channelsScreen(chat, s)
   }
   if (step === 'm_channel_set' && text === '🚫 Kanalni uzish') {

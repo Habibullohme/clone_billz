@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { brandCode, codeOf, defaultCfg, handle, learnPackSize, makeBarcode, parseSum, postCaption, refreshPosts, splitPhones, attachPhoto, tgAuth, verifyInitData, soldCaption, tashkentStamp } from './index'
+import { brandCode, codeOf, defaultCfg, handle, learnPackSize, makeBarcode, parseSum, postCaption, refreshPosts, splitPhones, attachPhoto, tgAuth, verifyInitData, soldCaption, tashkentStamp, syncSold, cleanupSold } from './index'
 import * as site from '../../../src/lib/codes'
 
 // ---------- Soxta Supabase (PostgREST) va Telegram ----------
@@ -15,12 +15,16 @@ const ENV: Record<string, string> = {
   ADMIN_IDS: '7', CHANNEL_ID: '-100', SOLD_CHANNEL_ID: '-200', WEBHOOK_SECRET: 's3',
 }
 
+/** Shu Telegram metodlari xato qaytaradi (sinov uchun). */
+let tgFail: Record<string, string> = {}
+
 function match(row: Row, key: string, cond: string): boolean {
   const [op, ...rest] = cond.split('.')
   const v = decodeURIComponent(rest.join('.'))
   const field = key.includes('->>') ? row[key.split('->>')[0]]?.[key.split('->>')[1]] : row[key]
   if (op === 'eq') return String(field) === v
   if (op === 'is' && v === 'null') return field == null
+  if (op === 'not' && v === 'is.null') return field != null
   if (op === 'in') return v.slice(1, -1).split(',').map((x) => x.replace(/"/g, '')).includes(String(field))
   if (op === 'ilike') {
     const re = new RegExp('^' + v.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$', 'i')
@@ -87,6 +91,7 @@ async function fakeFetch(input: any, init: any = {}) {
   if (url.host === 'api.telegram.org') {
     const method = url.pathname.split('/').pop()!
     sent.push({ method, body })
+    if (tgFail[method]) return new Response(JSON.stringify({ ok: false, description: tgFail[method] }))
     const result = method === 'sendPhoto' ? { message_id: ++msgId, photo: [{ file_id: (typeof body.photo === 'string' ? body.photo : 'up') + '_ch' }] }
       : method === 'editMessageMedia' ? { message_id: Number(body.message_id), photo: [{ file_id: 'new_ch' }] }
       : method === 'sendMessage' ? { message_id: ++msgId }
@@ -146,6 +151,7 @@ const lastKeyboard = () => [...sent].reverse().find((x) => x.method === 'sendMes
 beforeEach(() => {
   tables = { brands: [{ id: 'velton', data: 'Velton' }], settings: [{ id: 'main', data: { shopPhone: '+998 90 000 00 00' } }], products: [], sales: [], staff: [] }
   counters = { product: 40, 'brand:velton': 20, batch: 3 }
+  tgFail = {}
   sent = []
   users = []
   jwtUser = null
@@ -871,5 +877,43 @@ describe("qo'ldagi tovarga rasm (sayt / mini app)", () => {
     }))
     expect(res.status).toBe(403)
     expect(sent.some((x) => x.method === 'sendPhoto')).toBe(false)
+  })
+})
+
+describe("sotilgan postni kanaldan olish", () => {
+  it("o'chira olmasa — SOTILGAN deb qoldirmaydi, egaga sababini aytadi, keyin qayta urinadi; eski postlar tozalanadi", async () => {
+    tables.products = [{ id: 'p1', brand: 'Velton', name: 'klassik A1', stock: 0 }, { id: 'p2', brand: 'Velton', name: 'klassik A2', stock: 0 }]
+    tables.channel_posts = [
+      { id: 1, product_ids: ['p1'], chat_id: -100, message_id: 50, caption: '👟 <b>Velton</b>', packs: 1, left_packs: 1, archived_at: null, sold_message_id: null },
+      // Ilgari "SOTILGAN" deb belgilanib, arxivga tushib qolgan eski post
+      { id: 2, product_ids: ['p2'], chat_id: -100, message_id: 51, caption: '❌ <b>SOTILGAN</b>\n\n👟 <b>Velton</b>', packs: 1, left_packs: 0, archived_at: '2026-10-01T00:00:00Z', sold_message_id: null },
+    ]
+    tgFail = { deleteMessage: "TG deleteMessage: Bad Request: message can't be deleted" }
+    expect(await syncSold()).toEqual({ archived: 0, updated: 0 })
+    expect(sent.some((x) => x.method === 'editMessageCaption')).toBe(false)
+    expect(tables.channel_posts[0]).toMatchObject({ archived_at: null, left_packs: 0 })
+    expect(tables.channel_posts[0].sold_message_id).toBeTruthy() // Sotilganlarga bir marta ko'chdi
+    const warn = sent.find((x) => x.method === 'sendMessage' && x.body.chat_id === 7)!
+    expect(warn.body.text).toContain("o'chirish")
+
+    // Qayta tekshiruvda yana ko'chirmaydi (faqat o'chirishga urinadi), egaga ham qayta yozmaydi
+    sent = []
+    await syncSold()
+    expect(sent.filter((x) => x.method === 'copyMessage')).toHaveLength(0)
+    expect(sent.filter((x) => x.method === 'sendMessage')).toHaveLength(0)
+
+    // Huquq berildi — endi o'chadi va arxivga o'tadi
+    tgFail = {}
+    expect(await syncSold()).toEqual({ archived: 1, updated: 0 })
+    expect(tables.channel_posts[0].archived_at).toBeTruthy()
+
+    // Eski "SOTILGAN" post tozalanadi: Sotilganlarga ko'chadi (belgisiz) va o'chadi
+    sent = []
+    expect(await cleanupSold()).toEqual({ done: 1, failed: 0, reason: '' })
+    const copy = sent.find((x) => x.method === 'copyMessage')!
+    expect(copy.body).toMatchObject({ chat_id: -200, message_id: 51 })
+    expect(copy.body.caption).not.toContain('SOTILGAN</b>')
+    expect(sent.some((x) => x.method === 'deleteMessage' && x.body.message_id === 51)).toBe(true)
+    expect(await cleanupSold()).toEqual({ done: 0, failed: 0, reason: '' })
   })
 })

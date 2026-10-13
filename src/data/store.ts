@@ -3,6 +3,7 @@
  * tez o'qish uchun nusxasi turadi. Ulanmagan bo'lsa — brauzer xotirasida (sinov rejimi).
  */
 import { applyReturn, type SaleReturn } from '../lib/refund'
+import { capitalizeWords } from '../lib/names'
 import type { Customer, HeldCart, ImportBatch, LedgerEntry, Product, ProductInput, Sale } from '../types'
 import { brandCode, makeBarcode } from '../lib/codes'
 import { demoInputs } from './demo'
@@ -569,7 +570,7 @@ export async function getCustomers(): Promise<Customer[]> {
   return read<Customer[]>(K.customers, [])
 }
 
-const cleanName = (name: string) => name.trim().replace(/\s+/g, ' ')
+const cleanName = (name: string) => capitalizeWords(name.trim().replace(/\s+/g, ' '))
 const sameName = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
 
 /** Mijozni topadi yoki yaratadi (ro'yxatga yozilmaydi — chaqiruvchi yozadi). */
