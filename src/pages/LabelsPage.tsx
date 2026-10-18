@@ -209,7 +209,8 @@ export function LabelsPage({ batchId }: { batchId: string | null }) {
 
       {createPortal(
         <div className="label-sheet">
-          <style>{'@media print { @page { margin: 0; } }'}</style>
+          {/* Sahifa o'lchami = etiketka o'lchami: har etiketka aynan bitta qog'oz etiketkaga tushadi, lenta bo'ylab "siljib" ketmaydi. */}
+          <style>{`@media print { @page { size: ${template.width}mm ${template.height}mm; margin: 0; } }`}</style>
           {(printOnlyOne ? items.slice(0, 1).map((id) => [id, 1] as const) : items.map((id) => [id, qty[id]] as const)).flatMap(([id, n]) =>
             Array.from({ length: n }, (_, i) => <FitLabel key={`${id}-${i}`} t={template} p={byId.get(id)!} />),
           )}
