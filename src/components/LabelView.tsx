@@ -3,8 +3,13 @@ import type React from 'react'
 import type { Product } from '../types'
 import { fieldNames, fieldText, placedFields, type LabelTemplate, type PlacedField } from '../lib/labels'
 import { Barcode } from './Barcode'
+import { isEan13 } from '../lib/codes'
 
-/** Shtrix-kod chap-o'ngidagi oq joy (chiziq enida). Usiz chetga tegib chop etilgan kod skanerda o'qilmaydi. */
+/**
+ * Shtrix-kod chap-o'ngidagi oq joy (chiziq enida). Usiz chetga tegib chop etilgan kod skanerda o'qilmaydi.
+ * Do'kon kodlari (EAN-13) doim EAN-13 bo'lib chiziladi: CODE128 dan ~25% kam chiziq — kichik etiketkada
+ * chiziqlar yo'g'onroq, printer ingichka oq joyni yo'qotmaydi (CODE128 dagi №72–73 etiketkalar shundan o'qilmadi).
+ */
 const QUIET_MODULES = 10
 
 /** Ustma-ust turgan shu maydonlar bitta matn bo'lib oqadi: "richmen barsofka / qoshma qora". */
@@ -71,7 +76,7 @@ export function LabelView({ t, p }: { t: LabelTemplate; p: Product }) {
           const digits = t.barcodeText ? Math.min(3.4, Math.max(1.6, f.h * 0.24)) : 0
           return (
             <div key={i} className="lbl-bc" style={{ left: `${f.x}mm`, top: `${f.y}mm`, width: `${f.w}mm`, height: `${f.h}mm` }}>
-              <div className="lbl-bars"><Barcode code={p.barcode} format={t.format} text={false} stretch quiet={QUIET_MODULES} /></div>
+              <div className="lbl-bars"><Barcode code={p.barcode} format={isEan13(p.barcode) ? 'EAN13' : t.format} text={false} stretch quiet={QUIET_MODULES} /></div>
               {digits > 0 && <div className="lbl-digits" style={{ fontSize: `${digits * 0.85}mm`, height: `${digits}mm` }}>{p.barcode}</div>}
             </div>
           )

@@ -1148,14 +1148,13 @@ input:not([type=checkbox]):not([type=range]):not([type=file]), textarea {
 .cam-msg.bad { color: #ff9a90; }
 @media (prefers-reduced-motion: reduce) { .cam-line { animation: none; top: 50%; } }
 
-/* Kassa: kamera tugmasi (telefon va planshetda ko'rinadi) */
+/* Kassa: kamera tugmasi (kompyuterda ham — USB skaner o'qimagan etiketka uchun) */
 .cam-btn {
-  flex: none; display: none; align-items: center; gap: 6px; padding: 0 14px; border-radius: 14px; border: 0; cursor: pointer;
+  flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 0 14px; border-radius: 14px; border: 0; cursor: pointer;
   background: var(--accent); color: var(--accent-fg); font: 700 14px var(--font-ui);
 }
 .cam-cta { display: none; margin-top: 8px; }
 @media (max-width: 860px), (hover: none) and (pointer: coarse) {
-  .cam-btn { display: inline-flex; }
   .cam-cta { display: inline-flex; }
 }
 

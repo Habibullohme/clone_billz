@@ -4,6 +4,11 @@ export function ean13(base12: string): string {
   return base12 + ((10 - (sum % 10)) % 10)
 }
 
+/** To'g'ri EAN-13 kodmi (13 raqam, nazorat raqami mos). */
+export function isEan13(code: string): boolean {
+  return /^\d{13}$/.test(code) && ean13(code.slice(0, 12)) === code
+}
+
 /** Do'konning o'z shtrix-kodi: "21" + 10 xonali tartib raqami + nazorat raqami. */
 export function makeBarcode(seq: number): string {
   return ean13('21' + String(seq).padStart(10, '0'))

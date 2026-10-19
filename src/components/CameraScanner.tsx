@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { onHide } from '../lib/resume'
 import { useBackClose } from '../lib/nav'
+import { matchKnown, scanImage } from '../lib/code128'
+import { getProducts } from '../data/store'
 
 interface Detector { detect(src: CanvasImageSource): Promise<{ rawValue: string }[]> }
 
@@ -51,19 +53,38 @@ export function CameraScanner({ onScan, onClose }: { onScan: (code: string) => v
         v.srcObject = stream
         await v.play()
         const detector = await makeDetector()
+        // Do'kondagi tovarlar kodlari — nuqsonli chop etilgan etiketkani tanish uchun.
+        const known = (await getProducts()).map((p) => p.barcode).filter(Boolean)
+        const canvas = document.createElement('canvas')
+        const ctx = canvas.getContext('2d', { willReadFrequently: true })
+        let n = 0
+        const found = (raw: string) => {
+          const code = raw.trim()
+          const now = Date.now()
+          if (!code || now - (seen.get(code) ?? 0) < 2000) return
+          seen.set(code, now)
+          navigator.vibrate?.(60)
+          setFlash((f) => f + 1)
+          setLast((l) => ({ code, n: (l?.n ?? 0) + 1 }))
+          onScan(code)
+        }
         const tick = async () => {
           if (stopped) return
           try {
             if (v.readyState >= 2) {
-              for (const r of await detector.detect(v)) {
-                const code = r.rawValue.trim()
-                const now = Date.now()
-                if (!code || now - (seen.get(code) ?? 0) < 2000) continue
-                seen.set(code, now)
-                navigator.vibrate?.(60)
-                setFlash((f) => f + 1)
-                setLast((l) => ({ code, n: (l?.n ?? 0) + 1 }))
-                onScan(code)
+              // Brauzer skaneri xato bersa ham (kutubxona yuklanmadi) — o'zimizning o'quvchi ishlayveradi.
+              const hits = await detector.detect(v).catch(() => [] as { rawValue: string }[])
+              hits.forEach((r) => found(r.rawValue))
+              // Brauzer skaneri o'qimadi: chetida oq joyi yo'q yoki chiziqlari qo'shilib chop etilgan
+              // etiketka bo'lishi mumkin — har ikkinchi kadrda o'zimiz o'qiymiz.
+              if (!hits.length && ctx && n++ % 2 === 0) {
+                const k = Math.min(1, 1280 / v.videoWidth)
+                canvas.width = Math.round(v.videoWidth * k)
+                canvas.height = Math.round(v.videoHeight * k)
+                ctx.drawImage(v, 0, 0, canvas.width, canvas.height)
+                const img = ctx.getImageData(0, 0, canvas.width, canvas.height)
+                const code = scanImage(img) ?? (await matchKnown(img, known))
+                if (code) found(code)
               }
             }
           } catch {

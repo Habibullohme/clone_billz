@@ -27,3 +27,14 @@ describe('kod band', () => {
     expect(codeTaken(list, 'Ezel', 'B18')).toBeUndefined()
   })
 })
+
+import { isEan13, makeBarcode } from './codes'
+
+describe('EAN-13 tekshiruvi', () => {
+  it("do'kon kodlari to'g'ri EAN-13", () => {
+    expect(isEan13(makeBarcode(660))).toBe(true)
+    expect(isEan13('2100000006601')).toBe(true)
+    expect(isEan13('2100000006602')).toBe(false)
+    expect(isEan13('ABC')).toBe(false)
+  })
+})
