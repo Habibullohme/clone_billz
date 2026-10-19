@@ -1361,3 +1361,4 @@ input:not([type=checkbox]):not([type=range]):not([type=file]), textarea {
 .return-line.on { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 8%, transparent); }
 .return-line .grow { flex: 1; min-width: 0; }
 .tag.t-return { margin-left: 6px; background: color-mix(in srgb, var(--warn, #d97706) 15%, transparent); }
+.hits.hits-empty { padding: 10px 14px; }

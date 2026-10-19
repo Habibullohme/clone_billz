@@ -232,21 +232,22 @@ let refreshing: Promise<void> | null = null
 
 /**
  * Bazadan yangilab oladi (boshqa kassada qilingan sotuvlar, kirimlar ko'rinadi).
- * Bir vaqtda bittasi ishlaydi (oynaga qaytganda bir necha joydan chaqirilsa ham); 25 soniyada javob kelmasa — tashlab yuboriladi.
+ * Bir vaqtda bittasi ishlaydi (oynaga qaytganda bir necha joydan chaqirilsa ham); fonda 60 soniyada javob kelmasa — keyingi safar qayta uriniladi.
  */
 export function refresh(): Promise<void> {
-  refreshing ??= doRefresh().finally(() => {
+  refreshing ??= doRefresh(memory.has(K.products) ? 60_000 : 0).finally(() => {
     refreshing = null
   })
   return refreshing
 }
 
-async function doRefresh(): Promise<void> {
+/** timeout — fondagi yangilash uchun (0 — cheklovsiz: birinchi yuklashda ma'lumot kutiladi). */
+async function doRefresh(timeout: number): Promise<void> {
   if (mode !== 'cloud' || pending.length) return
   const before = writeCount
   const snap = await Promise.race([
     cloud.loadAll(),
-    new Promise<null>((r) => setTimeout(() => r(null), 25_000)),
+    ...(timeout ? [new Promise<null>((r) => setTimeout(() => r(null), timeout))] : []),
   ])
   if (!snap) return
   // Yuklash davomida biror narsa yozilgan bo'lsa — bu ma'lumot eskirgan, tashlab yuboramiz.
@@ -316,7 +317,28 @@ export async function getProducts(): Promise<Product[]> {
 export async function findByBarcode(code: string): Promise<Product | undefined> {
   const products = await getProducts()
   const c = code.trim()
-  return products.find((p) => p.barcode === c)
+  const local = products.find((p) => p.barcode === c)
+  if (local || mode !== 'cloud') return local
+  // Xotirada yo'q — bazadan so'raymiz (boshqa qurilmada yoki botda endi qo'shilgan bo'lishi mumkin).
+  const remote = await cloud.productByBarcode(c).catch(() => null)
+  if (remote) remember([remote])
+  return remote ?? undefined
+}
+
+/** Bazadan topilgan tovarlarni xotiraga qo'shadi (bazaga qayta yozmaydi). */
+function remember(found: Product[]) {
+  const list = read<Product[]>(K.products, [])
+  const have = new Set(list.map((p) => p.id))
+  const fresh = found.filter((p) => !have.has(p.id))
+  if (fresh.length) put(K.products, [...list, ...fresh])
+}
+
+/** Xotirada topilmasa — bazadan qidirish (natija xotiraga ham qo'shiladi). */
+export async function searchProductsCloud(q: string): Promise<Product[]> {
+  if (mode !== 'cloud' || q.trim().length < 2) return []
+  const found = await cloud.searchProductsRemote(q).catch(() => [] as Product[])
+  remember(found)
+  return found
 }
 
 export function searchProducts(products: Product[], query: string, limit = 8): Product[] {

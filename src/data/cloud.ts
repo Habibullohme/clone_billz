@@ -81,7 +81,8 @@ async function all<T>(q: PromiseLike<{ data: T[] | null; error: unknown }>): Pro
 async function paged<T>(table: string, columns: string, order: string): Promise<T[]> {
   const out: T[] = []
   for (let from = 0; ; from += 1000) {
-    const page = await all<T>(supabase!.from(table).select(columns).order(order).range(from, from + 999) as never)
+    // Ikkinchi tartib — id: bir kirimdagi tovarlarning vaqti bir xil, usiz sahifalar orasida tovar tushib qolishi mumkin.
+    const page = await all<T>(supabase!.from(table).select(columns).order(order).order('id').range(from, from + 999) as never)
     out.push(...page)
     if (page.length < 1000) return out
   }
@@ -120,6 +121,24 @@ export async function loadAll(): Promise<CloudSnapshot> {
     settings: settings[0]?.data ?? null,
     counters: Object.fromEntries(counters.map((c) => [c.name, Number(c.value)])),
   }
+}
+
+/** Bitta tovarni to'g'ridan-to'g'ri bazadan topish (xotirada yo'q bo'lsa — masalan boshqa qurilmada endi qo'shilgan). */
+export async function productByBarcode(code: string): Promise<Product | null> {
+  const { data, error } = await supabase!.from('products').select('*').eq('barcode', code).maybeSingle()
+  if (error) throw error
+  return data ? fromRow(data as ProductRow) : null
+}
+
+/** Bazadan qidirish: nom yoki shtrix-kod bo'yicha (xotirada topilmasa). */
+export async function searchProductsRemote(q: string, limit = 12): Promise<Product[]> {
+  const words = q.trim().replace(/[%_,()*]/g, ' ').split(/\s+/).filter(Boolean).slice(0, 4)
+  if (!words.length) return []
+  let query = supabase!.from('products').select('*')
+  for (const w of words) query = query.or(`name.ilike.%${w}%,brand.ilike.%${w}%,barcode.ilike.%${w}%`)
+  const { data, error } = await query.order('created_at', { ascending: false }).limit(limit)
+  if (error) throw error
+  return (data as ProductRow[]).map(fromRow)
 }
 
 // ---------- Yozish ----------

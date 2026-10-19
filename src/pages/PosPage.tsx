@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { onResume } from '../lib/resume'
 import { printReceipt } from '../lib/printReceipt'
 import type { CartLine, HeldCart, Payment, Product, Sale } from '../types'
 import {
-  balanceOf, findByBarcode, getCustomers, getHeld, getProducts, getSettings, holdCart, saveSale, saveSettings,
+  balanceOf, findByBarcode, searchProductsCloud, refresh, getCustomers, getHeld, getProducts, getSettings, holdCart, saveSale, saveSettings,
   searchProducts, takeHeld, type Settings,
 } from '../data/store'
 import { addProduct, distributeTotal, lineTotal, subtotal } from '../lib/cart'
@@ -46,7 +47,32 @@ export function PosPage() {
     getProducts().then(setProducts)
     getSettings().then(setSettings)
     getHeld().then(setHeld)
+    // Boshqa oynada, qurilmada yoki botda qo'shilgan tovarlar kassaga ham chiqsin.
+    return onResume(() => { refresh().catch(() => {}).then(getProducts).then(setProducts) }, 300)
   }, [])
+
+  // Har qidiruvda — xotiradagi eng yangi ro'yxat; unda topilmasa — bazadan.
+  const [remoteHits, setRemoteHits] = useState<Product[]>([])
+  useEffect(() => {
+    setRemoteHits([])
+    if (!query.trim()) return
+    let alive = true
+    let t = 0
+    getProducts().then((list) => {
+      if (!alive) return
+      setProducts(list)
+      if (searchProducts(list, query).length) return
+      t = window.setTimeout(() => searchProductsCloud(query).then((r) => {
+        if (!alive) return
+        setRemoteHits(r)
+        getProducts().then(setProducts)
+      }), 350)
+    })
+    return () => {
+      alive = false
+      clearTimeout(t)
+    }
+  }, [query])
 
   const byId = useMemo(() => new Map(products.map((p) => [p.id, p])), [products])
 
@@ -143,6 +169,8 @@ export function PosPage() {
 
   // Qidiruvda faqat omborda bor tovarlar (sotilib tugaganlari chiqmaydi; skaner esa "qolmagan" deb ogohlantiradi).
   const hits = searchProducts(products.filter((p) => p.stock > 0), query)
+  /** Mos keladi, lekin omborda yo'q — "topilmadi" emas, sababi ko'rinsin. */
+  const soldOut = query.trim() && !hits.length ? searchProducts(products.filter((p) => p.stock <= 0), query, 3) : []
   const sub = subtotal(lines)
   const finalTotal = (() => {
     const v = parseSum(finalDraft)
@@ -263,6 +291,13 @@ export function PosPage() {
             }}
           />
           <kbd className="search-kbd">Space</kbd>
+          {query.trim() && !hits.length && (soldOut.length > 0 || remoteHits.length === 0) && (
+            <div className="hits hits-empty muted small">
+              {soldOut.length
+                ? `Omborda yo'q (sotilgan): ${soldOut.map((p) => p.name).join(', ')}`
+                : 'Topilmadi'}
+            </div>
+          )}
           {hits.length > 0 && (
             <ul className="hits">
               {hits.map((p, i) => (
