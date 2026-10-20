@@ -87,8 +87,9 @@ export function PosPage() {
   const add = useCallback(
     (p: Product) => {
       const inCart = linesRef.current.find((l) => l.productId === p.id)?.pairs ?? 0
-      // Bitta shtrix-kod — bitta pachka: omborda boridan ortiq qo'shilmaydi.
-      if (inCart + p.packSize > p.stock) {
+      // Bitta shtrix-kod — bitta pachka. Pachkadan bir qismi sotilgan bo'lsa — qolgan juftlar qo'shiladi.
+      const take = Math.min(p.packSize, p.stock - inCart)
+      if (take <= 0) {
         if (settings?.scanSound) beep(false)
         if (inCart > 0) {
           // Savatdagi o'sha qator silkinadi — qaysi tovar ekani darhol ko'rinadi.
@@ -96,18 +97,16 @@ export function PosPage() {
           requestAnimationFrame(() => setShakeId(p.id))
           setTimeout(() => setShakeId((x) => (x === p.id ? null : x)), 600)
         }
-        showToast(
-          inCart > 0
-            ? `${p.name} savatda bor`
-            : p.stock <= 0
-              ? `${p.name} sotilgan — omborda yo'q`
-              : `${p.name}: omborda faqat ${p.stock} juft bor`,
-          true,
-        )
+        showToast(inCart > 0 ? `${p.name} savatda bor` : `${p.name} sotilgan — omborda yo'q`, true)
         return false
       }
+      if (take < p.packSize) showToast(`${p.name}: pachkadan ${take} juft qolgan — ${take} juft qo'shildi`)
       // Ikki skaner juda tez kelsa ham — holat yangilanayotganda yana tekshiramiz.
-      setLines((ls) => ((ls.find((l) => l.productId === p.id)?.pairs ?? 0) + p.packSize > p.stock ? ls : addProduct(ls, p)))
+      setLines((ls) => {
+        const have = ls.find((l) => l.productId === p.id)?.pairs ?? 0
+        const n = Math.min(p.packSize, p.stock - have)
+        return n > 0 ? addProduct(ls, p, n) : ls
+      })
       setFlashId(p.id)
       setTimeout(() => setFlashId((f) => (f === p.id ? null : f)), 700)
       return true

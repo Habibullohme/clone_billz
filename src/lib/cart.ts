@@ -1,13 +1,14 @@
 import type { CartLine, Product } from '../types'
 
 /** Skaner yoki qidiruvdan qo'shish: bitta pachka qo'shiladi. */
-export function addProduct(lines: CartLine[], product: Product): CartLine[] {
+/** pairs — nechta juft qo'shiladi (odatda bitta pachka; pachkadan qolgan juftlar bo'lsa — shu qoldiq). */
+export function addProduct(lines: CartLine[], product: Product, pairs = product.packSize): CartLine[] {
   const i = lines.findIndex((l) => l.productId === product.id)
   if (i === -1) {
-    return [{ productId: product.id, pairs: product.packSize, price: product.salePrice }, ...lines]
+    return [{ productId: product.id, pairs, price: product.salePrice }, ...lines]
   }
   const next = [...lines]
-  next[i] = { ...next[i], pairs: next[i].pairs + product.packSize }
+  next[i] = { ...next[i], pairs: next[i].pairs + pairs }
   // Oxirgi skaner qilingan tovar tepada turadi.
   const [line] = next.splice(i, 1)
   return [line, ...next]

@@ -19,6 +19,11 @@ describe('savatcha', () => {
     expect(subtotal(lines)).toBe(10 * 160_000 + 3 * 160_000)
   })
 
+  it("pachkadan qolgan juftlarni qo'shish mumkin", () => {
+    const lines = addProduct([], p('v', 3), 2)
+    expect(lines[0]).toMatchObject({ productId: 'v', pairs: 2 })
+  })
+
   it('yakuniy summa butun so\'mlarda aniq taqsimlanadi', () => {
     const parts = distributeTotal([875_000, 550_000], 1_400_000)
     expect(parts.reduce((a, b) => a + b, 0)).toBe(1_400_000)
