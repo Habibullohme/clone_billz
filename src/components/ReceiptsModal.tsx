@@ -57,7 +57,7 @@ export function ReceiptsModal({ settings, onClose }: { settings: Settings; onClo
           ) : (
             <div className="modal-actions">
               <button className="btn ghost" onClick={() => setOpen(null)}>← Cheklar</button>
-              <button className="btn ghost" onClick={() => setReturning(true)}>↩️ Qaytarish</button>
+              {!open.pending && <button className="btn ghost" onClick={() => setReturning(true)}>↩️ Qaytarish</button>}
               <button className="btn primary grow" onClick={() => printReceipt()}>Chek chiqarish</button>
             </div>
           )}
@@ -83,7 +83,7 @@ export function ReceiptsModal({ settings, onClose }: { settings: Settings; onClo
           ) : (
             list.map((s) => (
               <button key={s.id} className="receipt-item" onClick={() => setOpen(s)}>
-                <span className="muted">№{s.number}</span>
+                <span className="muted">{s.pending ? '⏳' : `№${s.number}`}</span>
                 <span className="ri-name">{s.customerName || <span className="muted">Mijozsiz</span>}{s.returns?.length ? <span className="tag t-return">↩️</span> : null}</span>
                 <span className="muted small">{when(s.createdAt)}</span>
               </button>

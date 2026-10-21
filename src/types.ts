@@ -112,6 +112,8 @@ export interface Sale {
   archivedAt?: string
   archivedBy?: string
   archiveReason?: string
+  /** Internetsiz qilingan sotuv: hali bazaga yuborilmagan (chek raqami keyin beriladi). */
+  pending?: boolean
   /** Chekdan qisman qaytarilgan tovarlar (chek summasi allaqachon kamaytirilgan). */
   returns?: import('./lib/refund').SaleReturn[]
 }

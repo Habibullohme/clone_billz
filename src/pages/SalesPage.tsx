@@ -130,7 +130,7 @@ export function SalesPage() {
                 <tbody>
                   {archived.map((s) => (
                     <tr key={s.id} onClick={() => setOpen(s)}>
-                      <td className="muted">{s.number}</td>
+                      <td className="muted">{s.pending ? '⏳' : s.number}</td>
                       <td>{when(s.createdAt)}</td>
                       <td className="danger-text">{when(s.archivedAt!)}</td>
                       <td className="small">{s.archivedBy || <span className="muted">—</span>}</td>
@@ -151,7 +151,7 @@ export function SalesPage() {
               <tbody>
                 {list.map((s) => (
                   <tr key={s.id} onClick={() => setOpen(s)}>
-                    <td className="muted">{s.number}</td>
+                    <td className="muted">{s.pending ? '⏳' : s.number}</td>
                     <td>{when(s.createdAt)}</td>
                     <td>{s.customerName || <span className="muted">—</span>}{s.returns?.length ? <span className="tag t-return">↩️ qaytarish</span> : null}</td>
                     <td className="num"><b>{formatSum(s.total)}</b></td>
@@ -185,6 +185,7 @@ export function SalesPage() {
               </p>
             )}
             <ReturnNotes sale={open} />
+            {open.pending && <p className="return-note">⏳ Internetsiz qilingan sotuv — hali bazaga yuborilmagan. Qaytarish va arxivlash internet qaytgach mumkin bo'ladi.</p>}
             {mode === 'return' && !open.archivedAt && (
               <ReturnPanel
                 sale={open}
@@ -209,7 +210,7 @@ export function SalesPage() {
               </div>
             )}
             {mode !== 'return' && <div className="modal-actions">
-              {open.archivedAt ? (
+              {open.pending ? null : open.archivedAt ? (
                 <button className="btn ghost" disabled={busy} onClick={() => run(() => restoreSale(open.id))} title="Sotuv yana hisobotga kiradi, tovar qoldig'i kamayadi">
                   {busy ? 'Qaytarilmoqda…' : 'Sotuvga qaytarish'}
                 </button>

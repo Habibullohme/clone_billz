@@ -145,6 +145,137 @@ function syncFailed(e: unknown) {
   errorListeners.forEach((cb) => cb(msg))
 }
 
+// ---------- Internetsiz rejim ----------
+
+/** Internet uzilganini bildiruvchi xato (bazaga yetib bo'lmadi). */
+export function isNetworkError(e: unknown): boolean {
+  const m = String((e as Error)?.message ?? e)
+  return (typeof navigator !== 'undefined' && navigator.onLine === false) || /fetch|network|load failed|timeout|ERR_INTERNET|ERR_NAME|ECONN/i.test(m)
+}
+
+const CACHE_KEY = 'dk.offline.cache'
+const OUTBOX_KEY = 'dk.offline.outbox'
+
+interface Queued { id: string; data: Omit<Sale, 'id' | 'number' | 'pending'> }
+
+function readOutbox(): Queued[] {
+  try {
+    return JSON.parse(localStorage.getItem(OUTBOX_KEY) ?? '[]') as Queued[]
+  } catch {
+    return []
+  }
+}
+function writeOutbox(list: Queued[]) {
+  try {
+    localStorage.setItem(OUTBOX_KEY, JSON.stringify(list))
+  } catch {
+    // Xotira to'lgan — navbat faqat shu sessiyada qoladi.
+  }
+}
+
+export interface OfflineState { offline: boolean; queued: number; syncing: boolean }
+let offlineState: OfflineState = { offline: false, queued: 0, syncing: false }
+const offlineListeners = new Set<(s: OfflineState) => void>()
+function setOffline(patch: Partial<OfflineState>) {
+  offlineState = { ...offlineState, queued: readOutbox().length, ...patch }
+  offlineListeners.forEach((cb) => cb(offlineState))
+}
+/** Internetsiz rejim holati: internet bormi, nechta sotuv navbatda. */
+export function onOfflineChange(cb: (s: OfflineState) => void): () => void {
+  offlineListeners.add(cb)
+  cb({ ...offlineState, queued: readOutbox().length })
+  return () => offlineListeners.delete(cb)
+}
+
+/** Kassa internetsiz ham ochilishi uchun — oxirgi ma'lumot nusxasi shu qurilmada saqlanadi. */
+function saveCache() {
+  try {
+    const keys = [K.products, K.settings, K.brands, K.brandSeq, K.customers, K.held, K.batches]
+    const sales = read<Sale[]>(K.sales, []).slice(0, 500)
+    localStorage.setItem(CACHE_KEY, JSON.stringify({
+      at: Date.now(),
+      data: { ...Object.fromEntries(keys.map((k) => [k, memory.get(k) ?? null])), [K.sales]: JSON.stringify(sales) },
+    }))
+  } catch {
+    // Joy yetmasa — nusxasiz ishlaydi (internet kerak bo'ladi).
+  }
+}
+
+export function hasOfflineCache(): boolean {
+  try {
+    return Boolean(localStorage.getItem(CACHE_KEY))
+  } catch {
+    return false
+  }
+}
+
+/** Internet yo'q: oxirgi nusxadan ishga tushadi (sotuvlar navbatga yoziladi). */
+export function initOffline(): boolean {
+  try {
+    const c = JSON.parse(localStorage.getItem(CACHE_KEY) ?? 'null') as { data: Record<string, string | null> } | null
+    if (!c) return false
+    for (const [k, v] of Object.entries(c.data)) if (v != null) memory.set(k, v)
+    mode = 'cloud'
+    setBrandHues(read<Partial<Settings>>(K.settings, {}).brandHues ?? {})
+    setOffline({ offline: true })
+    return true
+  } catch {
+    return false
+  }
+}
+
+let outboxRun: Promise<number> | null = null
+
+/** Navbatdagi (internetsiz qilingan) sotuvlarni bazaga yuboradi. Nechtasi yuborilganini qaytaradi. */
+export function syncOutbox(): Promise<number> {
+  outboxRun ??= doSyncOutbox().finally(() => {
+    outboxRun = null
+  })
+  return outboxRun
+}
+
+async function doSyncOutbox(): Promise<number> {
+  if (mode !== 'cloud' || !readOutbox().length) return 0
+  setOffline({ syncing: true })
+  let done = 0
+  try {
+    for (const item of readOutbox()) {
+      let n: number
+      try {
+        n = await cloud.applySale(item.id, item.data)
+      } catch (e) {
+        if (isNetworkError(e)) {
+          setOffline({ offline: true })
+          break
+        }
+        // Avval yetib borgan, lekin javobi kelmay qolgan bo'lishi mumkin — bazadan tekshiramiz.
+        const existing = await cloud.saleNumber(item.id).catch(() => null)
+        if (existing == null) {
+          syncFailed(e)
+          break
+        }
+        n = existing
+      }
+      put(K.sales, read<Sale[]>(K.sales, []).map((s) => {
+        if (s.id !== item.id) return s
+        const { pending: _p, ...rest } = s
+        return { ...rest, number: n }
+      }))
+      writeOutbox(readOutbox().filter((x) => x.id !== item.id))
+      done++
+    }
+  } finally {
+    setOffline({ syncing: false })
+  }
+  if (done) {
+    saveCache()
+    cloud.notifyBot()
+    // Nasiyaga sotilganlari daftarga endi yoziladi.
+    await syncSaleDebts().catch(() => {})
+  }
+  return done
+}
+
 /** Navbatdagi yozuvlar tugashini kutadi. Xato bo'lsa — xabar beradi va bazadan qayta yuklaydi. */
 async function flush() {
   const jobs = pending
@@ -244,12 +375,24 @@ export function refresh(): Promise<void> {
 /** timeout — fondagi yangilash uchun (0 — cheklovsiz: birinchi yuklashda ma'lumot kutiladi). */
 async function doRefresh(timeout: number): Promise<void> {
   if (mode !== 'cloud' || pending.length) return
+  // Internetsiz qilingan sotuvlar avval bazaga yetsin — aks holda bazadagi eski nusxa ularni "o'chirib" yuboradi.
+  if (readOutbox().length) {
+    await syncOutbox()
+    if (readOutbox().length) return
+  }
   const before = writeCount
-  const snap = await Promise.race([
-    cloud.loadAll(),
-    ...(timeout ? [new Promise<null>((r) => setTimeout(() => r(null), timeout))] : []),
-  ])
+  let snap: cloud.CloudSnapshot | null
+  try {
+    snap = await Promise.race([
+      cloud.loadAll(),
+      ...(timeout ? [new Promise<null>((r) => setTimeout(() => r(null), timeout))] : []),
+    ])
+  } catch (e) {
+    if (isNetworkError(e)) setOffline({ offline: true })
+    throw e
+  }
   if (!snap) return
+  if (offlineState.offline) setOffline({ offline: false })
   // Yuklash davomida biror narsa yozilgan bo'lsa — bu ma'lumot eskirgan, tashlab yuboramiz.
   if (writeCount !== before || pending.length) return
   put(K.products, snap.products)
@@ -266,6 +409,7 @@ async function doRefresh(timeout: number): Promise<void> {
   setBrandHues((snap.settings?.brandHues as Record<string, number> | undefined) ?? {})
   // Botdan yangi brend kelgan bo'lsa — unga ham rang.
   if (memory.has(K.settings)) await ensureBrandHues()
+  saveCache()
 }
 
 type SeqName = 'product' | 'sale' | 'batch'
@@ -645,7 +789,7 @@ export async function syncSaleDebts(): Promise<number> {
   const known = new Set(list.flatMap((c) => [...(c.ledger ?? []).map((e) => e.saleId), ...(c.ignoredSales ?? [])]))
   let added = 0
   for (const sale of [...(await getSales())].reverse()) {
-    if (!(sale.payment?.debt > 0) || sale.archivedAt || known.has(sale.id)) continue
+    if (!(sale.payment?.debt > 0) || sale.archivedAt || sale.pending || known.has(sale.id)) continue
     const c = upsertCustomer(list, sale.customerName.trim() || `Noma'lum mijoz (chek №${sale.number})`, sale.customerPhone)
     c.lastSeen = sale.createdAt > (c.lastSeen ?? '') ? sale.createdAt : c.lastSeen
     c.ledger = [...(c.ledger ?? []), {
@@ -708,10 +852,20 @@ export async function getSales(): Promise<Sale[]> {
 export async function saveSale(sale: Omit<Sale, 'id' | 'number' | 'createdAt'>): Promise<Sale> {
   const id = uid()
   const createdAt = new Date().toISOString()
-  const number = mode === 'cloud'
-    ? await cloud.applySale(id, { ...sale, createdAt })
-    : await takeSeq('sale')
-  const full: Sale = { ...sale, id, number, createdAt }
+  let number = 0
+  let queued = false
+  if (mode === 'cloud') {
+    try {
+      number = await cloud.applySale(id, { ...sale, createdAt })
+    } catch (e) {
+      if (!isNetworkError(e)) throw e
+      // Internet yo'q — sotuv shu qurilmada navbatga yoziladi, internet qaytganda o'zi yuboriladi.
+      writeOutbox([...readOutbox(), { id, data: { ...sale, createdAt } }])
+      queued = true
+      setOffline({ offline: true })
+    }
+  } else number = await takeSeq('sale')
+  const full: Sale = { ...sale, id, number, createdAt, ...(queued && { pending: true }) }
 
   const products = await getProducts()
   for (const line of sale.lines) {
@@ -722,6 +876,11 @@ export async function saveSale(sale: Omit<Sale, 'id' | 'number' | 'createdAt'>):
   const save = mode === 'cloud' ? put : write
   save(K.sales, [full, ...(await getSales())])
   save(K.products, products)
+  if (queued) {
+    // Nasiya daftari va mijozlar ro'yxati sotuv bazaga yetgach yangilanadi.
+    saveCache()
+    return full
+  }
   // Nasiyaga sotilgan bo'lsa — mijozning daftariga yoziladi.
   if (sale.payment.debt > 0 && sale.customerName.trim()) {
     await addLedgerEntry(sale.customerName, sale.customerPhone, {
@@ -730,6 +889,7 @@ export async function saveSale(sale: Omit<Sale, 'id' | 'number' | 'createdAt'>):
   } else await rememberCustomer(sale.customerName, sale.customerPhone)
   // Kanaldagi sotilgan postlar "Sotilganlar"ga o'tsin.
   if (mode === 'cloud') cloud.notifyBot()
+  saveCache()
   return full
 }
 

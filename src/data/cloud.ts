@@ -182,6 +182,13 @@ export async function takeSeq(name: string, count = 1): Promise<number> {
 }
 
 /** Sotuvni yozadi va qoldiqni kamaytiradi; chek raqamini qaytaradi. */
+/** Shu id bilan sotuv bazada bormi (internet uzilib, javob kelmay qolgan bo'lsa) — chek raqami. */
+export async function saleNumber(id: string): Promise<number | null> {
+  const { data, error } = await supabase!.from('sales').select('number').eq('id', id).maybeSingle()
+  if (error) throw error
+  return data ? Number(data.number) : null
+}
+
 export async function applySale(id: string, data: unknown): Promise<number> {
   const { data: n, error } = await supabase!.rpc('apply_sale', { p_id: id, p_data: data })
   if (error) throw error

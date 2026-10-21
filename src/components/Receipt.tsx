@@ -21,7 +21,7 @@ export function Receipt({ sale, settings, debtTotal }: { sale: Sale; settings: S
         {splitPhones(settings.shopPhone).map((ph) => <div key={ph}>{ph}</div>)}
       </div>
       <div className="r-line" />
-      <div className="r-kv"><span>Chek №</span><span>{String(sale.number).padStart(6, '0')}</span></div>
+      <div className="r-kv"><span>Chek №</span><span>{sale.pending ? 'navbatda' : String(sale.number).padStart(6, '0')}</span></div>
       <div className="r-kv"><span>Sana</span><span>{d.toLocaleDateString('ru-RU')} {d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span></div>
       {settings.receiptShowCustomer && sale.customerName && <div className="r-kv"><span>Mijoz</span><b>{sale.customerName}</b></div>}
       <div className="r-line" />

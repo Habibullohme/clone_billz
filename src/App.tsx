@@ -6,7 +6,7 @@ import { ProductsPage } from './pages/ProductsPage'
 import { LabelsPage } from './pages/LabelsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { PinGate } from './components/PinGate'
-import { getSettings, initStore, onSyncError, refresh, saveSettings, type Settings } from './data/store'
+import { getSettings, hasOfflineCache, initOffline, initStore, isNetworkError, onOfflineChange, onSyncError, refresh, saveSettings, syncOutbox, type OfflineState, type Settings } from './data/store'
 import { cloudEnabled, getSession, isRevoked, isStaff, sessionRole, signOut, signOutHere, supabase, touchDevice, watchRevoke } from './data/cloud'
 import { isBossMode } from './lib/telegram'
 import { LoginPage } from './pages/LoginPage'
@@ -44,6 +44,43 @@ function Clock() {
   )
 }
 
+/** Shu qurilmada avval kirilganmi (kirish kaliti saqlangan). */
+function hasSavedLogin(): boolean {
+  try {
+    return Boolean(localStorage.getItem('dk.auth'))
+  } catch {
+    return false
+  }
+}
+
+/** Internetsiz rejim belgisi: internet yo'q yoki sotuvlar navbatda. */
+function OfflineBar() {
+  const [st, setSt] = useState<OfflineState>({ offline: false, queued: 0, syncing: false })
+  useEffect(() => onOfflineChange(setSt), [])
+  // Internet qaytishi bilan navbatdagi sotuvlar yuboriladi.
+  useEffect(() => {
+    const go = () => {
+      syncOutbox().then((n) => { if (n) refresh().catch(() => {}) }).catch(() => {})
+    }
+    window.addEventListener('online', go)
+    const t = setInterval(() => { if (st.queued || st.offline) go() }, 20_000)
+    return () => {
+      window.removeEventListener('online', go)
+      clearInterval(t)
+    }
+  }, [st.queued, st.offline])
+  if (!st.offline && !st.queued) return null
+  return (
+    <div className={`offline-bar${st.offline ? '' : ' sending'}`} role="status">
+      <span className="ob-dot" />
+      <b>{st.syncing ? 'Yuborilmoqda…' : st.offline ? 'Internetsiz rejim' : 'Internet qaytdi'}</b>
+      <span className="muted">
+        {st.queued ? `${st.queued} ta sotuv navbatda — internet qaytganda o'zi yuboriladi` : 'Kassa ishlayapti, sotuvlar saqlanadi'}
+      </span>
+    </div>
+  )
+}
+
 type Boot = 'loading' | 'login' | 'denied' | 'offline' | 'ready'
 
 /**
@@ -53,11 +90,25 @@ type Boot = 'loading' | 'login' | 'denied' | 'offline' | 'ready'
 export function App({ onStats }: { onStats?: () => void } = {}) {
   const [boot, setBoot] = useState<Boot>('loading')
 
+  /** Internet yo'q, lekin shu qurilmada kirilgan va ma'lumot nusxasi bor — kassa internetsiz ochiladi. */
+  const openOffline = () => {
+    if (cloudEnabled && hasSavedLogin() && hasOfflineCache() && initOffline()) {
+      setBoot('ready')
+      return true
+    }
+    return false
+  }
+
   const start = async () => {
     setBoot('loading')
     try {
       if (cloudEnabled) {
-        if (!(await getSession())) return setBoot('login')
+        if (navigator.onLine === false && openOffline()) return
+        if (!(await getSession())) {
+          // Kirish kaliti internet yo'qligi sababli yangilanmagan bo'lishi mumkin.
+          if (hasSavedLogin() && navigator.onLine === false && openOffline()) return
+          return setBoot('login')
+        }
         if (!(await isStaff())) return setBoot('denied')
         // Kuzatuvchi hisob saytda ham faqat statistikani ko'radi (kassa va boshqaruv yopiq).
         if (!isBossMode() && (await sessionRole()) === 'stats') {
@@ -74,6 +125,7 @@ export function App({ onStats }: { onStats?: () => void } = {}) {
       setBoot('ready')
     } catch (e) {
       console.error(e)
+      if (isNetworkError(e) && openOffline()) return
       setBoot('offline')
     }
   }
@@ -341,6 +393,7 @@ function Shop({ onStats }: { onStats?: () => void }) {
         </header>
       )}
 
+      <OfflineBar />
       {syncError && (
         <div className="sync-error" role="alert">
           <span>⚠ {syncError}</span>
