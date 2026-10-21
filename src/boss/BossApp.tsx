@@ -4,7 +4,7 @@ import type { Customer, Product, Sale } from '../types'
 import {
   activeSales, balanceOf, getCustomers, getProducts, getSales, getSettings, initStore, refresh, type Settings,
 } from '../data/store'
-import { cloudEnabled, getSession, isStaff, markTelegramDevice, sessionRole, signOut, signOutLocal, supabase, telegramSignIn, touchDevice, userPin, type PanelRole } from '../data/cloud'
+import { cloudEnabled, getSession, isStaff, markTelegramDevice, sessionRole, signOut, signOutLocal, supabase, telegramSignIn, touchDevice, userPin, personalPin, type PanelRole } from '../data/cloud'
 import { LoginPage } from '../pages/LoginPage'
 import { PinGate } from '../components/PinGate'
 import { ShopMark } from '../components/ShopMark'
@@ -79,7 +79,7 @@ export function BossApp() {
       const s = await getSettings()
       rememberBrand({ name: s.shopName, logo: s.shopLogo })
       // Kuzatuvchi — o'zining shaxsiy PIN kodi (birinchi kirishda o'zi yaratadi); egasi — do'kon PIN kodi.
-      setBoot(r === 'stats' && cloudEnabled ? 'pin' : s.ownerPin ? 'pin' : 'ready')
+      setBoot(cloudEnabled || s.ownerPin ? 'pin' : 'ready')
     } catch (e) {
       console.error(e)
       setBoot('offline')
@@ -103,7 +103,7 @@ export function BossApp() {
     return (
       <div className="boss-pin">
         <PinGate
-          backend={role === 'stats' && cloudEnabled ? userPin : undefined}
+          backend={!cloudEnabled ? undefined : role === 'stats' ? userPin : personalPin}
           onOk={() => setBoot('ready')}
           onCancel={() => (tg ? tg.close() : setBoot('pin'))}
         />

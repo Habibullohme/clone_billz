@@ -7,7 +7,7 @@ import { LabelsPage } from './pages/LabelsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { PinGate } from './components/PinGate'
 import { getSettings, hasOfflineCache, initOffline, initStore, isNetworkError, onOfflineChange, onSyncError, refresh, saveSettings, syncOutbox, type OfflineState, type Settings } from './data/store'
-import { cloudEnabled, getSession, isRevoked, isStaff, sessionRole, signOut, signOutHere, supabase, touchDevice, watchRevoke } from './data/cloud'
+import { cloudEnabled, getSession, isRevoked, isStaff, personalPin, sessionRole, signOut, signOutHere, supabase, touchDevice, watchRevoke } from './data/cloud'
 import { isBossMode } from './lib/telegram'
 import { LoginPage } from './pages/LoginPage'
 import { applyFavicon, cachedBrand, rememberBrand } from './lib/brand'
@@ -462,6 +462,7 @@ function Shop({ onStats }: { onStats?: () => void }) {
 
       {asking && (
         <PinGate
+          backend={cloudEnabled ? personalPin : undefined}
           onCancel={() => setAsking(null)}
           onOk={() => {
             setOwnerUnlocked(true)

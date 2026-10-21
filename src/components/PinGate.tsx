@@ -13,6 +13,8 @@ export interface PinBackend {
   hasPin(): Promise<boolean | 'skip'>
   check(pin: string): Promise<string | null>
   create(pin: string): Promise<string | null>
+  /** 'own' — saytdagi shaxsiy PIN (bot bilan bog'liq emas). */
+  label?: 'own'
 }
 
 type Mode = 'local' | 'check' | 'create'
@@ -119,7 +121,9 @@ export function PinGate({ onOk, onCancel, backend }: { onOk: () => void; onCance
   if (mode === null && !error) return null
 
   const title = creating ? (first === null ? 'PIN kod yarating' : 'PIN kodni takrorlang') : 'PIN kodni kiriting'
-  const hint = backend
+  const hint = backend?.label === 'own'
+    ? creating ? "Shaxsiy PIN: faqat sizning hisobingiz uchun. 4–6 ta raqam, keyin ✓." : 'Shaxsiy PIN kodingiz, keyin ✓'
+    : backend
     ? creating ? "4–6 ta raqam, keyin ✓. Botda /changepass bilan o'zgartirasiz." : 'Shaxsiy PIN kodingiz, keyin ✓'
     : creating ? "4–6 ta raqam, keyin ✓. Sotuvchi faqat kassani ko'radi." : "Boshqaruv bo'limlari uchun egasining PIN kodi"
 

@@ -378,6 +378,35 @@ export const userPin = {
   create: async (pin: string) => (await pinCall('set', pin)).error ?? null,
 }
 
+/**
+ * Boshqaruv bo'limlari uchun shaxsiy PIN: har hisobning o'zida (user_metadata), ochiq emas — izi (SHA-256) saqlanadi.
+ * Bir hisob PIN'ini o'zgartirsa, boshqalarniki o'zgarmaydi. Internetsiz ham tekshiriladi (sessiyada turadi).
+ */
+async function pinHash(userId: string, pin: string): Promise<string> {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`kassa-pin:${userId}:${pin}`))
+  return [...new Uint8Array(buf)].map((x) => x.toString(16).padStart(2, '0')).join('')
+}
+
+export const personalPin = {
+  label: 'own' as const,
+  hasPin: async (): Promise<boolean | 'skip'> => {
+    const u = (await getSession())?.user
+    if (!u) throw new Error('Hisobga kirilmagan')
+    return Boolean(u.user_metadata?.kassaPin)
+  },
+  check: async (pin: string): Promise<string | null> => {
+    const u = (await getSession())?.user
+    if (!u) return 'Hisobga kirilmagan'
+    return u.user_metadata?.kassaPin === (await pinHash(u.id, pin)) ? null : "PIN noto'g'ri"
+  },
+  create: async (pin: string): Promise<string | null> => {
+    const u = (await getSession())?.user
+    if (!u) return 'Hisobga kirilmagan'
+    const { error } = await supabase!.auth.updateUser({ data: { kassaPin: await pinHash(u.id, pin) } })
+    return error ? "Saqlanmadi — internetni tekshiring" : null
+  },
+}
+
 /** Telegram bot nomi (kirish sahifasida "botda oching" uchun). Topilmasa — null. */
 export async function botUsername(): Promise<string | null> {
   if (!url) return null

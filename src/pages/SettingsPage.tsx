@@ -6,7 +6,7 @@ import { Segmented, Toggle } from '../components/ui'
 import { applyTheme, type Theme } from '../lib/theme'
 import { Receipt } from '../components/Receipt'
 import type { Sale } from '../types'
-import { cloudEnabled, deviceId, listDevices, revokeDevice, signOutHere, signOutOthers, supabase, type Device } from '../data/cloud'
+import { cloudEnabled, deviceId, listDevices, personalPin, revokeDevice, signOutHere, signOutOthers, supabase, type Device } from '../data/cloud'
 
 const sections = [
   ['shop', "Do'kon"],
@@ -253,7 +253,7 @@ export function SettingsPage() {
 
           {section === 'devices' && <DevicesSection />}
 
-          {section === 'security' && <PinSection s={s} onSave={(pin) => update('ownerPin', pin)} />}
+          {section === 'security' && (cloudEnabled ? <OwnPinSection /> : <PinSection s={s} onSave={(pin) => update('ownerPin', pin)} />)}
 
           {section === 'data' && (
             <>
@@ -316,6 +316,48 @@ function shrinkImage(file: File): Promise<string> {
     img.onerror = reject
     img.src = URL.createObjectURL(file)
   })
+}
+
+/** Shaxsiy PIN (bazada ishlaganda): faqat shu hisobniki — boshqa hisoblarga ta'sir qilmaydi. */
+function OwnPinSection() {
+  const [has, setHas] = useState<boolean | null>(null)
+  const [oldPin, setOldPin] = useState('')
+  const [pin, setPin] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const digits = (v: string) => v.replace(/\D/g, '').slice(0, 6)
+  useEffect(() => {
+    personalPin.hasPin().then((h) => setHas(h === true)).catch(() => setHas(false))
+  }, [])
+  const save = async () => {
+    if (busy) return
+    if (!/^\d{4,6}$/.test(pin)) return setMsg({ ok: false, text: "PIN 4–6 ta raqam bo'lsin" })
+    setBusy(true)
+    const bad = has ? await personalPin.check(oldPin) : null
+    const err = bad ?? await personalPin.create(pin)
+    setBusy(false)
+    if (err) return setMsg({ ok: false, text: bad ? "Hozirgi PIN noto'g'ri" : err })
+    setHas(true)
+    setOldPin('')
+    setPin('')
+    setMsg({ ok: true, text: "PIN o'zgartirildi — faqat sizning hisobingiz uchun" })
+  }
+  return (
+    <>
+      <Row id="set-pin-old" title={has ? 'Hozirgi PIN' : "Shaxsiy PIN hali o'rnatilmagan"} hint="Har hisobning o'z PIN kodi — boshqa xodimlarnikiga ta'sir qilmaydi">
+        {has && (
+          <input id="set-pin-old" className="input pin" type="text" inputMode="numeric" autoComplete="off" data-lpignore="true" placeholder="••••" value={oldPin} onChange={(e) => setOldPin(digits(e.target.value))} />
+        )}
+      </Row>
+      <Row id="set-pin-new" title="Yangi PIN" hint="4–6 ta raqam">
+        <input id="set-pin-new" className="input pin" type="text" inputMode="numeric" autoComplete="off" data-lpignore="true" placeholder="••••" value={pin} onChange={(e) => setPin(digits(e.target.value))} />
+      </Row>
+      <div className="set-row">
+        <span className={msg?.ok ? 'ok' : 'error'}>{msg?.text}</span>
+        <button className="btn primary" disabled={busy || has === null} onClick={save}>{busy ? 'Saqlanmoqda…' : 'PIN ni saqlash'}</button>
+      </div>
+    </>
+  )
 }
 
 function PinSection({ s, onSave }: { s: Settings; onSave: (pin: string) => void }) {

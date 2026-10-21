@@ -731,7 +731,8 @@ export async function saveSettings(s: Settings) {
     } catch {
       // Mavzu faqat shu sessiyada qoladi.
     }
-    const { theme: _theme, ...shared } = s
+    // ownerPin bazaga yozilmaydi: har hisobning o'z shaxsiy PIN kodi bor (eski umumiy PIN ochiq matnda turmasin).
+    const { theme: _theme, ownerPin: _pin, ...shared } = s
     write(K.settings, shared)
   } else write(K.settings, s)
   await flush()
