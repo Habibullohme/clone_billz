@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ProductInput } from '../types'
-import { cartToInputs, type CartItem } from '../lib/kirim'
-import { addBrand, getBrands, previewCodes } from '../data/store'
+import { cartToInputs, landed, type CartItem } from '../lib/kirim'
+import { deliveryPerPair, originOf, type DeliveryCfg } from '../lib/delivery'
+import { addBrand, getBrands, getSettings, previewCodes } from '../data/store'
 import { formatSum, parseSum } from '../lib/money'
 import { hueStyle } from '../lib/colors'
 import { useBackClose } from '../lib/nav'
@@ -98,6 +99,11 @@ export function NewBatchSheet({
     })
   }, [])
   useEffect(() => saveCart(items, form), [items, form])
+  /** Brend → shahar va karopka uchun yo'l kira (Tovarlar → Brendlar → "Yuk qayerdan keladi"). */
+  const [dcfg, setDcfg] = useState<DeliveryCfg>({})
+  useEffect(() => {
+    getSettings().then((s) => setDcfg({ origins: s.origins, brandOrigins: s.brandOrigins }))
+  }, [])
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setForm((f) => ({ ...f, [k]: v }))
   const setRow = (i: number, patch: Partial<{ color: string; packs: number }>) =>
@@ -105,6 +111,9 @@ export function NewBatchSheet({
 
   const c = parseSum(form.cost)
   const sp = parseSum(form.sale)
+  const origin = form.brand.trim() ? originOf(dcfg, form.brand) : null
+  const dlv = deliveryPerPair(dcfg, form.brand, form.packSize)
+  const lc = c + dlv
   const formPacks = packsOf(form)
   const touched = Boolean(form.name.trim() || form.cost || form.sale)
   const problems = [
@@ -148,7 +157,7 @@ export function NewBatchSheet({
   const buildItem = (): CartItem => ({
     id: editing ?? Math.random().toString(36).slice(2),
     brand: form.brand.trim(), name: form.name.trim().replace(/\s+/g, ' '), size: form.size.trim(), packSize: form.packSize,
-    cost: c, sale: sp, colors: form.colors.filter((r) => r.packs > 0).map((r) => ({ color: r.color.trim(), packs: r.packs })),
+    cost: c, delivery: dlv, sale: sp, colors: form.colors.filter((r) => r.packs > 0).map((r) => ({ color: r.color.trim(), packs: r.packs })),
   })
 
   /** Formadagini savatga qo'shadi (yangi savatni qaytaradi); brend, razmer va pachka hajmi keyingisi uchun qoladi. */
@@ -197,7 +206,7 @@ export function NewBatchSheet({
   const totals = useMemo(() => {
     const packs = items.reduce((a, it) => a + packsOf(it), 0)
     const pairs = items.reduce((a, it) => a + packsOf(it) * it.packSize, 0)
-    const cost = items.reduce((a, it) => a + packsOf(it) * it.packSize * it.cost, 0)
+    const cost = items.reduce((a, it) => a + packsOf(it) * it.packSize * landed(it), 0)
     const sale = items.reduce((a, it) => a + packsOf(it) * it.packSize * it.sale, 0)
     return { packs, pairs, cost, sale }
   }, [items])
@@ -306,6 +315,15 @@ export function NewBatchSheet({
                   <span>Kelish narxi (1 juft)</span>
                   <MoneyInput id="nb-cost" value={form.cost} onChange={(v) => set('cost', v)} />
                 </label>
+                {origin && (
+                  <div className={`nb-landed${c > 0 ? '' : ' empty'}`}>
+                    <span className="nb-landed-route">🚚 {origin.name} · karopkasiga {formatSum(origin.perBox)}</span>
+                    <span className="nb-landed-calc">
+                      {c > 0 ? <>{formatSum(c)} + {formatSum(dlv)} yo'l = <b>{formatSum(lc)}</b> <span className="muted">tannarx (1 juft)</span></>
+                        : <>har juftga +{formatSum(dlv)} qo'shiladi</>}
+                    </span>
+                  </div>
+                )}
                 <label className="field">
                   <span>Sotuv narxi (1 juft)</span>
                   <MoneyInput id="nb-sale" value={form.sale} onChange={(v) => set('sale', v)} />
@@ -330,7 +348,7 @@ export function NewBatchSheet({
               )}
               {c > 0 && sp > 0 && (
                 <div className="muted small">
-                  {formPacks} pachka · bir pachkadan foyda <b className={sp < c ? 'error' : 'ok'}>{formatSum((sp - c) * form.packSize)}</b>
+                  {formPacks} pachka · bir pachkadan foyda <b className={sp < lc ? 'error' : 'ok'}>{formatSum((sp - lc) * form.packSize)}</b>{dlv > 0 && <span> (yo'l kira bilan)</span>}
                 </div>
               )}
               {error && <div className="error small">{error}</div>}
@@ -353,7 +371,11 @@ export function NewBatchSheet({
               <h3>🛒 Savat {items.length > 0 && <span className="muted">· {items.length} model</span>}</h3>
               {items.length === 0 ? (
                 <div className="nb-empty muted">
-                  Savat bo'sh.<br />Chapda tovarni to'ldirib, <b>Savatga qo'shish</b> ni bosing.
+                  <div>
+                    <div className="nb-empty-icon">🛒</div>
+                    <b>Savat bo'sh</b>
+                    <p>Tovarni to'ldirib, <b>Savatga qo'shish</b> ni bosing.</p>
+                  </div>
                 </div>
               ) : (
                 <div className="nb-items">
@@ -365,7 +387,7 @@ export function NewBatchSheet({
                           {[it.size, `${it.packSize} juftlik`].filter(Boolean).join(' · ')} · {it.colors.map((r) => `${r.color || 'rangsiz'} ×${r.packs}`).join(', ')}
                         </span>
                         <span className="small">
-                          {formatSum(it.cost)} → <b>{formatSum(it.sale)}</b> · foyda {formatSum((it.sale - it.cost) * it.packSize)}/pachka
+                          {formatSum(landed(it))}{it.delivery ? <span className="muted"> (+{formatSum(it.delivery)} yo'l)</span> : null} → <b>{formatSum(it.sale)}</b> · foyda {formatSum((it.sale - landed(it)) * it.packSize)}/pachka
                         </span>
                         {editing !== it.id && <CodeLine rows={codes[it.id]} colors={it.colors} />}
                       </div>
@@ -403,7 +425,7 @@ export function NewBatchSheet({
                       <td><b><i className="dot" />{it.brand} · {it.name}</b><div className="muted small">{[it.size, `${it.packSize} juftlik`].filter(Boolean).join(' · ')}</div></td>
                       <td className="small">{it.colors.map((r) => `${r.color || '—'} ×${r.packs}`).join(', ')}</td>
                       <td className="num"><b>{packsOf(it)}</b></td>
-                      <td className="num">{formatSum(it.cost)}</td>
+                      <td className="num">{formatSum(landed(it))}{it.delivery ? <div className="muted small">+{formatSum(it.delivery)} yo'l</div> : null}</td>
                       <td className="num"><b>{formatSum(it.sale)}</b></td>
                       <td><CodeLine rows={codes[it.id]} colors={it.colors} /></td>
                     </tr>

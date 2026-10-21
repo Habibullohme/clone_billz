@@ -65,6 +65,18 @@ export interface Draft {
 
 export interface Shop { shopName?: string; shopPhone?: string; shopAddress?: string }
 
+/** Yo'l kira (saytda Tovarlar → Brendlar → "Yuk qayerdan keladi"): brend shahri va karopka narxi. */
+interface SiteDelivery { origins?: { id: string; name: string; perBox: number }[]; brandOrigins?: Record<string, string> }
+
+/** Bir juftga tushadigan yo'l kira va shahar nomi (saytdagi hisob bilan bir xil). */
+export async function deliveryFor(brand: string, packSize: number): Promise<{ perPair: number; city: string; perBox: number }> {
+  const site = (await db<{ data: SiteDelivery }[]>('settings?id=eq.main&select=data').catch(() => []))[0]?.data ?? {}
+  const id = site.brandOrigins?.[brand.trim().toLowerCase()]
+  const o = id ? site.origins?.find((x) => x.id === id) : undefined
+  if (!o || !(o.perBox > 0)) return { perPair: 0, city: '', perBox: 0 }
+  return { perPair: Math.round(o.perBox / Math.max(1, packSize)), city: o.name, perBox: o.perBox }
+}
+
 /** "+998 90 111 11 11, +998 91 222 22 22" → har biri alohida (vergul, nuqtali vergul yoki yangi qator bilan). */
 export const splitPhones = (s?: string | null) => (s ?? '').split(/[,;\n]+/).map((x) => x.trim()).filter(Boolean)
 
@@ -394,6 +406,7 @@ async function confirmCard(chat: number, s: Session, note?: string) {
   const perPhoto = (s.photoCount ?? 0) > 1 && (s.photoCount ?? 0) <= 10
     ? Array.from({ length: s.photoCount! }, (_, i) => `   📷${i + 1}: ${codeSpan(codes.slice(i * per, (i + 1) * per))}`)
     : []
+  const dl = await deliveryFor(s.brand!, s.packSize!)
   await drop(chat, s.cardId)
   await drop(chat, s.kbId)
   const m = await say(chat, [
@@ -403,7 +416,8 @@ async function confirmCard(chat: number, s: Session, note?: string) {
       `📏 ${esc(s.size || '—')} · 🎨 ${esc(s.color || '—')} · ${s.packSize} juftlik`,
       `📷 ${s.photoCount} ta rasm → <b>${total} pachka</b> (${pairs} juft)`,
       `💵 Kelish: ${formatSum(s.cost!)} · 💰 Sotuv: <b>${formatSum(s.price!)}</b> (1 juft)`,
-      `📈 Foyda: <b>${formatSum((s.price! - s.cost!) * s.packSize!)}</b> (1 pachka)`,
+      ...(dl.perPair ? [`🚚 Yo'l kira: ${esc(dl.city)}, karopkasiga ${formatSum(dl.perBox)} → +${formatSum(dl.perPair)} → tannarx <b>${formatSum(s.cost! + dl.perPair)}</b>`] : []),
+      `📈 Foyda: <b>${formatSum((s.price! - s.cost! - dl.perPair) * s.packSize!)}</b> (1 pachka)`,
       ...(codes.length ? ['', `🏷 Etiketka kodlari: <b>${codeSpan(codes)}</b>`, ...perPhoto] : []),
     ]),
     note ? quote([`⚠️ ${note}`]) : '',
@@ -469,7 +483,9 @@ async function commit(chat: number, s: Session): Promise<string> {
   const per = s.packsPerPhoto ?? 1
   const total = photos.length * per
   if (!photos.length) throw new Error("Rasmlar topilmadi")
-  const d: Draft = { brand: s.brand!.trim(), model: s.model!.trim(), size: s.size ?? '', color: s.color ?? '', packSize: s.packSize!, cost: s.cost!, price: s.price! }
+  // Tannarx yo'l kira bilan (brend shahri sozlangan bo'lsa).
+  const dl = await deliveryFor(s.brand!, s.packSize!)
+  const d: Draft = { brand: s.brand!.trim(), model: s.model!.trim(), size: s.size ?? '', color: s.color ?? '', packSize: s.packSize!, cost: s.cost! + dl.perPair, price: s.price! }
   const bk = d.brand.toLowerCase()
 
   const { takenCodes, takenNames } = await takenFor(d)

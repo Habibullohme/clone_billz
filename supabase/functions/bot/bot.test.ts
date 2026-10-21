@@ -249,6 +249,10 @@ describe('sozlamalar', () => {
     const dels = sent.filter((x) => x.method === 'deleteMessage' && x.body.chat_id === 7 && x.body.message_id !== 55).length
     expect(screens - dels).toBe(1)
 
+    // Saytda: Velton — Namangandan, karopkasiga 12 000 (pachkada 6 juft → har juftga +2 000)
+    tables.settings[0].data.origins = [{ id: 'nam', name: 'Namangan', perBox: 12_000 }]
+    tables.settings[0].data.brandOrigins = { velton: 'nam' }
+
     // Kirim: sozlamadagi tugmalar va qo'lda kiritish
     await handle(text("📦 Yuk qo'shish"))
     await handle(photo('p1'))
@@ -268,12 +272,15 @@ describe('sozlamalar', () => {
     await handle(text('150000'))
     await handle(text('170000'))
     expect(keyTexts()).toEqual(['✅ Tasdiqlash', '❌ Bekor qilish'])
+    expect(lastText()).toContain("Yo'l kira: Namangan")
+    expect(lastText()).toContain('tannarx <b>152 000</b>')
     // Kodlar tasdiqdan oldin ko'rinadi (hisoblagich 20 da — keyingilari A21, A22).
     expect(lastText()).toContain('Etiketka kodlari: <b>A21–A22</b>')
     expect(lastText()).toContain('📷1: A21')
     expect(counters['brand:velton']).toBe(20)
     await handle(text('✅ Tasdiqlash'))
     expect(tables.products.map((p: any) => p.name)).toEqual(['klassik A21', 'klassik A22'])
+    expect(tables.products.map((p: any) => p.cost_price)).toEqual([152_000, 152_000])
     expect(lastText()).toContain('kodlar: <b>A21–A22</b>')
     const post = sent.find((x) => x.method === 'sendPhoto')!.body.caption
     expect(post).toContain('38-42')

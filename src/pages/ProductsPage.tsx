@@ -5,8 +5,10 @@ import type { ImportBatch, Product, ProductInput, Sale } from '../types'
 import {
   nameConflict,
   activeSales, deleteBatch, deleteProducts, getBatches, getProducts, getSales, importProducts,
-  searchProducts, updateProduct,
+  searchProducts, updateProduct, getSettings, saveSettings, type Settings,
 } from '../data/store'
+import { OriginsSheet } from '../components/OriginsSheet'
+import { originOf } from '../lib/delivery'
 import { formatSum, parseSum } from '../lib/money'
 import { hueStyle } from '../lib/colors'
 import { downloadTemplate, parseRows, readExcel, type ParsedRow } from '../lib/excel'
@@ -80,12 +82,15 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
   const [photos, setPhotos] = useState(false)
   const [preview, setPreview] = useState<{ items: ParsedRow[]; missing: string[]; file: string } | null>(null)
   const [imported, setImported] = useState<ImportBatch | null>(null)
+  const [settings, setSettings] = useState<Settings | null>(null)
+  const [origins, setOrigins] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const reload = () => {
     getProducts().then(setProducts)
     getSales().then((l) => setSales(activeSales(l)))
     getBatches().then(setBatches)
+    getSettings().then(setSettings)
   }
   useEffect(reload, [])
 
@@ -229,6 +234,26 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
             )}
           </div>
 
+          {!showList && settings && brands.length > 0 && (
+            <button className="og-panel" onClick={() => setOrigins(true)}>
+              <span className="og-panel-icon">🚚</span>
+              <span className="og-panel-body">
+                <b>Yuk qayerdan keladi</b>
+                {(settings.origins ?? []).length ? (
+                  <span className="og-panel-list">
+                    {settings.origins.map((o) => {
+                      const n = brands.filter(([b]) => originOf(settings, b)?.id === o.id).length
+                      return <span key={o.id} className="og-pill">📍 {o.name} · {formatSum(o.perBox)}/karopka{n ? ` · ${n} brend` : ''}</span>
+                    })}
+                  </span>
+                ) : (
+                  <span className="muted small">Shahar va yo'l kirani kiriting — kirimda tannarxga o'zi qo'shiladi</span>
+                )}
+              </span>
+              <span className="og-panel-go">Sozlash →</span>
+            </button>
+          )}
+
           {!showList ? (
             brands.length === 0 ? (
               <div className="empty"><b>Hali tovar yo'q</b><span className="muted">Excel'dan import qiling yoki "+ Tovar" bilan qo'shing.</span></div>
@@ -242,6 +267,7 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
                       <div className="bc-head">
                         <span className="avatar">{name.slice(0, 1).toUpperCase()}</span>
                         <b className="bc-name">{name}</b>
+                        {settings && originOf(settings, name) && <span className="bc-origin">📍 {originOf(settings, name)!.name}</span>}
                       </div>
                       <div className="bc-packs"><b>{t.packs}</b> <span className="muted">pachka</span></div>
                       <div className="bc-rows">
@@ -398,6 +424,19 @@ export function ProductsPage({ onPrintLabels }: { onPrintLabels: (batchId: strin
         </Modal>
       )}
 
+      {origins && settings && (
+        <OriginsSheet
+          settings={settings}
+          brands={brands.map(([b]) => b)}
+          onClose={() => setOrigins(false)}
+          onSave={async (patch) => {
+            const next = { ...settings, ...patch }
+            await saveSettings(next)
+            setSettings(next)
+            flash("Saqlandi — yangi kirimlarda yo'l kira hisoblanadi")
+          }}
+        />
+      )}
       {photos && <PhotoSheet onClose={() => setPhotos(false)} />}
 
       {adding && (

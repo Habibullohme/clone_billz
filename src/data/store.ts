@@ -4,6 +4,7 @@
  */
 import { applyReturn, type SaleReturn } from '../lib/refund'
 import { capitalizeWords } from '../lib/names'
+import type { Origin } from '../lib/delivery'
 import type { Customer, HeldCart, ImportBatch, LedgerEntry, Product, ProductInput, Sale } from '../types'
 import { brandCode, makeBarcode } from '../lib/codes'
 import { demoInputs } from './demo'
@@ -47,6 +48,10 @@ export interface Settings {
   labelTemplateId: string
   /** Brend → rang (0–359). Har brendga alohida, takrorlanmaydi. */
   brandHues: Record<string, number>
+  /** Yuk qayerdan keladi: shaharlar va karopka uchun yo'l kira. */
+  origins: Origin[]
+  /** Brend (kichik harfda) → shahar id. */
+  brandOrigins: Record<string, string>
 }
 
 export const defaultSettings: Settings = {
@@ -71,6 +76,8 @@ export const defaultSettings: Settings = {
   labelTemplates: defaultTemplates,
   labelTemplateId: defaultTemplates[0].id,
   brandHues: {},
+  origins: [],
+  brandOrigins: {},
 }
 
 /** Ma'lumot nusxasi (JSON matn ko'rinishida — har o'qishda yangi nusxa qaytadi). */
