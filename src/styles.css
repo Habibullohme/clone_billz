@@ -445,12 +445,12 @@ kbd {
   body.print-labels > :not(.label-sheet) { display: none !important; }
   body.print-labels .label-sheet { display: block; visibility: visible; position: static; width: auto; }
   body.print-labels .label-sheet * { visibility: visible; }
-  .label-sheet .lbl-page, .lbl-page { width: 100vw; height: 100vh; overflow: hidden; break-after: page; page-break-after: always; }
+  .label-sheet .lbl-page, .lbl-page { overflow: hidden; break-after: page; page-break-after: always; break-inside: avoid; }
   .lbl-page:last-child { break-after: auto; page-break-after: auto; }
   .lbl-page svg { display: block; width: 100%; height: 100%; }
-  .lbl-page .lbl { border: 0; border-radius: 0; }
+  .lbl-page .lbl { border: 0; border-radius: 0; box-shadow: none; }
 }
-@media print { body.print-labels { margin: 0; } }
+@media print { html:has(body.print-labels), body.print-labels { margin: 0; background: #fff !important; } }
 
 /* ---------- Kassa sarlavhasi va menyu ---------- */
 .shop { display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -1434,3 +1434,12 @@ input:not([type=checkbox]):not([type=range]):not([type=file]), textarea {
   .bc-head { flex-wrap: wrap; }
   .bc-origin { margin-left: 0; order: 3; }
 }
+/* Printer qog'ozi oynasi */
+.paper-presets { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.paper-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.paper-help { margin-top: 12px; }
+.paper-help summary { cursor: pointer; font-weight: 600; }
+.paper-help ol { padding-left: 18px; display: grid; gap: 6px; margin-top: 8px; }
+.warn-text { color: var(--warn); margin-top: 8px; }
+.btn.warn { border-color: var(--warn); color: var(--warn); }
+.paper-actions { justify-content: flex-end; margin-top: 14px; }

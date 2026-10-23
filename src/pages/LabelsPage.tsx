@@ -26,6 +26,17 @@ export function LabelsPage({ batchId }: { batchId: string | null }) {
   const [picking, setPicking] = useState(false)
   const [custom, setCustom] = useState(false)
   const [viewing, setViewing] = useState<number | null>(null)
+  const [paper, setPaperState] = useState<Paper | null>(readPaper)
+  const [paperOpen, setPaperOpen] = useState(false)
+  const setPaper = (p: Paper | null) => {
+    setPaperState(p)
+    try {
+      if (p) localStorage.setItem(PAPER_KEY, JSON.stringify(p))
+      else localStorage.removeItem(PAPER_KEY)
+    } catch {
+      // Faqat shu sessiyada qoladi.
+    }
+  }
 
   useEffect(() => {
     getProducts().then(setProducts)
@@ -70,6 +81,7 @@ export function LabelsPage({ batchId }: { batchId: string | null }) {
   const items = ids.filter((id) => byId.has(id) && (qty[id] ?? 0) > 0)
   const total = items.reduce((s, id) => s + qty[id], 0)
   const hits = searchProducts(products, q, 6)
+  const sheet: Paper = paper ?? { width: template.width, height: template.height, dx: 0, dy: 0 }
 
   const saveTemplates = (list: LabelTemplate[], activeId = settings.labelTemplateId) => {
     const next = { ...settings, labelTemplates: list, labelTemplateId: list.some((t) => t.id === activeId) ? activeId : list[0].id }
@@ -108,6 +120,9 @@ export function LabelsPage({ batchId }: { batchId: string | null }) {
           />
         </label>
         <button className="btn ghost" onClick={() => setEditing(template)}>Tahrirlash</button>
+        <button className={`btn ghost${paper ? '' : ' warn'}`} onClick={() => setPaperOpen(true)} title="Printerdagi etiketka o'lchami">
+          🖨 Qog'oz: {sheet.width}×{sheet.height} mm
+        </button>
         <button
           className="btn ghost"
           onClick={() => setEditing({ ...template, id: uid(), name: `${template.name} (nusxa)`, fields: template.fields.map((f) => ({ ...f })) })}
@@ -209,13 +224,24 @@ export function LabelsPage({ batchId }: { batchId: string | null }) {
 
       {createPortal(
         <div className="label-sheet">
-          {/* Sahifa o'lchami = etiketka o'lchami: har etiketka aynan bitta qog'oz etiketkaga tushadi, lenta bo'ylab "siljib" ketmaydi. */}
-          <style>{`@media print { @page { size: ${template.width}mm ${template.height}mm; margin: 0; } }`}</style>
+          {/* Sahifa o'lchami = printerdagi etiketka o'lchami: har etiketka aynan bitta qog'oz etiketkaga tushadi, lenta bo'ylab "siljib" ketmaydi. */}
+          <style>{`@media print { @page { size: ${sheet.width}mm ${sheet.height}mm; margin: 0; } }`}</style>
           {(printOnlyOne ? items.slice(0, 1).map((id) => [id, 1] as const) : items.map((id) => [id, qty[id]] as const)).flatMap(([id, n]) =>
-            Array.from({ length: n }, (_, i) => <FitLabel key={`${id}-${i}`} t={template} p={byId.get(id)!} />),
+            Array.from({ length: n }, (_, i) => <FitLabel key={`${id}-${i}`} t={template} p={byId.get(id)!} paper={sheet} />),
           )}
         </div>,
         document.body,
+      )}
+
+      {paperOpen && (
+        <PaperModal
+          value={sheet}
+          template={template}
+          onClose={() => setPaperOpen(false)}
+          onSave={(p) => { setPaper(p); setPaperOpen(false) }}
+          onTest={() => print(true)}
+          canTest={total > 0}
+        />
       )}
 
       {viewing !== null && items[viewing] && (
@@ -495,21 +521,92 @@ function LabelLightbox({
 
 const PX_PER_MM = 96 / 25.4
 
+/** Printerdagi haqiqiy etiketka (qog'oz) o'lchami va siljitish, mm. Har qurilmada alohida saqlanadi. */
+interface Paper { width: number; height: number; dx: number; dy: number }
+const PAPER_KEY = 'labelPaper'
+function readPaper(): Paper | null {
+  try {
+    const p = JSON.parse(localStorage.getItem(PAPER_KEY) ?? 'null') as Paper | null
+    return p && p.width > 0 && p.height > 0 ? p : null
+  } catch {
+    return null
+  }
+}
+
+/** Sahifa etiketkadan sal qisqa: oxirgi qator keyingi etiketkaga "toshib" o'tmasin (aks holda hammasi siljiydi). */
+const SAFE_MM = 1
+
 /**
- * Chop uchun: etiketka printerdagi qog'oz o'lchamiga cho'ziladi (Billz kabi).
- * Qog'oz o'lchami printer sozlamasidan olinadi; shablon nisbati saqlanadi.
+ * Chop uchun: har etiketka — qog'oz o'lchamidagi alohida sahifa.
+ * Shablon qog'ozga nisbatini saqlab sig'diriladi va kerak bo'lsa siljitiladi.
  */
-function FitLabel({ t, p }: { t: LabelTemplate; p: Product }) {
+function FitLabel({ t, p, paper }: { t: LabelTemplate; p: Product; paper: Paper }) {
   const w = t.width * PX_PER_MM
   const h = t.height * PX_PER_MM
   return (
-    <div className="lbl-page">
-      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid meet">
+    <div className="lbl-page" style={{ width: `${paper.width}mm`, height: `${Math.max(5, paper.height - SAFE_MM)}mm` }}>
+      <svg
+        viewBox={`0 0 ${w} ${h}`}
+        preserveAspectRatio="xMidYMid meet"
+        style={{ transform: `translate(${paper.dx}mm, ${paper.dy}mm)` }}
+      >
         <foreignObject width={w} height={h}>
           <LabelView t={t} p={p} />
         </foreignObject>
       </svg>
     </div>
+  )
+}
+
+const PAPER_PRESETS: [number, number][] = [[40, 30], [50, 30], [58, 30], [58, 40], [60, 40], [70, 50]]
+
+/** Printer qog'ozi: o'lcham, siljitish va drayver sozlamasi bo'yicha qisqa yo'riqnoma. */
+function PaperModal({ value, template, onClose, onSave, onTest, canTest }: {
+  value: Paper
+  template: LabelTemplate
+  onClose: () => void
+  onSave: (p: Paper) => void
+  onTest: () => void
+  canTest: boolean
+}) {
+  const [p, setP] = useState(value)
+  const num = (v: string, lo: number, hi: number) => Math.min(hi, Math.max(lo, Number(v.replace(',', '.')) || 0))
+  const ratio = Math.abs(p.width / p.height - template.width / template.height) > 0.08
+  return (
+    <Modal title="Printer qog'ozi" onClose={onClose}>
+      <p className="muted small">Bitta etiketkaning <b>haqiqiy</b> o'lchamini chizg'ich bilan o'lchang (oradagi bo'shliqsiz).</p>
+      <div className="paper-presets">
+        {PAPER_PRESETS.map(([w, h]) => (
+          <button key={`${w}x${h}`} className={`chip${p.width === w && p.height === h ? ' on' : ''}`} onClick={() => setP({ ...p, width: w, height: h })}>
+            {w}×{h}
+          </button>
+        ))}
+      </div>
+      <div className="paper-grid">
+        <label className="field"><span>Eni, mm</span><input className="input" inputMode="decimal" value={p.width} onChange={(e) => setP({ ...p, width: num(e.target.value, 10, 120) })} /></label>
+        <label className="field"><span>Bo'yi, mm</span><input className="input" inputMode="decimal" value={p.height} onChange={(e) => setP({ ...p, height: num(e.target.value, 10, 120) })} /></label>
+        <label className="field"><span>Pastga surish, mm</span><input className="input" inputMode="decimal" value={p.dy} onChange={(e) => setP({ ...p, dy: num(e.target.value, -10, 10) })} /></label>
+        <label className="field"><span>O'ngga surish, mm</span><input className="input" inputMode="decimal" value={p.dx} onChange={(e) => setP({ ...p, dx: num(e.target.value, -10, 10) })} /></label>
+      </div>
+      {ratio && (
+        <p className="small warn-text">
+          Shablon {template.width}×{template.height} mm — qog'ozdan boshqa nisbatda. Etiketka kichrayib sig'adi; to'liq egallashi uchun shablon o'lchamini ham {p.width}×{p.height} qiling.
+        </p>
+      )}
+      <details className="paper-help">
+        <summary>Printer to'g'ri chiqarmasa — sozlash</summary>
+        <ol className="small">
+          <li>Chop oynasida: <b>Qog'oz o'lchami</b> = {p.width}×{p.height} mm, <b>Chetlar (Margins)</b> = Yo'q, <b>Masshtab</b> = 100% (yoki "Standart").</li>
+          <li>Windows → Printerlar → Xprinter → <b>Printing preferences</b>: qog'oz {p.width}×{p.height} mm (yo'q bo'lsa "New" bilan yarating), turi <b>Label with gaps / Gap</b>.</li>
+          <li>Yoqqanda printer bir nechta bo'sh etiketka chiqaradi — bu u etiketka chegarasini o'lchab olishi (kalibrlash), normal holat.</li>
+          <li>Yozuv biroz yuqori/pastga tushsa — yuqoridagi "surish" maydoni bilan tuzating va "Sinov (1 ta)" bosing.</li>
+        </ol>
+      </details>
+      <div className="modal-actions paper-actions">
+        <button className="btn ghost" disabled={!canTest} onClick={() => { onSave(p); setTimeout(onTest, 60) }}>Saqlab, sinov (1 ta)</button>
+        <button className="btn primary" onClick={() => onSave(p)}>Saqlash</button>
+      </div>
+    </Modal>
   )
 }
 
