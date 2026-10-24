@@ -451,3 +451,9 @@ export async function loadCountRow(): Promise<unknown> {
 export async function saveCountRow(data: unknown) {
   await check(supabase!.from('settings').upsert({ id: 'count', data }))
 }
+
+/** Qoldiqni to'g'ridan-to'g'ri yozadi (qayta sanash tuzatishlari; oddiy tovar saqlashda qoldiq yozilmaydi). */
+export async function setStocks(stocks: { id: string; stock: number }[]) {
+  const db = supabase!
+  await Promise.all(stocks.map((s) => check(db.from('products').update({ stock: s.stock }).eq('id', s.id))))
+}

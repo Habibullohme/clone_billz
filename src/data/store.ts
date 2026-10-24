@@ -1026,8 +1026,11 @@ export async function takeHeld(id: string): Promise<HeldCart | undefined> {
 /** Qoldiqni o'zgartiradi (qayta sanash natijasi). */
 export async function setStock(id: string, stock: number): Promise<void> {
   const products = await getProducts()
-  write(K.products, products.map((x) => (x.id === id ? { ...x, stock: Math.max(0, stock) } : x)))
+  const value = Math.max(0, stock)
+  write(K.products, products.map((x) => (x.id === id ? { ...x, stock: value } : x)))
   await flush()
+  // Oddiy saqlash qoldiqni bazaga yozmaydi — bu yerda alohida yoziladi.
+  if (mode === 'cloud') await cloud.setStocks([{ id, stock: value }])
 }
 
 /**
@@ -1058,6 +1061,7 @@ export async function writeOffProducts(ids: string[]): Promise<{ removed: number
   if (zero.size) {
     write(K.products, products.map((p) => (zero.has(p.id) ? { ...p, stock: 0 } : p)))
     await flush()
+    if (mode === 'cloud') await cloud.setStocks([...zero].map((id) => ({ id, stock: 0 })))
   }
   return { removed, zeroed: zero.size }
 }
