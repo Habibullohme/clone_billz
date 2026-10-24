@@ -1471,3 +1471,9 @@ input:not([type=checkbox]):not([type=range]):not([type=file]), textarea {
 .find-list { display: flex; flex-direction: column; }
 .relabel { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px; border-radius: 12px; background: var(--accent-soft); }
 .relabel > span:first-child { flex: 1 1 260px; }
+.count-title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; width: 100%; flex-wrap: wrap; }
+.count-title > b { font-size: 20px; font-family: var(--font-display); }
+.count-price { font-family: var(--font-display); font-size: 30px; font-weight: 700; letter-spacing: -0.02em; color: var(--fg); white-space: nowrap; }
+.count-price small { font-size: 14px; color: var(--muted); font-weight: 500; }
+.scan-chip.again { background: var(--bad-soft); color: var(--bad); border-color: var(--bad); animation: chip-shake 0.5s ease 2; }
+@keyframes chip-shake { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-5px); } 40% { transform: translateX(5px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(3px); } }

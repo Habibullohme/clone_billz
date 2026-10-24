@@ -49,7 +49,9 @@ export function CountPage({ onLabels }: { onLabels: () => void }) {
   const [s, setS] = useState<Session | null>(load)
   const [view, setView] = useState<View>('scan')
   const [manual, setManual] = useState('')
-  const [last, setLast] = useState<{ code: string; ok: boolean; text: string; note?: string } | null>(null)
+  const [last, setLast] = useState<{ code: string; ok: boolean; text: string; note?: string; again?: boolean } | null>(null)
+  /** Qayta skaner qilingan yorliq — ro'yxatda silkinadi. */
+  const [shake, setShake] = useState<{ code: string; n: number } | null>(null)
   /** Ro'yxatda bosilgan skaner (× chiqadi). */
   const [picked, setPicked] = useState<string | null>(null)
   const [findQ, setFindQ] = useState('')
@@ -82,16 +84,19 @@ export function CountPage({ onLabels }: { onLabels: () => void }) {
     const code = raw.trim()
     if (!s || !code) return
     const p = byCode.get(code)
-    const n = (s.scans[code] ?? 0) + 1
-    // Takror skaner: oldingisi necha skaner oldin bo'lgan.
-    const ago = s.order.indexOf(code)
-    save({ ...s, scans: { ...s.scans, [code]: n }, order: [code, ...s.order.filter((c) => c !== code)] })
-    const ok = Boolean(p && p.stock > 0 && n === 1)
+    if (s.scans[code]) {
+      // Allaqachon skaner qilingan: hisob o'zgarmaydi, ro'yxatdagi yorlig'i qizil bo'lib silkinadi.
+      beep(false)
+      setShake({ code, n: Date.now() })
+      setLast({ code, ok: false, text: `${p ? p.name : code} — bu yorliq allaqachon skaner qilingan`, again: true })
+      return
+    }
+    save({ ...s, scans: { ...s.scans, [code]: 1 }, order: [code, ...s.order] })
+    const ok = Boolean(p && p.stock > 0)
     beep(ok)
     setLast({
       code, ok,
-      text: !p ? "Bazada yo'q" : n > 1 ? `${p.name} — ${n}-marta skaner qilindi!` : p.stock <= 0 ? `${p.name} — bazada sotilgan deb turibdi` : `${p.name} — joyida`,
-      note: n > 1 ? (ago === 0 ? "Hozirgina skaner qilingan edi" : `Oldin ${ago + 1} ta skaner avval skaner qilingan`) : undefined,
+      text: !p ? "Bazada yo'q" : p.stock <= 0 ? `${p.name} — bazada sotilgan deb turibdi` : `${p.name} — joyida`,
     })
   }
   /** Yorlig'i tushib qolgan pachka: nom bo'yicha topib "bor" deb belgilash, yangi etiketka ro'yxatiga qo'shiladi. */
@@ -177,7 +182,10 @@ export function CountPage({ onLabels }: { onLabels: () => void }) {
       {view === 'scan' ? (
         <>
           <section className={`card count-scan${last ? (last.ok ? ' ok' : ' bad') : ''}`}>
-            <b>{last ? last.text : 'Yorliqni skaner qiling'}</b>
+            <div className="count-title">
+              <b>{last ? last.text : 'Yorliqni skaner qiling'}</b>
+              {last && byCode.get(last.code) && <span className="count-price">{formatSum(byCode.get(last.code)!.salePrice)} <small>so'm</small></span>}
+            </div>
             {last?.note && <span className="count-warn">⚠ {last.note}</span>}
             {last && byCode.get(last.code) ? (() => {
               const p = byCode.get(last.code)!
@@ -289,12 +297,16 @@ export function CountPage({ onLabels }: { onLabels: () => void }) {
             <p className="muted small">Ustiga bosing — × chiqadi, × bilan skanerni bekor qilasiz. Qizil — ikki marta skaner qilingan, sariq — sotilgan deb turgan, kulrang — bazada yo'q.</p>
             {scanned.length === 0 ? <p className="muted">Hali hech narsa skaner qilinmadi.</p> : (
               <div className="count-log">
-                {scanned.slice(0, 80).map((c) => {
+                {(shake && scanned.indexOf(shake.code) >= 80 ? [shake.code, ...scanned.slice(0, 79)] : scanned.slice(0, 80)).map((c) => {
                   const p = byCode.get(c)
                   const n = s.scans[c] ?? 1
                   const kind = n > 1 ? 'dup' : !p ? 'none' : p.stock <= 0 ? 'sold' : 'ok'
                   return (
-                    <span key={c} className={`scan-chip ${kind}${picked === c ? ' on' : ''}`} onClick={() => setPicked(picked === c ? null : c)}>
+                    <span
+                      key={shake?.code === c ? `${c}-${shake.n}` : c}
+                      className={`scan-chip ${kind}${picked === c ? ' on' : ''}${shake?.code === c ? ' again' : ''}`}
+                      onClick={() => setPicked(picked === c ? null : c)}
+                    >
                       {p ? p.name : c}{n > 1 && <b> ×{n}</b>}
                       {picked === c && <button className="scan-x" aria-label="Skanerni bekor qilish" onClick={(e) => { e.stopPropagation(); unscan(c) }}>✕</button>}
                     </span>
@@ -413,7 +425,7 @@ const baseName = (name: string) => {
 function PriceForm({ p, siblings, onClose, onDone }: { p: Product; siblings: Product[]; onClose: () => void; onDone: () => void }) {
   const [sale, setSale] = useState(formatSum(p.salePrice))
   const [cost, setCost] = useState(formatSum(p.costPrice))
-  const [all, setAll] = useState(false)
+  const [all, setAll] = useState(siblings.length > 0)
   const [busy, setBusy] = useState(false)
   const ok = parseSum(sale) > 0
   return (
@@ -426,7 +438,10 @@ function PriceForm({ p, siblings, onClose, onDone }: { p: Product; siblings: Pro
       {siblings.length > 0 && (
         <label className="check-row">
           <input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} />
-          <span>Shu modelning omborda turgan boshqa {siblings.length} ta pachkasiga ham ("{baseName(p.name)}", hozirgi narxi {formatSum(p.salePrice)})</span>
+          <span>
+            Shu modelning <b>barcha {siblings.length} ta</b> boshqa pachkasiga ham — hali skaner qilinmaganlariga ham
+            <span className="muted small"> ("{baseName(p.name)}", {p.brand}, hozirgi narxi {formatSum(p.salePrice)})</span>
+          </span>
         </label>
       )}
       <div className="modal-actions">
