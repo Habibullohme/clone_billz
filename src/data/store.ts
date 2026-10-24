@@ -1045,3 +1045,27 @@ export async function restoreProduct(p: Omit<Product, 'id' | 'stock' | 'createdA
   await flush()
   return null
 }
+
+/**
+ * Qayta sanashdan keyin topilmagan pachkalarni bazadan chiqaradi: hech sotilmaganlari o'chiriladi,
+ * sotuvda qatnashganlari (hisobot buzilmasin) qoldig'i 0 qilinadi.
+ */
+export async function writeOffProducts(ids: string[]): Promise<{ removed: number; zeroed: number }> {
+  const { removed } = await deleteProducts(ids)
+  const want = new Set(ids)
+  const products = await getProducts()
+  const zero = new Set(products.filter((p) => want.has(p.id) && p.stock > 0).map((p) => p.id))
+  if (zero.size) {
+    write(K.products, products.map((p) => (zero.has(p.id) ? { ...p, stock: 0 } : p)))
+    await flush()
+  }
+  return { removed, zeroed: zero.size }
+}
+
+/** Narxlarni o'zgartiradi (bir yoki bir nechta pachka). */
+export async function setPrices(ids: string[], salePrice: number, costPrice: number): Promise<void> {
+  const want = new Set(ids)
+  const products = await getProducts()
+  write(K.products, products.map((p) => (want.has(p.id) ? { ...p, salePrice, costPrice } : p)))
+  await flush()
+}

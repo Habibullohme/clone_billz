@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Product, Sale } from '../types'
-import { activeSales, getProducts, getSales, restoreProduct, setStock } from '../data/store'
+import { activeSales, codeOf, getProducts, getSales, restoreProduct, setPrices, setStock, writeOffProducts } from '../data/store'
 import { formatSum, parseSum } from '../lib/money'
 import { beep, useScanner } from '../lib/useScanner'
 import { Modal } from '../components/ui'
@@ -38,7 +38,7 @@ const store = (s: Session | null) => {
   }
 }
 
-type View = 'scan' | 'missing'
+type View = 'scan' | 'list' | 'missing'
 
 export function CountPage() {
   const [products, setProducts] = useState<Product[]>([])
@@ -48,6 +48,7 @@ export function CountPage() {
   const [manual, setManual] = useState('')
   const [last, setLast] = useState<{ code: string; ok: boolean; text: string } | null>(null)
   const [restoring, setRestoring] = useState<string | null>(null)
+  const [pricing, setPricing] = useState<Product | null>(null)
   const [busy, setBusy] = useState(false)
 
   const reload = async () => {
@@ -84,7 +85,7 @@ export function CountPage() {
       text: !p ? "Bazada yo'q" : n > 1 ? `${n}-marta skaner qilindi` : p.stock <= 0 ? 'Bazada sotilgan deb turibdi' : `${p.name} — joyida`,
     })
   }
-  useScanner(scan, Boolean(s) && !restoring)
+  useScanner(scan, Boolean(s) && !restoring && !pricing)
 
   if (!s) {
     return (
@@ -112,7 +113,10 @@ export function CountPage() {
   const soldHere = scanned.map((c) => byCode.get(c)).filter((p): p is Product => Boolean(p && p.stock <= 0 && !s.ignored.includes(p.barcode)))
   const doubles = scanned.filter((c) => (s.scans[c] ?? 0) > 1)
   const okCount = scanned.filter((c) => { const p = byCode.get(c); return p && p.stock > 0 }).length
-  const expected = products.filter((p) => p.stock > 0 && inScope(p))
+  // Sanash boshlangandan keyin kiritilgan tovarlar (yorlig'i yo'q yuk uchun yangi kirim) — joyida deb hisoblanadi.
+  const isNew = (p: Product) => p.createdAt > s.startedAt
+  const expected = products.filter((p) => p.stock > 0 && inScope(p) && !isNew(p))
+  const added = products.filter((p) => p.stock > 0 && inScope(p) && isNew(p))
   const missing = expected.filter((p) => !s.scans[p.barcode] && !s.ignored.includes(p.barcode))
   const ignore = (code: string) => save({ ...s, ignored: [...s.ignored, code] })
   const run = async (job: () => Promise<unknown>) => {
@@ -141,6 +145,7 @@ export function CountPage() {
 
       <div className="seg-row">
         <button className={`btn ${view === 'scan' ? 'primary' : 'ghost'}`} onClick={() => setView('scan')}>Skaner va farqlar</button>
+        <button className={`btn ${view === 'list' ? 'primary' : 'ghost'}`} onClick={() => setView('list')}>Skaner qilinganlar ({scanned.length})</button>
         <button className={`btn ${view === 'missing' ? 'primary' : 'ghost'}`} onClick={() => setView('missing')}>Topilmaganlar ({missing.length})</button>
       </div>
 
@@ -214,12 +219,58 @@ export function CountPage() {
             )}
           </section>
         </>
+      ) : view === 'list' ? (
+        <section className="card">
+          <h2>Skaner qilinganlar ({scanned.length})</h2>
+          <p className="muted small">Narx noto'g'ri bo'lsa — "Narx" tugmasi. Sanash boshlangandan keyin kirim qilingan {added.length} ta pachka ham joyida deb hisoblanadi.</p>
+          {scanned.length === 0 ? <p className="muted">Hali hech narsa skaner qilinmadi.</p> : (
+            <div className="table-wrap">
+              <table className="table">
+                <thead><tr><th>Tovar</th><th>Brend</th><th>Rang</th><th className="num">Qoldiq</th><th className="num">Kelish</th><th className="num">Sotuv</th><th /></tr></thead>
+                <tbody>
+                  {scanned.map((c) => {
+                    const p = byCode.get(c)
+                    if (!p) return <tr key={c}><td className="mono">{c}</td><td colSpan={5} className="muted">bazada yo'q</td><td className="num"><button className="btn primary small" onClick={() => setRestoring(c)}>Qayta kiritish</button></td></tr>
+                    return (
+                      <tr key={c}>
+                        <td><b>{p.name}</b></td>
+                        <td>{p.brand}</td>
+                        <td>{p.color}</td>
+                        <td className="num">{p.stock} juft</td>
+                        <td className="num">{formatSum(p.costPrice)}</td>
+                        <td className="num"><b>{formatSum(p.salePrice)}</b></td>
+                        <td className="num"><button className="btn ghost small" onClick={() => setPricing(p)}>Narx</button></td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       ) : (
         <section className="card">
-          <h2>Bazada bor, lekin skaner qilinmagan ({missing.length})</h2>
+          <div className="count-head">
+            <h2>Bazada bor, lekin skaner qilinmagan ({missing.length})</h2>
+            {missing.length > 0 && (
+              <button
+                className="btn danger"
+                disabled={busy}
+                onClick={() => {
+                  if (!window.confirm(`${missing.length} ta pachka bazadan chiqarilsinmi?\n\nHech sotilmaganlari o'chiriladi, sotuvda qatnashganlari qoldig'i 0 qilinadi (cheklar va hisobot o'zgarmaydi).\n\nFaqat hamma yukni skaner qilib bo'lgach bosing.`)) return
+                  run(async () => {
+                    const r = await writeOffProducts(missing.map((p) => p.id))
+                    setLast({ code: '', ok: true, text: `Bazadan chiqarildi: ${r.removed} ta o'chirildi, ${r.zeroed} ta qoldig'i 0` })
+                  })
+                }}
+              >
+                Hammasini bazadan chiqarish
+              </button>
+            )}
+          </div>
           <p className="muted small">
-            Sanash tugagandan keyin qarang: bular bazada "omborda" turibdi, lekin yorlig'i topilmadi. Ehtimol sotilgan-u kassadan urilmagan.
-            "Ombordan chiqarish" — qoldiq 0 bo'ladi (sotuv sifatida yozilmaydi, hisobotga tushmaydi).
+            Hamma yukni skaner qilib bo'lgach qarang. Bular bazada "omborda" turibdi, lekin yorlig'i topilmadi.
+            "Bazadan chiqarish": hech sotilmagan pachka o'chiriladi, sotuvda qatnashgani qoldig'i 0 qilinadi (cheklar o'zgarmaydi).
           </p>
           {missing.length === 0 ? <p className="muted">Hammasi topildi 👍</p> : (
             <div className="table-wrap">
@@ -235,7 +286,7 @@ export function CountPage() {
                       <td className="num">{formatSum(p.salePrice)}</td>
                       <td className="num">
                         <button className="btn ghost small" onClick={() => ignore(p.barcode)}>Bor (e'tiborsiz)</button>{' '}
-                        <button className="btn ghost small danger-text" disabled={busy} onClick={() => { if (window.confirm(`${p.name}: qoldiq 0 qilinsinmi?`)) run(() => setStock(p.id, 0)) }}>Ombordan chiqarish</button>
+                        <button className="btn ghost small danger-text" disabled={busy} onClick={() => { if (window.confirm(`${p.name}: bazadan chiqarilsinmi?`)) run(() => writeOffProducts([p.id])) }}>Bazadan chiqarish</button>
                       </td>
                     </tr>
                   ))}
@@ -244,6 +295,15 @@ export function CountPage() {
             </div>
           )}
         </section>
+      )}
+
+      {pricing && (
+        <PriceForm
+          p={pricing}
+          siblings={products.filter((x) => x.id !== pricing.id && x.brand === pricing.brand && baseName(x.name) === baseName(pricing.name) && x.salePrice === pricing.salePrice && x.stock > 0)}
+          onClose={() => setPricing(null)}
+          onDone={async () => { setPricing(null); await reload() }}
+        />
       )}
 
       {restoring && (
@@ -255,6 +315,49 @@ export function CountPage() {
         />
       )}
     </div>
+  )
+}
+
+/** "Little qalin A69" → "Little qalin" (oxiridagi yorliq kodisiz). */
+const baseName = (name: string) => {
+  const code = codeOf(name)
+  return code ? name.slice(0, -code.length).trim() : name.trim()
+}
+
+function PriceForm({ p, siblings, onClose, onDone }: { p: Product; siblings: Product[]; onClose: () => void; onDone: () => void }) {
+  const [sale, setSale] = useState(formatSum(p.salePrice))
+  const [cost, setCost] = useState(formatSum(p.costPrice))
+  const [all, setAll] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const ok = parseSum(sale) > 0
+  return (
+    <Modal title="Narxni o'zgartirish" onClose={onClose}>
+      <p><b>{p.name}</b> <span className="muted small">· {p.brand} · {p.color} · {p.size}</span></p>
+      <div className="grid2">
+        <label className="field"><span>Sotuv narxi (1 juft)</span><input className="input" inputMode="numeric" autoFocus value={sale} onFocus={(e) => e.target.select()} onChange={(e) => setSale(formatSum(parseSum(e.target.value)))} /></label>
+        <label className="field"><span>Kelish narxi (1 juft)</span><input className="input" inputMode="numeric" value={cost} onFocus={(e) => e.target.select()} onChange={(e) => setCost(formatSum(parseSum(e.target.value)))} /></label>
+      </div>
+      {siblings.length > 0 && (
+        <label className="check-row">
+          <input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} />
+          <span>Shu modelning omborda turgan boshqa {siblings.length} ta pachkasiga ham ("{baseName(p.name)}", hozirgi narxi {formatSum(p.salePrice)})</span>
+        </label>
+      )}
+      <div className="modal-actions">
+        <button className="btn ghost" onClick={onClose}>Bekor</button>
+        <button
+          className="btn primary grow"
+          disabled={!ok || busy}
+          onClick={async () => {
+            setBusy(true)
+            await setPrices([p.id, ...(all ? siblings.map((x) => x.id) : [])], parseSum(sale), parseSum(cost))
+            onDone()
+          }}
+        >
+          Saqlash{all && siblings.length ? ` (${siblings.length + 1} ta)` : ''}
+        </button>
+      </div>
+    </Modal>
   )
 }
 

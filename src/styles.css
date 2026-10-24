@@ -1456,3 +1456,6 @@ input:not([type=checkbox]):not([type=range]):not([type=file]), textarea {
 .count-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
 .count-log { display: flex; flex-wrap: wrap; gap: 6px; }
 .count-page .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.count-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.check-row { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; }
+.check-row input { margin-top: 3px; width: 18px; height: 18px; accent-color: var(--accent); }
