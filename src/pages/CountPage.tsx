@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Product, Sale } from '../types'
-import { activeSales, codeOf, getProducts, getSales, restoreProduct, setPrices, setStock, writeOffProducts } from '../data/store'
+import { activeSales, codeOf, getProducts, getSales, restoreProduct, searchProducts, setPrices, setStock, writeOffProducts } from '../data/store'
+import { PENDING_KEY } from './LabelsPage'
 import { formatSum, parseSum } from '../lib/money'
 import { beep, useScanner } from '../lib/useScanner'
 import { Modal } from '../components/ui'
@@ -19,6 +20,8 @@ interface Session {
   brands: string[]
   /** Ko'rib chiqilgan ("e'tiborsiz") shtrix-kodlar. */
   ignored: string[]
+  /** Yorlig'i tushib qolgan (qo'lda topilgan) — yangi etiketka kerak. */
+  relabel?: string[]
 }
 
 const KEY = 'count.session.v1'
@@ -40,13 +43,16 @@ const store = (s: Session | null) => {
 
 type View = 'scan' | 'list' | 'missing'
 
-export function CountPage() {
+export function CountPage({ onLabels }: { onLabels: () => void }) {
   const [products, setProducts] = useState<Product[]>([])
   const [sales, setSales] = useState<Sale[]>([])
   const [s, setS] = useState<Session | null>(load)
   const [view, setView] = useState<View>('scan')
   const [manual, setManual] = useState('')
-  const [last, setLast] = useState<{ code: string; ok: boolean; text: string } | null>(null)
+  const [last, setLast] = useState<{ code: string; ok: boolean; text: string; note?: string } | null>(null)
+  /** Ro'yxatda bosilgan skaner (× chiqadi). */
+  const [picked, setPicked] = useState<string | null>(null)
+  const [findQ, setFindQ] = useState('')
   const [restoring, setRestoring] = useState<string | null>(null)
   const [pricing, setPricing] = useState<Product | null>(null)
   const [busy, setBusy] = useState(false)
@@ -77,13 +83,32 @@ export function CountPage() {
     if (!s || !code) return
     const p = byCode.get(code)
     const n = (s.scans[code] ?? 0) + 1
+    // Takror skaner: oldingisi necha skaner oldin bo'lgan.
+    const ago = s.order.indexOf(code)
     save({ ...s, scans: { ...s.scans, [code]: n }, order: [code, ...s.order.filter((c) => c !== code)] })
     const ok = Boolean(p && p.stock > 0 && n === 1)
     beep(ok)
     setLast({
       code, ok,
-      text: !p ? "Bazada yo'q" : n > 1 ? `${n}-marta skaner qilindi` : p.stock <= 0 ? 'Bazada sotilgan deb turibdi' : `${p.name} — joyida`,
+      text: !p ? "Bazada yo'q" : n > 1 ? `${p.name} — ${n}-marta skaner qilindi!` : p.stock <= 0 ? `${p.name} — bazada sotilgan deb turibdi` : `${p.name} — joyida`,
+      note: n > 1 ? (ago === 0 ? "Hozirgina skaner qilingan edi" : `Oldin ${ago + 1} ta skaner avval skaner qilingan`) : undefined,
     })
+  }
+  /** Yorlig'i tushib qolgan pachka: nom bo'yicha topib "bor" deb belgilash, yangi etiketka ro'yxatiga qo'shiladi. */
+  const markNoLabel = (p: Product) => {
+    if (!s) return
+    const relabel = [...new Set([...(s.relabel ?? []), p.barcode])]
+    save({ ...s, relabel, scans: { ...s.scans, [p.barcode]: (s.scans[p.barcode] ?? 0) + 1 }, order: [p.barcode, ...s.order.filter((c) => c !== p.barcode)] })
+    setFindQ('')
+    setLast({ code: p.barcode, ok: true, text: `${p.name} — joyida (yorliqsiz, yangi etiketka ro'yxatida)` })
+  }
+  /** Skanerni bekor qilish (noto'g'ri yoki qayta skaner qilish uchun). */
+  const unscan = (code: string) => {
+    if (!s) return
+    const { [code]: _drop, ...rest } = s.scans
+    save({ ...s, scans: rest, order: s.order.filter((c) => c !== code), relabel: (s.relabel ?? []).filter((c) => c !== code) })
+    setPicked(null)
+    if (last?.code === code) setLast(null)
   }
   useScanner(scan, Boolean(s) && !restoring && !pricing)
 
@@ -153,11 +178,63 @@ export function CountPage() {
         <>
           <section className={`card count-scan${last ? (last.ok ? ' ok' : ' bad') : ''}`}>
             <b>{last ? last.text : 'Yorliqni skaner qiling'}</b>
-            <span className="muted small">{last ? last.code : 'Skaner har doim tinglaydi. Qo\'lda ham yozish mumkin:'}</span>
+            {last?.note && <span className="count-warn">⚠ {last.note}</span>}
+            {last && byCode.get(last.code) ? (() => {
+              const p = byCode.get(last.code)!
+              return (
+                <div className="count-info">
+                  <span className="mono">{last.code}</span>
+                  <span>Pachkada: <b>{p.packSize} juft</b></span>
+                  <span>Qoldiq: <b>{p.stock} juft</b></span>
+                  <span>Sotuv: <b>{formatSum(p.salePrice)}</b></span>
+                  <span className="muted">Kelish: {formatSum(p.costPrice)}</span>
+                  <button className="btn ghost small" onClick={() => setPricing(p)}>✎ Tahrirlash</button>
+                  <button className="btn ghost small danger-text" onClick={() => unscan(last.code)}>Skanerni bekor qilish</button>
+                </div>
+              )
+            })() : (
+              <span className="muted small">{last ? last.code : 'Skaner har doim tinglaydi. Qo\'lda ham yozish mumkin:'}</span>
+            )}
             <form className="row-form" onSubmit={(e) => { e.preventDefault(); scan(manual); setManual('') }}>
               <input className="input" inputMode="numeric" placeholder="Shtrix-kod raqami" value={manual} onChange={(e) => setManual(e.target.value)} />
               <button className="btn ghost" disabled={!manual.trim()}>Qo'shish</button>
             </form>
+          </section>
+
+          <section className="card">
+            <h2>Yorlig'i tushib qolgan yuk</h2>
+            <p className="muted small">Pachka bor, bazada ham bor, lekin yorlig'i tushib qolgan bo'lsa — nomi yoki kodi bilan toping va "Bor" ni bosing. U joyida deb hisoblanadi va yangi etiketka ro'yxatiga tushadi.</p>
+            <input className="input" placeholder="Masalan: barsofka A121 yoki A121" value={findQ} onChange={(e) => setFindQ(e.target.value)} />
+            {findQ.trim().length >= 2 && (
+              <div className="find-list">
+                {searchProducts(products.filter((p) => p.stock > 0), findQ, 8).map((p) => {
+                  const done = Boolean(s.scans[p.barcode])
+                  return (
+                    <div key={p.id} className="count-row">
+                      <span><b>{p.name}</b><span className="muted small"> · {p.brand} · {p.color} · {p.packSize} juft · {formatSum(p.salePrice)}</span></span>
+                      <span className="grow" />
+                      {done ? <span className="muted small">allaqachon belgilangan</span> : <button className="btn primary small" onClick={() => markNoLabel(p)}>Bor (yorliqsiz)</button>}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+            {(s.relabel?.length ?? 0) > 0 && (
+              <div className="relabel">
+                <span><b>Yangi etiketka kerak: {s.relabel!.length} ta</b> <span className="muted small">· {s.relabel!.map((c) => byCode.get(c)?.name ?? c).join(', ')}</span></span>
+                <button
+                  className="btn primary"
+                  onClick={() => {
+                    const ids = s.relabel!.map((c) => byCode.get(c)?.id).filter((x): x is string => Boolean(x))
+                    try { localStorage.setItem(PENDING_KEY, JSON.stringify(ids)) } catch { /* xotira yopiq */ }
+                    onLabels()
+                  }}
+                >
+                  🏷 Etiketka chiqarish
+                </button>
+                <button className="btn ghost small" onClick={() => save({ ...s, relabel: [] })}>Chiqarildi — ro'yxatni tozalash</button>
+              </div>
+            )}
           </section>
 
           {unknown.length > 0 && (
@@ -208,13 +285,22 @@ export function CountPage() {
           )}
 
           <section className="card">
-            <h2>Oxirgi skanerlar</h2>
+            <h2>Oxirgi skanerlar ({scanned.length})</h2>
+            <p className="muted small">Ustiga bosing — × chiqadi, × bilan skanerni bekor qilasiz. Qizil — ikki marta skaner qilingan, sariq — sotilgan deb turgan, kulrang — bazada yo'q.</p>
             {scanned.length === 0 ? <p className="muted">Hali hech narsa skaner qilinmadi.</p> : (
               <div className="count-log">
-                {scanned.slice(0, 30).map((c) => {
+                {scanned.slice(0, 80).map((c) => {
                   const p = byCode.get(c)
-                  return <span key={c} className={`tag ${!p ? 't-nasiya' : p.stock <= 0 ? 't-dollar' : 't-naqd'}`}>{p ? p.name : c}</span>
+                  const n = s.scans[c] ?? 1
+                  const kind = n > 1 ? 'dup' : !p ? 'none' : p.stock <= 0 ? 'sold' : 'ok'
+                  return (
+                    <span key={c} className={`scan-chip ${kind}${picked === c ? ' on' : ''}`} onClick={() => setPicked(picked === c ? null : c)}>
+                      {p ? p.name : c}{n > 1 && <b> ×{n}</b>}
+                      {picked === c && <button className="scan-x" aria-label="Skanerni bekor qilish" onClick={(e) => { e.stopPropagation(); unscan(c) }}>✕</button>}
+                    </span>
+                  )
                 })}
+                {scanned.length > 80 && <span className="muted small">… yana {scanned.length - 80} ta ("Skaner qilinganlar"da)</span>}
               </div>
             )}
           </section>
@@ -239,7 +325,7 @@ export function CountPage() {
                         <td className="num">{p.stock} juft</td>
                         <td className="num">{formatSum(p.costPrice)}</td>
                         <td className="num"><b>{formatSum(p.salePrice)}</b></td>
-                        <td className="num"><button className="btn ghost small" onClick={() => setPricing(p)}>Narx</button></td>
+                        <td className="num"><button className="btn ghost small" onClick={() => setPricing(p)}>✎ Narx</button> <button className="btn ghost small danger-text" title="Skanerni bekor qilish" onClick={() => unscan(c)}>✕</button></td>
                       </tr>
                     )
                   })}

@@ -416,7 +416,7 @@ function Shop({ onStats }: { onStats?: () => void }) {
         )}
         {tab === 'debts' && <DebtsPage />}
         {tab === 'labels' && <LabelsPage batchId={labelsBatch} />}
-        {tab === 'count' && <CountPage />}
+        {tab === 'count' && <CountPage onLabels={() => setTab('labels')} />}
         {tab === 'settings' && <SettingsPage />}
       </main>
 

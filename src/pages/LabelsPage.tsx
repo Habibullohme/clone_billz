@@ -12,6 +12,9 @@ import { Modal, Segmented, Select, Toggle } from '../components/ui'
 
 type CountMode = 'batch' | 'stock' | 'one'
 
+/** Boshqa bo'limdan etiketkaga yuborilgan tovarlar (id ro'yxati). */
+export const PENDING_KEY = 'labels.pending'
+
 export function LabelsPage({ batchId }: { batchId: string | null }) {
   const [products, setProducts] = useState<Product[]>([])
   const [batches, setBatches] = useState<ImportBatch[]>([])
@@ -41,8 +44,24 @@ export function LabelsPage({ batchId }: { batchId: string | null }) {
   useEffect(() => {
     getProducts().then(setProducts)
     getSettings().then(setSettings)
+    // "Sanash"dan yuborilgan (yorlig'i tushib qolgan) tovarlar — har biriga 1 ta etiketka.
+    let pending: string[] = []
+    try {
+      pending = JSON.parse(localStorage.getItem(PENDING_KEY) ?? '[]') as string[]
+      localStorage.removeItem(PENDING_KEY)
+    } catch {
+      // Xotira yopiq — oddiy tartib.
+    }
     getBatches().then((b) => {
       setBatches(b)
+      if (pending.length) {
+        setCustom(true)
+        setBatch(null)
+        setMode('one')
+        setIds(pending)
+        setQty(Object.fromEntries(pending.map((id) => [id, 1])))
+        return
+      }
       const pick = b.find((x) => x.id === batchId) ?? b[0]
       if (pick) chooseBatch(pick)
     })

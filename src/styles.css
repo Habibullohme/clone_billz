@@ -1459,3 +1459,15 @@ input:not([type=checkbox]):not([type=range]):not([type=file]), textarea {
 .count-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .check-row { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; }
 .check-row input { margin-top: 3px; width: 18px; height: 18px; accent-color: var(--accent); }
+.count-info { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; font-size: 14px; }
+.count-warn { color: var(--bad); font-weight: 700; }
+.scan-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid transparent; user-select: none; }
+.scan-chip.ok { background: var(--accent-soft); color: var(--accent); }
+.scan-chip.dup { background: var(--bad-soft); color: var(--bad); border-color: var(--bad); }
+.scan-chip.sold { background: var(--amber-soft, #fbefd8); color: var(--amber, #a85d00); }
+.scan-chip.none { background: var(--sunken); color: var(--muted); }
+.scan-chip.on { box-shadow: 0 0 0 2px var(--fg); }
+.scan-x { border: 0; background: var(--bad); color: #fff; width: 20px; height: 20px; border-radius: 50%; font-size: 11px; display: grid; place-items: center; cursor: pointer; padding: 0; }
+.find-list { display: flex; flex-direction: column; }
+.relabel { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px; border-radius: 12px; background: var(--accent-soft); }
+.relabel > span:first-child { flex: 1 1 260px; }
