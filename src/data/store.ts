@@ -1020,3 +1020,28 @@ export async function takeHeld(id: string): Promise<HeldCart | undefined> {
   await flush()
   return found
 }
+
+// ---------- Qayta sanash (vaqtinchalik) ----------
+
+/** Qoldiqni o'zgartiradi (qayta sanash natijasi). */
+export async function setStock(id: string, stock: number): Promise<void> {
+  const products = await getProducts()
+  write(K.products, products.map((x) => (x.id === id ? { ...x, stock: Math.max(0, stock) } : x)))
+  await flush()
+}
+
+/**
+ * Bazadan o'chirilgan, lekin yorlig'i tovarda turgan pachkani o'sha shtrix-kod bilan qayta kiritadi.
+ * Shtrix-kod band bo'lsa — xato matni qaytadi.
+ */
+export async function restoreProduct(p: Omit<Product, 'id' | 'stock' | 'createdAt' | 'batchId'>): Promise<string | null> {
+  const products = await getProducts()
+  const code = p.barcode.trim()
+  if (products.some((x) => x.barcode === code)) return 'Bu shtrix-kod bazada bor'
+  const name = p.name.trim().replace(/\s+/g, ' ')
+  const clash = nameConflict(products, p.brand, name)
+  if (clash) return clash
+  write(K.products, [...products, { ...p, barcode: code, name, brand: p.brand.trim(), id: uid(), stock: p.packSize, createdAt: new Date().toISOString(), batchId: null }])
+  await flush()
+  return null
+}

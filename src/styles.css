@@ -1443,3 +1443,16 @@ input:not([type=checkbox]):not([type=range]):not([type=file]), textarea {
 .warn-text { color: var(--warn); margin-top: 8px; }
 .btn.warn { border-color: var(--warn); color: var(--warn); }
 .paper-actions { justify-content: flex-end; margin-top: 14px; }
+
+/* Qayta sanash (vaqtinchalik) */
+.count-intro ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.count-intro .chips-row.wrap { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+.count-page .seg-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.count-scan { align-items: flex-start; border-width: 2px; }
+.count-scan > b { font-size: 20px; font-family: var(--font-display); }
+.count-scan.ok { border-color: var(--ok); }
+.count-scan.bad { border-color: var(--bad); }
+.count-scan .row-form { display: flex; gap: 8px; width: 100%; max-width: 420px; }
+.count-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.count-log { display: flex; flex-wrap: wrap; gap: 6px; }
+.count-page .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }

@@ -17,12 +17,14 @@ import { BackClose, Modal } from './components/ui'
 import { applyTheme, type Theme } from './lib/theme'
 import { IconBox, IconCashbox, IconDebt, IconGear, IconSales, IconTag, IconTheme } from './components/icons'
 import { DebtsPage } from './pages/DebtsPage'
+import { CountPage } from './pages/CountPage'
 
 const ownerTabs = [
   ['sales', 'Sotuvlar', 'Tushum, foyda, brendlar', IconSales],
   ['products', 'Tovarlar', 'Ro\'yxat, Excel import', IconBox],
   ['debts', 'Nasiyalar', 'Kim qancha qarz, to\'lovlar', IconDebt],
   ['labels', 'Etiketkalar', 'Shtrix-kod chiqarish', IconTag],
+  ['count', 'Sanash', 'Ombor va baza solishtirish', IconBox],
   ['settings', 'Sozlamalar', 'Do\'kon, chek, PIN', IconGear],
 ] as const
 type OwnerTab = (typeof ownerTabs)[number][0]
@@ -414,6 +416,7 @@ function Shop({ onStats }: { onStats?: () => void }) {
         )}
         {tab === 'debts' && <DebtsPage />}
         {tab === 'labels' && <LabelsPage batchId={labelsBatch} />}
+        {tab === 'count' && <CountPage />}
         {tab === 'settings' && <SettingsPage />}
       </main>
 
