@@ -1477,3 +1477,6 @@ input:not([type=checkbox]):not([type=range]):not([type=file]), textarea {
 .count-price small { font-size: 14px; color: var(--muted); font-weight: 500; }
 .scan-chip.again { background: var(--bad-soft); color: var(--bad); border-color: var(--bad); animation: chip-shake 0.5s ease 2; }
 @keyframes chip-shake { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-5px); } 40% { transform: translateX(5px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(3px); } }
+.sync-badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-weight: 600; margin-right: 6px; background: var(--sunken); }
+.sync-badge.ok { background: var(--accent-soft); color: var(--accent); }
+.sync-badge.err { background: var(--bad-soft); color: var(--bad); }

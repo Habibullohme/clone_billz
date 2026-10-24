@@ -440,3 +440,14 @@ export async function attachPhoto(productIds: string[], dataUrl: string): Promis
   }
   return data as { error?: string; replaced?: boolean }
 }
+
+/** Qayta sanash natijasi (hamma qurilmada bir xil). */
+export async function loadCountRow(): Promise<unknown> {
+  const { data, error } = await supabase!.from('settings').select('data').eq('id', 'count').maybeSingle()
+  if (error) throw error
+  return (data as { data: unknown } | null)?.data ?? null
+}
+
+export async function saveCountRow(data: unknown) {
+  await check(supabase!.from('settings').upsert({ id: 'count', data }))
+}

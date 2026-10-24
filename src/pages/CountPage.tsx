@@ -1,28 +1,18 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Product, Sale } from '../types'
 import { activeSales, codeOf, getProducts, getSales, restoreProduct, searchProducts, setPrices, setStock, writeOffProducts } from '../data/store'
 import { PENDING_KEY } from './LabelsPage'
 import { formatSum, parseSum } from '../lib/money'
 import { beep, useScanner } from '../lib/useScanner'
 import { Modal } from '../components/ui'
+import { cloudEnabled, loadCountRow, saveCountRow } from '../data/cloud'
+import { merge, stamp, type CountRow, type CountSession } from '../lib/countSync'
 
 /**
  * Qayta sanash (vaqtinchalik): do'kondagi har bir pachka yorlig'ini skaner qilasiz,
  * sayt bazadagi holat bilan solishtiradi. Bazaga hech narsa o'zi yozilmaydi — har bir tuzatish tugma bilan.
  */
-interface Session {
-  startedAt: string
-  /** Shtrix-kod → necha marta skaner qilindi. */
-  scans: Record<string, number>
-  /** Skanerlar tartibi (oxirgisi yuqorida ko'rinadi). */
-  order: string[]
-  /** Faqat shu brendlar solishtiriladi (bo'sh — hammasi). */
-  brands: string[]
-  /** Ko'rib chiqilgan ("e'tiborsiz") shtrix-kodlar. */
-  ignored: string[]
-  /** Yorlig'i tushib qolgan (qo'lda topilgan) — yangi etiketka kerak. */
-  relabel?: string[]
-}
+type Session = CountSession
 
 const KEY = 'count.session.v1'
 const load = (): Session | null => {
@@ -65,10 +55,50 @@ export function CountPage({ onLabels }: { onLabels: () => void }) {
   }
   useEffect(() => { reload() }, [])
 
-  const save = (next: Session | null) => {
+  // Natija bazada ham saqlanadi — boshqa kompyuterda ham ko'rinadi. Internet bo'lmasa — shu qurilmada turadi.
+  const [sync, setSync] = useState<'local' | 'ok' | 'wait' | 'err'>(cloudEnabled ? 'wait' : 'local')
+  const cur = useRef<Session | null>(s)
+  cur.current = s
+  const timer = useRef<number | undefined>(undefined)
+  const apply = (next: Session | null) => {
+    cur.current = next
     setS(next)
     store(next)
   }
+  /** Bazadagi bilan birlashtirib, natijani bazaga yozadi. */
+  const push = async (reset?: number) => {
+    if (!cloudEnabled) return
+    try {
+      if (reset) {
+        await saveCountRow({ resetAt: reset })
+      } else {
+        const remote = (await loadCountRow()) as CountRow | null
+        const m = merge(cur.current, remote)
+        if (m) await saveCountRow(m)
+        apply(merge(cur.current, m))
+      }
+      setSync('ok')
+    } catch {
+      setSync('err')
+    }
+  }
+  const save = (next: Session | null) => {
+    apply(next ? stamp(cur.current, next) : null)
+    if (!cloudEnabled) return
+    clearTimeout(timer.current)
+    setSync('wait')
+    if (!next) { push(Date.now()); return }
+    timer.current = window.setTimeout(() => { timer.current = undefined; push() }, 1200)
+  }
+  // Ochilganda va har 20 soniyada: boshqa qurilmadagi skanerlar ham qo'shiladi.
+  useEffect(() => {
+    if (!cloudEnabled) return
+    push()
+    const t = window.setInterval(() => { if (!timer.current) push() }, 20_000)
+    const onVis = () => { if (document.visibilityState === 'visible') push() }
+    document.addEventListener('visibilitychange', onVis)
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis) }
+  }, [])
   const byCode = useMemo(() => new Map(products.map((p) => [p.barcode, p])), [products])
   const lastSale = useMemo(() => {
     const m = new Map<string, Sale>()
@@ -130,7 +160,8 @@ export function CountPage({ onLabels }: { onLabels: () => void }) {
           </ol>
           <div className="field">
             <span>Qaysi brendlarni sanaysiz? (hech biri tanlanmasa — hammasi)</span>
-            <BrandPick all={brands} value={[]} onStart={(b) => save({ startedAt: new Date().toISOString(), scans: {}, order: [], brands: b, ignored: [] })} />
+            {sync === 'wait' ? <p className="muted">☁ Bazadan oldingi sanash yuklanmoqda…</p> : <BrandPick all={brands} value={[]} onStart={(b) => save({ sid: Math.random().toString(36).slice(2) + Date.now().toString(36), startedAt: new Date().toISOString(), scans: {}, order: [], brands: b, ignored: [] })} />}
+            {sync === 'err' && <p className="danger-text small">⚠ Bazaga ulanib bo'lmadi. Boshqa kompyuterda boshlangan sanash bo'lsa, internetni tekshirib sahifani yangilang — yangisini boshlamang.</p>}
           </div>
         </section>
       </div>
@@ -170,6 +201,7 @@ export function CountPage({ onLabels }: { onLabels: () => void }) {
         <div className="kpi tone-red"><span>Hali topilmagan</span><b>{missing.length}</b></div>
       </div>
       <p className="muted small">
+        <span className={`sync-badge ${sync}`}>{{ local: 'Shu kompyuterda saqlanmoqda', ok: '☁ Bazada saqlangan — boshqa kompyuterda ham ko\'rinadi', wait: '☁ Saqlanmoqda…', err: '⚠ Internet yo\'q — shu kompyuterda saqlandi, internet qaytsa bazaga yoziladi' }[sync]}</span>{' '}
         {s.brands.length ? `Brendlar: ${s.brands.join(', ')}` : 'Barcha brendlar'} · boshlangan: {new Date(s.startedAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
       </p>
 
