@@ -144,11 +144,16 @@ export function onSyncError(cb: (msg: string) => void): () => void {
   return () => errorListeners.delete(cb)
 }
 
+const AUTH_MSG = "Kirish muddati tugagan — bazaga yozib bo'lmadi. Sozlamalar → Chiqish, so'ng qayta kiring (navbatdagi sotuvlar o'zi yuboriladi)."
+
 function syncFailed(e: unknown) {
   console.error(e)
+  if (mode === 'cloud' && cloud.isAuthError(e)) cloud.reauth().catch(() => {})
   const msg = /fetch|network/i.test(String((e as Error)?.message ?? e))
     ? "Internet yo'q — o'zgarish saqlanmadi"
-    : "Bazaga saqlanmadi: " + ((e as Error)?.message ?? String(e))
+    : mode === 'cloud' && cloud.isAuthError(e)
+      ? AUTH_MSG
+      : "Bazaga saqlanmadi: " + ((e as Error)?.message ?? String(e))
   errorListeners.forEach((cb) => cb(msg))
 }
 
@@ -253,6 +258,11 @@ async function doSyncOutbox(): Promise<number> {
       } catch (e) {
         if (isNetworkError(e)) {
           setOffline({ offline: true })
+          break
+        }
+        // Kirish muddati tugagan: sotuv navbatda qoladi, qayta kirilgach yuboriladi.
+        if (cloud.isAuthError(e)) {
+          errorListeners.forEach((cb) => cb(AUTH_MSG))
           break
         }
         // Avval yetib borgan, lekin javobi kelmay qolgan bo'lishi mumkin — bazadan tekshiramiz.
@@ -396,6 +406,7 @@ async function doRefresh(timeout: number): Promise<void> {
     ])
   } catch (e) {
     if (isNetworkError(e)) setOffline({ offline: true })
+    else if (cloud.isAuthError(e)) errorListeners.forEach((cb) => cb(AUTH_MSG))
     throw e
   }
   if (!snap) return
@@ -866,11 +877,14 @@ export async function saveSale(sale: Omit<Sale, 'id' | 'number' | 'createdAt'>):
     try {
       number = await cloud.applySale(id, { ...sale, createdAt })
     } catch (e) {
-      if (!isNetworkError(e)) throw e
-      // Internet yo'q — sotuv shu qurilmada navbatga yoziladi, internet qaytganda o'zi yuboriladi.
+      const auth = cloud.isAuthError(e)
+      if (!isNetworkError(e) && !auth) throw e
+      // Internet yo'q yoki kirish muddati tugagan — sotuv yo'qolmaydi: shu qurilmada navbatga yoziladi
+      // va internet qaytganda / qayta kirilganda o'zi bazaga yuboriladi.
       writeOutbox([...readOutbox(), { id, data: { ...sale, createdAt } }])
       queued = true
-      setOffline({ offline: true })
+      if (auth) errorListeners.forEach((cb) => cb(AUTH_MSG))
+      else setOffline({ offline: true })
     }
   } else number = await takeSeq('sale')
   const full: Sale = { ...sale, id, number, createdAt, ...(queued && { pending: true }) }

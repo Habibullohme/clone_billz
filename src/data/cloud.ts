@@ -101,6 +101,11 @@ export interface CloudSnapshot {
 
 export async function loadAll(): Promise<CloudSnapshot> {
   const db = supabase!
+  // Kirish muddati tugagan bo'lsa baza xato emas, bo'sh ro'yxat qaytaradi — shunda kompyuterdagi
+  // nusxa "bo'sh" bilan almashib ketmasin: avval kirishni yangilaymiz, bo'lmasa — xato.
+  if (!(await getSession()) && !(await reauth())) {
+    throw Object.assign(new Error('JWT: not authenticated'), { code: 'PGRST301' })
+  }
   const [products, sales, batches, customers, held, brands, settings, counters] = await Promise.all([
     paged<ProductRow>('products', '*', 'created_at'),
     paged<{ data: unknown }>('sales', 'data', 'created_at'),
@@ -190,9 +195,32 @@ export async function saleNumber(id: string): Promise<number | null> {
 }
 
 export async function applySale(id: string, data: unknown): Promise<number> {
-  const { data: n, error } = await supabase!.rpc('apply_sale', { p_id: id, p_data: data })
+  const call = () => supabase!.rpc('apply_sale', { p_id: id, p_data: data })
+  let { data: n, error } = await call()
+  // Kirish muddati tugagan bo'lsa — yangilab, bir marta qayta urinadi.
+  if (error && isAuthError(error) && (await reauth())) ({ data: n, error } = await call())
   if (error) throw error
   return Number(n)
+}
+
+/**
+ * Baza so'rovni "kim ekani noma'lum" deb rad etdi: kirish (sessiya) muddati tugagan.
+ * Bunda baza "row-level security" xatosini beradi.
+ */
+export function isAuthError(e: unknown): boolean {
+  const x = e as { code?: string; message?: string } | null
+  return x?.code === '42501' || x?.code === 'PGRST301' || x?.code === 'PGRST303' ||
+    /row-level security|JWT|not authenticated|permission denied/i.test(String(x?.message ?? e))
+}
+
+/** Kirishni yangilaydi. Muvaffaqiyatli bo'lsa — true. */
+export async function reauth(): Promise<boolean> {
+  try {
+    const { data } = await supabase!.auth.refreshSession()
+    return Boolean(data.session)
+  } catch {
+    return false
+  }
 }
 
 // ---------- Qurilmalar ----------

@@ -15,7 +15,7 @@ const product: Product = {
 }
 
 // Soxta baza: internetni "uzib-ulab" turamiz.
-const net = { up: true, applied: new Map<string, number>(), next: 100 }
+const net = { up: true, authed: true, applied: new Map<string, number>(), next: 100 }
 vi.mock('./cloud', () => ({
   cloudEnabled: true,
   loadAll: vi.fn(async () => {
@@ -24,6 +24,7 @@ vi.mock('./cloud', () => ({
   }),
   applySale: vi.fn(async (id: string) => {
     if (!net.up) throw new TypeError('Failed to fetch')
+    if (!net.authed) throw Object.assign(new Error('new row violates row-level security policy for table "counters"'), { code: '42501' })
     if (net.applied.has(id)) throw new Error('duplicate key value violates unique constraint "sales_pkey"')
     const n = net.next++
     net.applied.set(id, n)
@@ -35,6 +36,8 @@ vi.mock('./cloud', () => ({
   saveSettingsRow: vi.fn(async () => {}),
   notifyBot: vi.fn(),
   takeSeq: vi.fn(async () => 1),
+  isAuthError: (e: { code?: string }) => e?.code === '42501',
+  reauth: vi.fn(async () => net.authed),
 }))
 
 const store = await import('./store')
@@ -89,5 +92,16 @@ describe('internetsiz kassa', () => {
     net.up = true
     expect(await store.syncOutbox()).toBe(1)
     expect((await store.getSales()).find((x) => x.id === s.id)!.number).toBe(555)
+  })
+
+  it('kirish muddati tugagan — sotuv yo\'qolmaydi: navbatga yoziladi, qayta kirilgach yuboriladi', async () => {
+    net.authed = false
+    const s = await store.saveSale(sale())
+    expect(s.pending).toBe(true)
+    expect(JSON.parse(ls.get('dk.offline.outbox')!)).toHaveLength(1)
+    expect(await store.syncOutbox()).toBe(0)
+    net.authed = true
+    expect(await store.syncOutbox()).toBe(1)
+    expect((await store.getSales()).find((x) => x.id === s.id)!.pending).toBeUndefined()
   })
 })
