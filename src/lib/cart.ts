@@ -3,7 +3,8 @@ import type { CartLine, Product } from '../types'
 /** Skaner yoki qidiruvdan qo'shish: bitta pachka qo'shiladi. */
 /** pairs — nechta juft qo'shiladi (odatda bitta pachka; pachkadan qolgan juftlar bo'lsa — shu qoldiq). */
 export function addProduct(lines: CartLine[], product: Product, pairs = product.packSize): CartLine[] {
-  const i = lines.findIndex((l) => l.productId === product.id)
+  // Qaytgan yuk qatori (minus) alohida turadi — sotuv qatoriga qo'shilmaydi.
+  const i = lines.findIndex((l) => l.productId === product.id && l.pairs > 0)
   if (i === -1) {
     return [{ productId: product.id, pairs, price: product.salePrice }, ...lines]
   }

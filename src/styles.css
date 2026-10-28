@@ -1480,3 +1480,19 @@ input:not([type=checkbox]):not([type=range]):not([type=file]), textarea {
 .sync-badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-weight: 600; margin-right: 6px; background: var(--sunken); }
 .sync-badge.ok { background: var(--accent-soft); color: var(--accent); }
 .sync-badge.err { background: var(--bad-soft); color: var(--bad); }
+
+/* Qaytgan yuk (kassa) */
+.row.returned { background: color-mix(in srgb, var(--bad) 7%, var(--surface)); border-color: color-mix(in srgb, var(--bad) 35%, var(--line)); }
+.ret-pill { display: inline-block; margin-right: 6px; padding: 1px 8px; border-radius: 999px; background: var(--bad-soft); color: var(--bad); font-size: 11.5px; font-weight: 700; vertical-align: middle; }
+.ret-text { color: var(--bad); }
+.totals .ret-text { display: flex; justify-content: space-between; font-weight: 600; }
+.ret-big { color: var(--bad); font-size: 1.2em; }
+.ret-btn span[aria-hidden] { font-size: 17px; line-height: 1; }
+.ret-list { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow: auto; }
+.ret-hit { display: flex; justify-content: space-between; align-items: center; gap: 10px; text-align: left; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); cursor: pointer; font: inherit; color: inherit; }
+.ret-hit:hover { border-color: var(--accent); background: var(--accent-soft); }
+.ret-price { white-space: nowrap; }
+.ret-picked { display: flex; flex-direction: column; gap: 2px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; background: var(--sunken); }
+.modal .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cam-btn.ret-btn { display: inline-flex; background: var(--surface); color: var(--bad); border: 1px solid color-mix(in srgb, var(--bad) 40%, var(--line)); }
+.cam-btn.ret-btn:hover { background: var(--bad-soft); }

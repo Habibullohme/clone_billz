@@ -15,7 +15,8 @@ import { CameraScanner } from '../components/CameraScanner'
 import { PaymentModal } from '../components/PaymentModal'
 import { Receipt } from '../components/Receipt'
 import { ReceiptsModal } from '../components/ReceiptsModal'
-import { BackClose, MoneyInput } from '../components/ui'
+import { BackClose, Modal, MoneyInput } from '../components/ui'
+import { ReturnPicker } from '../components/ReturnPicker'
 
 const isTyping = (t: EventTarget | null) =>
   t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement
@@ -36,6 +37,10 @@ export function PosPage() {
   const [shakeId, setShakeId] = useState<string | null>(null)
   const [toast, setToast] = useState<{ text: string; bad?: boolean } | null>(null)
   const [paying, setPaying] = useState(false)
+  /** Qaytgan yuk oynasi. */
+  const [returning, setReturning] = useState(false)
+  /** Savat summasi manfiy (faqat qaytgan yuk) — mijozga pul qaytariladi. */
+  const [refunding, setRefunding] = useState(false)
   const [done, setDone] = useState<Sale | null>(null)
   /** Nasiyaga sotilganda — mijozning umumiy qarzi (chekda chiqadi). */
   const [doneDebt, setDoneDebt] = useState<number | undefined>(undefined)
@@ -86,7 +91,7 @@ export function PosPage() {
 
   const add = useCallback(
     (p: Product) => {
-      const inCart = linesRef.current.find((l) => l.productId === p.id)?.pairs ?? 0
+      const inCart = linesRef.current.find((l) => l.productId === p.id && l.pairs > 0)?.pairs ?? 0
       // Bitta shtrix-kod — bitta pachka. Pachkadan bir qismi sotilgan bo'lsa — qolgan juftlar qo'shiladi.
       const take = Math.min(p.packSize, p.stock - inCart)
       if (take <= 0) {
@@ -103,7 +108,7 @@ export function PosPage() {
       if (take < p.packSize) showToast(`${p.name}: pachkadan ${take} juft qolgan — ${take} juft qo'shildi`)
       // Ikki skaner juda tez kelsa ham — holat yangilanayotganda yana tekshiramiz.
       setLines((ls) => {
-        const have = ls.find((l) => l.productId === p.id)?.pairs ?? 0
+        const have = ls.find((l) => l.productId === p.id && l.pairs > 0)?.pairs ?? 0
         const n = Math.min(p.packSize, p.stock - have)
         return n > 0 ? addProduct(ls, p, n) : ls
       })
@@ -128,7 +133,7 @@ export function PosPage() {
     [add, settings],
   )
 
-  useScanner(onScan, !paying && !receipts)
+  useScanner(onScan, !paying && !receipts && !returning && !refunding)
 
   // Space — qidiruv. Enter: mijoz → yakuniy summa → to'lov (F2 — darhol to'lov).
   useEffect(() => {
@@ -146,7 +151,7 @@ export function PosPage() {
         }
         return
       }
-      if (paying || receipts) return
+      if (paying || receipts || returning || refunding) return
       if (e.code === 'Space' && !isTyping(e.target)) {
         e.preventDefault()
         searchRef.current?.focus()
@@ -159,7 +164,7 @@ export function PosPage() {
       }
       if (e.key === 'F2' && lines.length) {
         e.preventDefault()
-        setPaying(true)
+        startPay()
       }
     }
     window.addEventListener('keydown', h, true)
@@ -171,14 +176,27 @@ export function PosPage() {
   /** Mos keladi, lekin omborda yo'q — "topilmadi" emas, sababi ko'rinsin. */
   const soldOut = query.trim() && !hits.length ? searchProducts(products.filter((p) => p.stock <= 0), query, 3) : []
   const sub = subtotal(lines)
+  const returnedSum = lines.reduce((a, l) => a + (l.pairs < 0 ? lineTotal(l) : 0), 0)
   const finalTotal = (() => {
     const v = parseSum(finalDraft)
     return Number.isFinite(v) && v > 0 && v <= sub ? v : null
   })()
   const total = finalTotal ?? sub
   const discount = sub - total
-  const distributed = finalTotal !== null ? distributeTotal(lines.map(lineTotal), finalTotal) : null
-  const packs = lines.reduce((s, l) => s + l.pairs / (byId.get(l.productId)?.packSize ?? 1), 0)
+  // Chegirma faqat sotilayotgan qatorlarga taqsimlanadi; qaytgan yuk summasi o'zgarmaydi.
+  const distributed = (() => {
+    if (finalTotal === null) return null
+    const pos = distributeTotal(lines.map((l) => (l.pairs > 0 ? lineTotal(l) : 0)), finalTotal - returnedSum)
+    return lines.map((l, i) => (l.pairs > 0 ? pos[i] : lineTotal(l)))
+  })()
+  const packs = lines.reduce((s, l) => s + Math.max(0, l.pairs) / (byId.get(l.productId)?.packSize ?? 1), 0)
+  const backPacks = lines.reduce((s, l) => s + Math.max(0, -l.pairs) / (byId.get(l.productId)?.packSize ?? 1), 0)
+  /** To'lov: summa musbat — odatdagi to'lov; 0 yoki manfiy (faqat qaytgan yuk) — pul qaytarish oynasi. */
+  const startPay = () => {
+    if (!lines.length) return
+    if (total <= 0) setRefunding(true)
+    else setPaying(true)
+  }
 
   // Tezkor yaxlitlash: jamini pastga yaxlitlangan summalar.
   const quickTotals = useMemo(() => {
@@ -205,7 +223,7 @@ export function PosPage() {
     const saleLines = lines.map((l, i) => {
       const p = byId.get(l.productId)!
       return {
-        productId: p.id, name: p.name, brand: p.brand, barcode: p.barcode, packSize: p.packSize,
+        productId: p.id, name: l.pairs < 0 ? `${p.name} (qaytdi)` : p.name, brand: p.brand, barcode: p.barcode, packSize: p.packSize,
         pairs: l.pairs, price: l.price, costPrice: p.costPrice,
         total: distributed ? distributed[i] : lineTotal(l),
       }
@@ -228,6 +246,7 @@ export function PosPage() {
       saveSettings(s)
     }
     setPaying(false)
+    setRefunding(false)
     setDoneDebt(undefined)
     if (sale.payment.debt > 0 && sale.customerName) {
       const c = (await getCustomers()).find((x) => x.name.toLowerCase() === sale.customerName.trim().toLowerCase())
@@ -323,6 +342,10 @@ export function PosPage() {
           <IconCamera />
           <span>Skaner</span>
         </button>
+        <button className="cam-btn ret-btn" onClick={() => setReturning(true)} title="Mijoz yukni qaytarib olib keldi">
+          <span aria-hidden="true">↩</span>
+          <span>Qaytgan yuk</span>
+        </button>
         {lines.length > 0 && <ClearCart onClear={reset} />}
         </div>
 
@@ -342,15 +365,15 @@ export function PosPage() {
               if (!p) return null
               return (
                 <CartRow
-                  key={l.productId}
+                  key={l.pairs < 0 ? `${l.productId}-r` : l.productId}
                   line={l}
                   product={p}
                   discountedTotal={distributed ? distributed[i] : null}
                   highlight={flashId === l.productId}
                   shake={shakeId === l.productId}
                   allowPriceEdit={settings.allowPriceEdit}
-                  onChange={(nl) => setLines((ls) => ls.map((x) => (x.productId === nl.productId ? nl : x)))}
-                  onRemove={() => setLines((ls) => ls.filter((x) => x.productId !== l.productId))}
+                  onChange={(nl) => setLines((ls) => ls.map((x) => (x.productId === nl.productId && x.pairs < 0 === l.pairs < 0 ? nl : x)))}
+                  onRemove={() => setLines((ls) => ls.filter((x) => !(x.productId === l.productId && x.pairs < 0 === l.pairs < 0)))}
                 />
               )
             })}
@@ -399,7 +422,7 @@ export function PosPage() {
               e.preventDefault()
               if (finalDraft && finalTotal === null) return
               ;(e.target as HTMLInputElement).blur()
-              setPaying(true)
+              startPay()
             }}
           />
           {finalDraft && finalTotal === null && <div className="error small">Jamidan katta bo'lmasin</div>}
@@ -435,12 +458,18 @@ export function PosPage() {
               <div className="muted"><span>Chegirma</span><span>−{formatSum(discount)}</span></div>
             </>
           )}
+          {returnedSum < 0 && (
+            <>
+              <div className="muted"><span>Olinyapti</span><span>{formatSum(sub - returnedSum)}</span></div>
+              <div className="ret-text"><span>↩ Qaytgan ({+backPacks.toFixed(1)} pachka)</span><span>−{formatSum(-returnedSum)}</span></div>
+            </>
+          )}
           <div className="grand">
-            <span>{lines.length ? `${+packs.toFixed(1)} pachka` : 'Jami'}</span>
-            <b>{formatSum(total)}</b>
+            <span>{total < 0 ? 'Mijozga qaytariladi' : lines.length ? `${+packs.toFixed(1)} pachka` : 'Jami'}</span>
+            <b>{formatSum(Math.abs(total))}</b>
           </div>
-          <button className="btn primary pay" disabled={!lines.length} onClick={() => setPaying(true)}>
-            To'lash <kbd>Enter</kbd>
+          <button className="btn primary pay" disabled={!lines.length} onClick={() => startPay()}>
+            {total < 0 ? 'Pulni qaytarish' : total === 0 && lines.length ? 'Saqlash (almashtirish)' : "To'lash"} <kbd>Enter</kbd>
           </button>
           <button className="btn ghost" disabled={!lines.length} onClick={hold}>Kechiktirish</button>
         </div>
@@ -457,6 +486,30 @@ export function PosPage() {
           onCancel={() => setPaying(false)}
           onConfirm={pay}
         />
+      )}
+
+      {returning && (
+        <ReturnPicker
+          products={products}
+          onClose={() => setReturning(false)}
+          onAdd={(l) => setLines((ls) => [l, ...ls.filter((x) => !(x.productId === l.productId && x.pairs < 0))])}
+        />
+      )}
+
+      {refunding && settings && (
+        <Modal title={total < 0 ? 'Mijozga pul qaytarish' : 'Almashtirishni saqlash'} onClose={() => setRefunding(false)}>
+          {total < 0 ? (
+            <p>Qaytgan yuk uchun mijozga <b className="ret-big">{formatSum(-total)} so'm</b> naqd qaytariladi. Yuk omborga qaytadi.</p>
+          ) : (
+            <p>Qaytgan yuk olinayotgan yukka teng — pul olinmaydi va berilmaydi. Qaytgan yuk omborga qaytadi.</p>
+          )}
+          <div className="modal-actions">
+            <button className="btn ghost" onClick={() => setRefunding(false)}>Bekor</button>
+            <button className="btn primary grow" autoFocus onClick={() => pay({ cash: total, usd: 0, usdRate: settings.usdRate, card: 0, debt: 0 }, 0, settings.usdRate)}>
+              {total < 0 ? 'Qaytarildi — saqlash' : 'Saqlash'}
+            </button>
+          </div>
+        </Modal>
       )}
 
       {receipts && <ReceiptsModal settings={settings} onClose={() => setReceipts(false)} />}

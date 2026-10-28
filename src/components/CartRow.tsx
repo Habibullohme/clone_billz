@@ -25,10 +25,12 @@ export function CartRow({ line, product, discountedTotal, highlight, shake, allo
     if (shake) ref.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
   }, [shake])
   const [pairsEdit, setPairsEdit] = useState(false)
+  /** Qaytgan yuk qatori (juftlar manfiy): summadan ayiriladi, sotuvda omborga qaytadi. */
+  const back = line.pairs < 0
   const total = line.pairs * line.price
   // Narx tushirilgandagina eski narx ko'rinadi (ustidan chizilgan) — mijozga "arzonroq olyapman" deb ko'rinadi.
   // Qimmatroq sotilsa — hech narsa ko'rsatilmaydi.
-  const cheaper = line.price < product.salePrice
+  const cheaper = !back && line.price < product.salePrice
   const pack = product.packSize
   const discounted = discountedTotal !== null && discountedTotal !== total
 
@@ -48,15 +50,22 @@ export function CartRow({ line, product, discountedTotal, highlight, shake, allo
   const title = b && product.name.toLowerCase().startsWith(b.toLowerCase() + ' ') ? product.name.slice(b.length + 1) : product.name
 
   return (
-    <div ref={ref} className={`row${highlight ? ' flash' : ''}${shake ? ' shake' : ''}`}>
+    <div ref={ref} className={`row${highlight ? ' flash' : ''}${shake ? ' shake' : ''}${back ? ' returned' : ''}`}>
       <div className="row-name">
         {b && <span className="brand-pill" style={hueStyle(b)}>{b}</span>}
         <div className="row-text">
-          <div className="title">{title}</div>
+          <div className="title">{back && <span className="ret-pill">↩ Qaytgan</span>}{title}</div>
           <div className="muted small">{meta}</div>
         </div>
       </div>
 
+      {back ? (
+        <div className="qty">
+          <button className="qbtn" onClick={() => onChange({ ...line, pairs: Math.min(-pack, line.pairs + pack) })} disabled={line.pairs >= -pack} aria-label="Bir pachka kam">−</button>
+          <div className="qval"><b>{packsLabel(-line.pairs, pack)}</b><span className="pairs-btn">{-line.pairs} juft qaytdi</span></div>
+          <button className="qbtn" onClick={() => onChange({ ...line, pairs: line.pairs - pack })} aria-label="Bir pachka ko'p">+</button>
+        </div>
+      ) : (
       <div className="qty">
         <button className="qbtn" onClick={() => setPairs(line.pairs - pack)} disabled={line.pairs <= pack} aria-label="Bir pachka kam">−</button>
         <div className="qval">
@@ -83,6 +92,7 @@ export function CartRow({ line, product, discountedTotal, highlight, shake, allo
         </div>
         <button className="qbtn" onClick={() => setPairs(line.pairs + pack)} disabled={line.pairs + pack > max} aria-label="Bir pachka ko'p">+</button>
       </div>
+      )}
 
       <div className="price">
         {allowPriceEdit ? (
@@ -115,12 +125,14 @@ export function CartRow({ line, product, discountedTotal, highlight, shake, allo
       </div>
 
       <div className="sum">
-        <span className="muted small">{line.pairs} × {formatSum(line.price)}</span>
+        <span className="muted small">{Math.abs(line.pairs)} × {formatSum(line.price)}</span>
         {discounted ? (
           <>
             <s className="muted small">{formatSum(total)}</s>
             <b>{formatSum(discountedTotal)}</b>
           </>
+        ) : back ? (
+          <b className="ret-text">−{formatSum(-total)}</b>
         ) : (
           <b>{formatSum(total)}</b>
         )}
